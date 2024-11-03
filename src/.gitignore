@@ -1,0 +1,4 @@
+__pycache__/
+checkpoints/
+aligned_data/
+sample_data/
