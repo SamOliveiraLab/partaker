@@ -96,10 +96,8 @@ class TabWidgetApp(QMainWindow):
                 # Update dropdown options based on ND2 dimensions
                 self.update_mapping_dropdowns()
                 
-                # Set default sliders to full ranges based on dimensions
                 self.update_controls()
                 
-                # Connect dropdown selections to slider range updates
                 self.mapping_controls["time"].currentIndexChanged.connect(self.update_slider_range)
                 self.mapping_controls["position"].currentIndexChanged.connect(self.update_slider_range)
                 
@@ -115,16 +113,15 @@ class TabWidgetApp(QMainWindow):
         # Populate each dropdown based on its specific dimension
         time_dim = self.dimensions.get("T", 1)
         position_dim = self.dimensions.get("P", 1)
-        channel_dim = self.dimensions.get("C", 1)  # Use "C" if there are multiple channels
+        channel_dim = self.dimensions.get("C", 1) 
         x_dim = self.dimensions.get("X", 1)
         y_dim = self.dimensions.get("Y", 1)
 
-        # Populate Time dropdown
+
         self.mapping_controls["time"].addItem("Select Time")
         for i in range(time_dim):
             self.mapping_controls["time"].addItem(str(i))
 
-        # Populate Position dropdown
         self.mapping_controls["position"].addItem("Select Position")
         for i in range(position_dim):
             self.mapping_controls["position"].addItem(str(i))
@@ -135,7 +132,6 @@ class TabWidgetApp(QMainWindow):
             for i in range(channel_dim):
                 self.mapping_controls["channel"].addItem(str(i))
 
-        # Populate X and Y coordinate dropdowns (if applicable, or set as static)
         self.mapping_controls["x_coord"].addItem("Fixed X range: 0 to {}".format(x_dim - 1))
         self.mapping_controls["y_coord"].addItem("Fixed Y range: 0 to {}".format(y_dim - 1))
 
@@ -147,9 +143,9 @@ class TabWidgetApp(QMainWindow):
 
     def update_controls(self):
         # Set max values for sliders based on ND2 dimensions
-        t_max = self.dimensions.get("T", 1) - 1  # Max time index
-        p_max = self.dimensions.get("P", 1) - 1  # Max position index
-
+        t_max = self.dimensions.get("T", 1) - 1  
+        p_max = self.dimensions.get("P", 1) - 1  
+        
         # Initialize sliders with full ranges
         self.slider_t.setMaximum(t_max)
         self.slider_p.setMaximum(p_max)
@@ -222,14 +218,13 @@ class TabWidgetApp(QMainWindow):
         else:
             image_data = image_data[t]
 
-        # Convert dask array to numpy 
         image_data = image_data.compute().data  
 
         # Apply thresholding or segmentation if selected
         if self.radio_thresholding.isChecked():
             threshold = self.threshold_slider.value()
             image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
-            image_data = image_data.compute()  # Ensure numpy format
+            image_data = image_data.compute() 
         elif self.radio_segmented.isChecked():
             image_data = segment_this_image(image_data)
             self.show_cell_area(image_data)
@@ -247,9 +242,8 @@ class TabWidgetApp(QMainWindow):
         
 
     def align_images(self):
-        # Check if we have a dataset loaded
         
-        # Check if the dataset and phc_path are available
+        # Check if the dataset and phc_path are loaded
         if not hasattr(self.image_data, 'data') or not hasattr(self.image_data, 'phc_path'):
             QMessageBox.warning(self, "Alignment Error", "No phase contrast images loaded or missing path.")
             return
@@ -269,10 +263,7 @@ class TabWidgetApp(QMainWindow):
         
         self.load_from_folder('./mat/aligned_phc/', aligned_images=True)
         
-        # Message box when loaded
         QMessageBox.about(self, "Alignment", f"Alignment completed successfully. {stage_MAE_scores}")
-
-        # Load into aligned images
 
     def initImportTab(self):
         def importFile():
@@ -307,7 +298,6 @@ class TabWidgetApp(QMainWindow):
         # Dropdowns for mapping ND2 dimensions
         self.mapping_controls = {}
 
-        # Labels for each variable to be mapped
         mapping_labels = {
             "time": "Time",
             "position": "Position",
@@ -415,7 +405,6 @@ class TabWidgetApp(QMainWindow):
 
     
     def export_images(self):
-        # Open a "Save As" dialog to allow the user to specify the base filename and select the folder
         save_path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "TIFF Files (*.tif);;All Files (*)")
         
         if not save_path:
@@ -424,22 +413,19 @@ class TabWidgetApp(QMainWindow):
 
         # Extract the directory and base name from the selected path
         folder_path = Path(save_path).parent
-        custom_base_name = Path(save_path).stem  # Use the filename entered by the user, without extension
+        custom_base_name = Path(save_path).stem 
 
-        # Get the maximum values from the sliders for time and position
-        max_t_value = self.slider_t.value()  # Export up to this time frame
-        max_p_value = self.slider_p.value()  # Export up to this position
+        max_t_value = self.slider_t.value() 
+        max_p_value = self.slider_p.value()  
 
-        # Loop through the selected range of time frames
-        for t in range(max_t_value + 1):  # +1 to include the max value itself
-            for p in range(max_p_value + 1):  # Include position if applicable
+        for t in range(max_t_value + 1):  
+            for p in range(max_p_value + 1): 
                 # Retrieve the specific frame for time t and position p
                 if self.image_data.is_nd2:
                     export_image = self.image_data.data[t, p].compute() if hasattr(self.image_data.data, 'compute') else self.image_data.data[t, p]
                 else:
                     export_image = self.image_data.data[t]
 
-                # Ensure export_image is in numpy format for saving
                 img_to_save = np.array(export_image)
 
                 # Construct the export path with the custom name and dimensions
