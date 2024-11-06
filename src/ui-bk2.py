@@ -81,30 +81,28 @@ class TabWidgetApp(QMainWindow):
             self.image_data.aligned_phc_path  = folder_path
 
     def load_nd2_file(self, file_path):
-        self.file_path = file_path
-        with nd2.ND2File(file_path) as nd2_file:
-            self.nd2_file = nd2_file
-            self.dimensions = nd2_file.sizes
-            info_text = f"Number of dimensions: {nd2_file.sizes}\n"
-            
-            for dim, size in self.dimensions.items():
-                info_text += f"{dim}: {size}\n"
-            
-            self.info_label.setText(info_text)
-            self.image_data = ImageData(nd2.imread(file_path, dask=True), is_nd2=True)
-
-            # Set the slider range for position (P) immediately based on dimensions
-            max_position = self.dimensions.get("P", 1) - 1
-            self.slider_p.setMaximum(max_position)
-            self.slider_p_5.setMaximum(max_position)  # Update population tab slider
-
-            self.update_mapping_dropdowns()
-            self.update_controls()
-            
-            self.mapping_controls["time"].currentIndexChanged.connect(self.update_slider_range)
-            self.mapping_controls["position"].currentIndexChanged.connect(self.update_slider_range)
-
-            self.display_image()
+            self.file_path = file_path
+            with nd2.ND2File(file_path) as nd2_file:
+                self.nd2_file = nd2_file
+                self.dimensions = nd2_file.sizes
+                info_text = f"Number of dimensions: {nd2_file.sizes}\n"
+                
+                for dim, size in self.dimensions.items():
+                    info_text += f"{dim}: {size}\n"
+                
+                self.info_label.setText(info_text)
+                self.image_data = ImageData(nd2.imread(file_path, dask=True), is_nd2=True)
+                
+                # Update dropdown options based on ND2 dimensions
+                self.update_mapping_dropdowns()
+                
+                self.update_controls()
+                
+                self.mapping_controls["time"].currentIndexChanged.connect(self.update_slider_range)
+                self.mapping_controls["position"].currentIndexChanged.connect(self.update_slider_range)
+                
+                # Display the first image by default
+                self.display_image()
             
             
     def update_mapping_dropdowns(self):
@@ -495,24 +493,18 @@ class TabWidgetApp(QMainWindow):
 
         # P controls
         p_layout = QHBoxLayout()
-        p_label = QLabel("P: 0")
+        p_label = QLabel("P: nan")
         p_layout.addWidget(p_label)
-
-        # Set slider range based on loaded dimensions, or default to 0 if not loaded
-        max_p = self.dimensions.get("P", 1) - 1 if hasattr(self, 'dimensions') and "P" in self.dimensions else 0
         self.slider_p_5 = QSlider(Qt.Horizontal)
-        self.slider_p_5.setMinimum(0)
-        self.slider_p_5.setMaximum(max_p) 
-        self.slider_p_5.setValue(0) 
         self.slider_p_5.valueChanged.connect(self.plot_average_intensity)
-        self.slider_p_5.valueChanged.connect(lambda value: p_label.setText(f'P: {value}'))  
+        # Display the slider value
+        self.slider_p_5.valueChanged.connect(lambda value: p_label.setText(f'P: {value}'))
+
         p_layout.addWidget(self.slider_p_5)
 
         layout.addLayout(p_layout)
 
-        # Only attempt to plot if image_data has been loaded
-        if hasattr(self, 'image_data') and self.image_data is not None:
-            self.plot_average_intensity()
+        self.plot_average_intensity()
 
     def plot_average_intensity(self):
         if not hasattr(self, 'image_data'):
