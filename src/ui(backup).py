@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QButtonGroup, QTabWidget, QWidget, QLabel, QPushButton, QFileDialog, QScrollArea, QSlider, QHBoxLayout, QCheckBox, QMessageBox, QRadioButton
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel
+from PySide6.QtWidgets import QSizePolicy
 
 import sys
 import os
@@ -81,63 +81,26 @@ class TabWidgetApp(QMainWindow):
             self.image_data.aligned_phc_path  = folder_path
 
     def load_nd2_file(self, file_path):
-            self.file_path = file_path
-            with nd2.ND2File(file_path) as nd2_file:
-                self.nd2_file = nd2_file
-                self.dimensions = nd2_file.sizes
-                info_text = f"Number of dimensions: {nd2_file.sizes}\n"
-                
-                for dim, size in self.dimensions.items():
-                    info_text += f"{dim}: {size}\n"
-                
-                self.info_label.setText(info_text)
-                self.image_data = ImageData(nd2.imread(file_path, dask=True), is_nd2=True)
-                
-                # Update dropdown options based on ND2 dimensions
-                self.update_mapping_dropdowns()
-                
-                # Set default sliders to full ranges based on dimensions
-                self.update_controls()
-                
-                # Connect dropdown selections to slider range updates
-                self.mapping_controls["time"].currentIndexChanged.connect(self.update_slider_range)
-                self.mapping_controls["position"].currentIndexChanged.connect(self.update_slider_range)
-                
-                # Display the first image by default
-                self.display_image()
+        
+        self.file_path = file_path
+        
+        with nd2.ND2File(file_path) as nd2_file:
+            self.nd2_file = nd2_file
+            self.dimensions = nd2_file.sizes
+            info_text = f"Number of dimensions: {nd2_file.sizes}\n"
+
+            for dim, size in self.dimensions.items():
+                info_text += f"{dim}: {size}\n"
+
+            self.info_label.setText(info_text)
+            self.image_data = ImageData(nd2.imread(file_path, dask=True), is_nd2=True)  # Load the image data once
             
+            self.image_data.nd2_dimensions = nd2_file.sizes
             
-    def update_mapping_dropdowns(self):
-        # Clear all dropdowns before updating
-        for dropdown in self.mapping_controls.values():
-            dropdown.clear()
-
-        # Populate each dropdown based on its specific dimension
-        time_dim = self.dimensions.get("T", 1)
-        position_dim = self.dimensions.get("P", 1)
-        channel_dim = self.dimensions.get("C", 1)  # Use "C" if there are multiple channels
-        x_dim = self.dimensions.get("X", 1)
-        y_dim = self.dimensions.get("Y", 1)
-
-        # Populate Time dropdown
-        self.mapping_controls["time"].addItem("Select Time")
-        for i in range(time_dim):
-            self.mapping_controls["time"].addItem(str(i))
-
-        # Populate Position dropdown
-        self.mapping_controls["position"].addItem("Select Position")
-        for i in range(position_dim):
-            self.mapping_controls["position"].addItem(str(i))
-
-        # Populate Channel dropdown if multiple channels exist
-        if "C" in self.dimensions:
-            self.mapping_controls["channel"].addItem("Select Channel")
-            for i in range(channel_dim):
-                self.mapping_controls["channel"].addItem(str(i))
-
-        # Populate X and Y coordinate dropdowns (if applicable, or set as static)
-        self.mapping_controls["x_coord"].addItem("Fixed X range: 0 to {}".format(x_dim - 1))
-        self.mapping_controls["y_coord"].addItem("Fixed Y range: 0 to {}".format(y_dim - 1))
+            self.update_controls()
+            self.display_image()  # Display the first image
+            self.plot_average_intensity()
+            # self.display_thresholded_image()
 
     def display_file_info(self, file_path):
         info_text = f"Number of dimensions: {len(self.dimensions)}\n"
@@ -146,35 +109,9 @@ class TabWidgetApp(QMainWindow):
         self.info_label.setText(info_text)
 
     def update_controls(self):
-        # Set max values for sliders based on ND2 dimensions
-        t_max = self.dimensions.get("T", 1) - 1  # Max time index
-        p_max = self.dimensions.get("P", 1) - 1  # Max position index
-
-        # Initialize sliders with full ranges
-        self.slider_t.setMaximum(t_max)
-        self.slider_p.setMaximum(p_max)
-        
-        
-        
-    def update_slider_range(self):
-        # Get selected values from dropdowns for time and position
-        selected_time = self.mapping_controls["time"].currentText()
-        selected_position = self.mapping_controls["position"].currentText()
-
-        # Update the time slider range if a specific limit is selected
-        if selected_time.isdigit():
-            self.slider_t.setMaximum(int(selected_time))
-        else:
-            # Reset to the full time range if "Select Time" or no specific limit
-            self.slider_t.setMaximum(self.dimensions.get("T", 1) - 1)
-
-        # Update the position slider range if a specific limit is selected
-        if selected_position.isdigit():
-            self.slider_p.setMaximum(int(selected_position))
-        else:
-            # Reset to the full position range if "Select Position" or no specific limit
-            self.slider_p.setMaximum(self.dimensions.get("P", 1) - 1)
-    
+        self.slider_t.setMaximum(self.dimensions.get('T', 1) - 1)
+        self.slider_p.setMaximum(self.dimensions.get('P', 1) - 1)
+        self.slider_p_5.setMaximum(self.dimensions.get('P', 1) - 1)
 
     def show_cell_area(self, img):
         from skimage import measure
@@ -243,8 +180,6 @@ class TabWidgetApp(QMainWindow):
 
         # Store this processed image for export
         self.processed_images.append(image_data)
-        
-        
 
     def align_images(self):
         # Check if we have a dataset loaded
@@ -288,46 +223,28 @@ class TabWidgetApp(QMainWindow):
 
         layout = QVBoxLayout(self.importTab)
 
-        # Select file/folder button
         button = QPushButton("Select File / Folder")
-        button.clicked.connect(lambda: importFile() if not self.is_folder_checkbox.isChecked() else importFolder())
+        button.clicked.connect(lambda : importFile() if not self.is_folder_checkbox.isChecked() else importFolder())
         layout.addWidget(button)
 
-        # Checkbox to toggle between file and folder import
-        self.is_folder_checkbox = QCheckBox("Load from folder?")
-        layout.addWidget(self.is_folder_checkbox)
+        checkbox = QCheckBox("Load from folder?")
+        layout.addWidget(checkbox)
+        self.is_folder_checkbox = checkbox
 
-        # Filename and info labels
         self.filename_label = QLabel("Filename will be shown here.")
         layout.addWidget(self.filename_label)
 
         self.info_label = QLabel("File info will be shown here.")
         layout.addWidget(self.info_label)
 
-        # Dropdowns for mapping ND2 dimensions
-        self.mapping_controls = {}
+        # self.figure = plt.figure()
+        # self.canvas = FigureCanvas(self.figure)
+        # layout.addWidget(self.canvas)
 
-        # Labels for each variable to be mapped
-        mapping_labels = {
-            "time": "Time",
-            "position": "Position",
-            "channel": "Channel",
-            "x_coord": "X Coordinate",
-            "y_coord": "Y Coordinate"
-        }
-
-        for key, label_text in mapping_labels.items():
-            label = QLabel(label_text)
-            layout.addWidget(label)
-
-            dropdown = QComboBox()
-            dropdown.addItem("Select Dimension")  # Placeholder
-            layout.addWidget(dropdown)
-            
-            self.mapping_controls[key] = dropdown
-
-        self.mapping_info_label = QLabel("Load an ND2 file to view and assign dimension mappings.")
-        layout.addWidget(self.mapping_info_label)
+        # # Just a hint for the user
+        # ax = self.figure.add_subplot(111, projection='3d')
+        # ax.text(0.5, 0.5, 0.5, "Select file first", horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+        # self.canvas.draw()
 
     def initViewTab(self):
         layout = QVBoxLayout(self.viewTab)
@@ -415,38 +332,26 @@ class TabWidgetApp(QMainWindow):
 
     
     def export_images(self):
-        # Open a "Save As" dialog to allow the user to specify the base filename and select the folder
-        save_path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "TIFF Files (*.tif);;All Files (*)")
+        folder_dialog = QFileDialog()
+        folder_path = folder_dialog.getExistingDirectory(self, "Select Export Folder")
         
-        if not save_path:
-            QMessageBox.warning(self, "Export", "No file selected.")
+        if not folder_path:
+            QMessageBox.warning(self, "Export", "No folder selected.")
             return
 
-        # Extract the directory and base name from the selected path
-        folder_path = Path(save_path).parent
-        custom_base_name = Path(save_path).stem  # Use the filename entered by the user, without extension
-
-        # Get the maximum values from the sliders for time and position
-        max_t_value = self.slider_t.value()  # Export up to this time frame
-        max_p_value = self.slider_p.value()  # Export up to this position
-
-        # Loop through the selected range of time frames
-        for t in range(max_t_value + 1):  # +1 to include the max value itself
-            for p in range(max_p_value + 1):  # Include position if applicable
-                # Retrieve the specific frame for time t and position p
-                if self.image_data.is_nd2:
-                    export_image = self.image_data.data[t, p].compute() if hasattr(self.image_data.data, 'compute') else self.image_data.data[t, p]
-                else:
-                    export_image = self.image_data.data[t]
-
-                # Ensure export_image is in numpy format for saving
-                img_to_save = np.array(export_image)
-
-                # Construct the export path with the custom name and dimensions
-                file_path = folder_path / f"{custom_base_name}_P{p}_T{t}.tif"
-                cv2.imwrite(str(file_path), img_to_save)
+        base_filename = "img_{}.tif"
         
-        QMessageBox.information(self, "Export", f"Images exported successfully to {folder_path}")
+        if self.processed_images:
+            for i, img in enumerate(self.processed_images):
+                
+                img_to_save = np.array(img) 
+
+                file_path = Path(folder_path) / base_filename.format(i + 1)
+                cv2.imwrite(str(file_path), img_to_save)
+
+            QMessageBox.information(self, "Export", f"Images exported successfully to {folder_path}.")
+        else:
+            QMessageBox.warning(self, "Export", "No processed images to export.")
     
     
     
