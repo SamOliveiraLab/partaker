@@ -81,6 +81,7 @@ class TabWidgetApp(QMainWindow):
             self.image_data.aligned_phc_path  = folder_path
 
     def load_nd2_file(self, file_path):
+
         self.file_path = file_path
         with nd2.ND2File(file_path) as nd2_file:
             self.nd2_file = nd2_file
@@ -90,6 +91,14 @@ class TabWidgetApp(QMainWindow):
             for dim, size in self.dimensions.items():
                 info_text += f"{dim}: {size}\n"
             
+            if 'C' in self.dimensions.keys():
+                self.has_channels = True
+                self.channel_number = self.dimensions['C']
+                self.slider_c.setMinimum(0)
+                self.slider_c.setMaximum(self.channel_number - 1)
+            else:
+                self.has_channels = False
+
             self.info_label.setText(info_text)
             self.image_data = ImageData(nd2.imread(file_path, dask=True), is_nd2=True)
 
@@ -105,7 +114,6 @@ class TabWidgetApp(QMainWindow):
             self.mapping_controls["position"].currentIndexChanged.connect(self.update_slider_range)
 
             self.display_image()
-            
             
     def update_mapping_dropdowns(self):
         # Clear all dropdowns before updating
@@ -213,10 +221,14 @@ class TabWidgetApp(QMainWindow):
     def display_image(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
+        c = self.slider_c.value()
 
         image_data = self.image_data.data
         if self.image_data.is_nd2:
-            image_data = image_data[t, p] 
+            if self.has_channels:
+                image_data = image_data[t, p, c]
+            else:
+                image_data = image_data[t, p] 
         else:
             image_data = image_data[t]
 
@@ -378,6 +390,25 @@ class TabWidgetApp(QMainWindow):
         p_layout.addWidget(self.p_right_button)
 
         layout.addLayout(p_layout)
+
+        # C control (channel)
+        c_layout = QHBoxLayout()
+        c_label = QLabel("C: 0")
+        c_layout.addWidget(c_label)
+        self.c_left_button = QPushButton("<")
+        self.c_left_button.clicked.connect(lambda: self.slider_c.setValue(self.slider_c.value() - 1))
+        c_layout.addWidget(self.c_left_button)
+
+        self.slider_c = QSlider(Qt.Horizontal)
+        self.slider_c.valueChanged.connect(self.display_image)
+        self.slider_c.valueChanged.connect(lambda value: c_label.setText(f'C: {value}'))
+        c_layout.addWidget(self.slider_c)
+
+        self.c_right_button = QPushButton(">")
+        self.c_right_button.clicked.connect(lambda: self.slider_c.setValue(self.slider_c.value() + 1))
+        c_layout.addWidget(self.c_right_button)
+
+        layout.addLayout(c_layout)
 
         # Create a radio button for thresholding, normal and segmented
         self.radio_normal = QRadioButton("Normal")
