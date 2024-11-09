@@ -160,8 +160,6 @@ class TabWidgetApp(QMainWindow):
         self.slider_t.setMaximum(t_max)
         self.slider_p.setMaximum(p_max)
         
-        
-        
     def update_slider_range(self):
         # Get selected values from dropdowns for time and position
         selected_time = self.mapping_controls["time"].currentText()
@@ -232,7 +230,8 @@ class TabWidgetApp(QMainWindow):
         else:
             image_data = image_data[t]
 
-        image_data = image_data.compute().data  
+        # image_data = image_data.compute().data
+        image_data = np.array(image_data)
 
         # Apply thresholding or segmentation if selected
         if self.radio_thresholding.isChecked():
@@ -242,6 +241,9 @@ class TabWidgetApp(QMainWindow):
         elif self.radio_segmented.isChecked():
             image_data = segment_this_image(image_data)
             self.show_cell_area(image_data)
+
+        # Normalize the image from 0 to 65535
+        image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(np.uint16)
 
         # Update image format and display
         image_format = QImage.Format_Grayscale16
