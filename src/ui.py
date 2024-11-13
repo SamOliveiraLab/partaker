@@ -15,11 +15,14 @@ import cv2
 import imageio.v3 as iio
 
 # Local imports
+from morphology import extract_cell_morphologies
 from segmentation import segment_this_image
 from image_functions import remove_stage_jitter_MAE
 
 # import pims
 from matplotlib.backends.backend_qt5agg import FigureCanvas
+
+import seaborn as sns
 
 """
 Can hold either an ND2 file or a series of images
@@ -41,14 +44,16 @@ class TabWidgetApp(QMainWindow):
         self.setGeometry(100, 100, 1000, 800)
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
+        self.layout = QHBoxLayout(self.central_widget)
         self.tab_widget = QTabWidget()
 
         # Initialize other tabs and UI components
         self.importTab = QWidget()
-        self.viewTab = QWidget()
+        self.viewArea = QWidget()
+        self.layout.addWidget(self.viewArea)
         self.exportTab = QWidget()
         self.populationTab = QWidget()
+        self.morphologyTab = QWidget()
         self.initUI()
         self.layout.addWidget(self.tab_widget)
 
@@ -179,7 +184,6 @@ class TabWidgetApp(QMainWindow):
             self.slider_p.setMaximum(max_position)
             self.slider_p_5.setMaximum(max_position)
     
-
     def show_cell_area(self, img):
         from skimage import measure
         import seaborn as sns
@@ -255,8 +259,6 @@ class TabWidgetApp(QMainWindow):
         # Store this processed image for export
         self.processed_images.append(image_data)
         
-        
-
     def align_images(self):
         
         # Check if the dataset and phc_path are loaded
@@ -335,8 +337,97 @@ class TabWidgetApp(QMainWindow):
         self.mapping_info_label = QLabel("Load an ND2 file to view and assign dimension mappings.")
         layout.addWidget(self.mapping_info_label)
 
-    def initViewTab(self):
-        layout = QVBoxLayout(self.viewTab)
+    def initMorphologyTab(self):
+        def segment_and_plot():
+            t = self.slider_t.value()
+            p = self.slider_p.value()
+            c = self.slider_c.value()
+
+            image_data = self.image_data.data
+            if self.image_data.is_nd2:
+                if self.has_channels:
+                    image_data = image_data[t, p, c]
+                else:
+                    image_data = image_data[t, p]
+            else:
+                image_data = image_data[t]
+
+            image_data = np.array(image_data)
+            segmented_image = segment_this_image(image_data)
+            morphology_data = extract_cell_morphologies(segmented_image)
+
+            x_key = self.x_dropdown.currentText()
+            y_key = self.y_dropdown.currentText()
+
+            # Plot centroids
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            sns.scatterplot(data=morphology_data, x=x_key, y=y_key, hue='area', palette='viridis', ax=ax)
+            ax.set_title(f'{x_key} vs {y_key}')
+            self.canvas.draw()
+
+        layout = QVBoxLayout(self.morphologyTab)
+
+        segment_button = QPushButton("Segment and Plot")
+        segment_button.clicked.connect(segment_and_plot)
+
+        """
+            morphology = {
+                'area': area,
+                'perimeter': perimeter,
+                'bounding_box': (x, y, w, h),
+                'aspect_ratio': aspect_ratio,
+                'extent': extent,
+                'solidity': solidity,
+                'equivalent_diameter': equivalent_diameter,
+                'orientation': angle
+            }
+        """
+        labels_layout = QHBoxLayout()
+
+        x_dropdown_w = QVBoxLayout()
+        x_dropdown_w.addWidget(QLabel("Select X variable"))
+        x_dropdown = QComboBox()
+        x_dropdown.addItem('area')
+        x_dropdown.addItem('perimeter')
+        x_dropdown.addItem('bounding_box')
+        x_dropdown.addItem('aspect_ratio')
+        x_dropdown.addItem('extent')
+        x_dropdown.addItem('solidity')
+        x_dropdown.addItem('equivalent_diameter')
+        x_dropdown.addItem('orientation')
+        x_dropdown_w.addWidget(x_dropdown)
+        wid = QWidget()
+        wid.setLayout(x_dropdown_w)
+        labels_layout.addWidget(wid)
+
+        y_dropdown_w = QVBoxLayout()
+        y_dropdown_w.addWidget(QLabel("Select Y variable"))
+        y_dropdown = QComboBox()
+        y_dropdown.addItem('area')
+        y_dropdown.addItem('perimeter')
+        y_dropdown.addItem('bounding_box')
+        y_dropdown.addItem('aspect_ratio')
+        y_dropdown.addItem('extent')
+        y_dropdown.addItem('solidity')
+        y_dropdown.addItem('equivalent_diameter')
+        y_dropdown.addItem('orientation')
+        y_dropdown_w.addWidget(y_dropdown)
+        wid = QWidget()
+        wid.setLayout(y_dropdown_w)
+        labels_layout.addWidget(wid)
+        layout.addLayout(labels_layout)
+
+        self.x_dropdown = x_dropdown
+        self.y_dropdown = y_dropdown
+
+        layout.addWidget(segment_button)
+        self.figure = plt.figure()
+        self.canvas = FigureCanvas(self.figure)
+        layout.addWidget(self.canvas)
+
+    def initViewArea(self):
+        layout = QVBoxLayout(self.viewArea)
         # label = QLabel("Content of Tab 2")
         # layout.addWidget(label)
 
@@ -438,7 +529,6 @@ class TabWidgetApp(QMainWindow):
         self.threshold_slider.valueChanged.connect(self.display_image)
         layout.addWidget(self.threshold_slider)
 
-    
     def export_images(self):
         save_path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "TIFF Files (*.tif);;All Files (*)")
         
@@ -505,17 +595,15 @@ class TabWidgetApp(QMainWindow):
 
     def initUI(self):
         self.tab_widget.addTab(self.importTab, "Import")
-        self.tab_widget.addTab(self.viewTab, "View")
-
-        # self.tab_widget.addTab(self.align_tab, "Align")
-
         self.tab_widget.addTab(self.exportTab, "Export")
         self.tab_widget.addTab(self.populationTab, "Population")
+        self.tab_widget.addTab(self.morphologyTab, "Morphology")
 
         self.initImportTab()
-        self.initViewTab()
+        self.initViewArea()
         self.initExportTab()
         self.initPopulationTab()
+        self.initMorphologyTab()
 
     def initPopulationTab(self):
         layout = QVBoxLayout(self.populationTab)
