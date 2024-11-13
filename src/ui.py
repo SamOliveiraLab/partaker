@@ -16,7 +16,7 @@ import imageio.v3 as iio
 
 # Local imports
 from morphology import extract_cell_morphologies
-from segmentation import segment_this_image
+from segmentation import segment_all_images, segment_this_image
 from image_functions import remove_stage_jitter_MAE
 
 # import pims
@@ -336,6 +336,14 @@ class TabWidgetApp(QMainWindow):
 
         self.mapping_info_label = QLabel("Load an ND2 file to view and assign dimension mappings.")
         layout.addWidget(self.mapping_info_label)
+
+    def initMorphologyTimeTab(self):
+        pass
+        # segment_all_images(img)
+
+        # for img in images:
+        #     segmented_image = 
+        #     morphology_data = extract_cell_morphologies(segmented_image)
 
     def initMorphologyTab(self):
         def segment_and_plot():

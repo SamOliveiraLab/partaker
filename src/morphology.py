@@ -67,3 +67,31 @@ def extract_cell_morphologies(binary_image: np.array) -> pd.DataFrame:
     morphologies_df = pd.DataFrame(morphologies)
     
     return morphologies_df
+
+def extract_cell_morphologies_time(segmented_imgs: np.array, **kwargs) -> pd.DataFrame:
+    """
+    Extracts cell morphologies from a binarized image.
+
+    Parameters:
+    segmented_imgs (numpy.ndarray): Binarized image where cells are white (255) and background is black (0).
+
+    Returns:
+    list: A list of dictionaries containing morphology properties for each cell.
+    """
+    features = []
+    
+    for binary_image in segmented_imgs:
+        contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        features = []
+        
+        l = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            l.append(area)
+
+        res = np.mean(l)
+
+        features.append(res)
+    
+    return features

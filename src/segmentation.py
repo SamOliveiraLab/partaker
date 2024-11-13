@@ -386,7 +386,6 @@ cellposemodel = models.Cellpose(gpu=True, model_type='cyto')
 def segment_this_image(image):
     image = np.array(image)
 
-
     # Run segmentation
     masks, flows, styles, diams = cellposemodel.eval(image, diameter=None, channels=[0, 0])
 
@@ -404,6 +403,8 @@ def segment_this_image(image):
 
     return bw_image
 
+def segment_all_images(images):
+    pass
 
 """
 Segments one image and returns it, in a single channel
