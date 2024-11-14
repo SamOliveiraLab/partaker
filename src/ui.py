@@ -51,7 +51,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 import seaborn as sns
 
-from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment, rpu_params_dict
+from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment
 
 """
 Can hold either an ND2 file or a series of images
@@ -1028,12 +1028,9 @@ class TabWidgetApp(QMainWindow):
                 # Construct the export path with the custom name and dimensions
                 file_path = folder_path / f"{custom_base_name}_P{p}_T{t}.tif"
                 cv2.imwrite(str(file_path), img_to_save)
-
-        QMessageBox.information(
-            self, "Export", f"Images exported successfully to {folder_path}"
-        )
         
-
+        QMessageBox.information(self, "Export", f"Images exported successfully to {folder_path}")
+    
     # Initialize the Export tab with the export button
     def initExportTab(self):
         layout = QVBoxLayout(self.exportTab)
@@ -1749,18 +1746,72 @@ class TabWidgetApp(QMainWindow):
         layout.addLayout(p_layout)
         layout.addLayout(channel_choice_layout)
 
-        # Create the combobox and populate it with the dictionary keys
-        self.rpu_params_combo = QComboBox()
-        for key in rpu_params_dict.keys():
-            self.rpu_params_combo.addItem(key)
-
-        # Add the combobox to the layout
-        layout.addWidget(QLabel("Select RPU Parameters:"))
-        layout.addWidget(self.rpu_params_combo)
-
         # Only attempt to plot if image_data has been loaded
-        if hasattr(self, "image_data") and self.image_data is not None:
-            self.plot_average_intensity()
+        if hasattr(self, 'image_data') and self.image_data is not None:
+            self.plot_fluorescente_signal()
+
+    def ___plot_fluorescente_signal(self):
+        if not hasattr(self, 'image_data'):
+            return
+
+        selected_time = self.mapping_controls["time"].currentText()
+        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
+
+        full_time_range = self.dimensions.get("T", 1) - 1
+        x_axis_limit = full_time_range + 2 
+
+        # Get the current position from the position slider in the population tab
+        p = self.slider_p_5.value()
+        
+        chan_sel = int(self.channel_combo.currentText())
+
+        # get intensities
+        levels, RPUs, error = get_fluorescence_all_experiments(self.image_data.data, self.dimensions, chan_sel)
+
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+
+        for rpu in RPUs:
+            ax.plot(rpu, color='gray')
+        ax.plot(np.mean(rpu), color='red')
+        
+        ax.set_xlim(0, x_axis_limit)
+        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_xlabel('T')
+        ax.set_ylabel('Signal / RPU')
+        self.canvas.draw()
+
+    def plot_fluorescence_signal(self):
+        if not hasattr(self, 'image_data'):
+            return
+
+        selected_time = self.mapping_controls["time"].currentText()
+        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
+
+        full_time_range = self.dimensions.get("T", 1) - 1
+        x_axis_limit = full_time_range + 2 
+
+        # Get the current position from the position slider in the population tab
+        p = self.slider_p_5.value()
+
+        chan_sel = int(self.channel_combo.currentText())
+        levels, RPUs, timestamp = get_fluorescence_single_experiment(self.image_data.data, self.dimensions, p, chan_sel)
+
+        # print(levels, RPUs)
+
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+
+        ax.plot(timestamp, levels, color='blue')
+        
+        ax2 = ax.twinx()
+        ax2.plot(timestamp, RPUs, color='red')
+        
+        # ax.set_xlim(0, x_axis_limit)
+        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_xlabel('T')
+        ax.set_ylabel('Signal / RPU')
+        self.population_canvas.draw()
 
     def __plot_fluorescente_signal(self):
         if not hasattr(self, 'image_data'):
