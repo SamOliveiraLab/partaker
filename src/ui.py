@@ -444,17 +444,19 @@ class TabWidgetApp(QMainWindow):
 
         self.image_label = QLabel()
         self.image_label.setScaledContents(True)  # Allow the label to scale the image
+        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.image_label)
-
+        
         # Another label for aligned images
-        self.aligned_image_label = QLabel()
-        self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
-        layout.addWidget(self.aligned_image_label)
+        # self.aligned_image_label = QLabel()
+        # self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
+        # self.aligned_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # layout.addWidget(self.aligned_image_label)
 
         # Align button
-        align_button = QPushButton("Align Images")
-        align_button.clicked.connect(self.align_images)
-        layout.addWidget(align_button)
+        # align_button = QPushButton("Align Images")
+        # align_button.clicked.connect(self.align_images)
+        # layout.addWidget(align_button)
 
         # T controls
         t_layout = QHBoxLayout()
@@ -554,7 +556,7 @@ class TabWidgetApp(QMainWindow):
         max_t_value = self.slider_t.value() 
         max_p_value = self.slider_p.value()  
 
-        for t in range(max_t_value + 1):  
+        for t in range(max_t_value + 1):
             for p in range(max_p_value + 1): 
                 # Retrieve the specific frame for time t and position p
                 if self.image_data.is_nd2:
