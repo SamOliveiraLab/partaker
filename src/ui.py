@@ -793,7 +793,7 @@ class TabWidgetApp(QMainWindow):
         
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_label.customContextMenuRequested.connect(self.show_context_menu)
-
+        
         # Another label for aligned images
         # self.aligned_image_label = QLabel()
         # self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
