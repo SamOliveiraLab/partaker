@@ -1760,7 +1760,7 @@ class TabWidgetApp(QMainWindow):
         average_intensities = []
 
         # Calculate average intensities only up to max_time
-        for t in range(max_time + 1): 
+        for t in range(max_time + 1):  
 
             if self.image_data.data.ndim == 4:
                 image_data = self.image_data.data[t, p, :, :]
