@@ -778,6 +778,20 @@ class TabWidgetApp(QMainWindow):
         self.image_label.setScaledContents(True)  # Allow the label to scale the image
         self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.image_label)
+        
+        self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.image_label.customContextMenuRequested.connect(self.show_context_menu)
+
+        # Another label for aligned images
+        # self.aligned_image_label = QLabel()
+        # self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
+        # self.aligned_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # layout.addWidget(self.aligned_image_label)
+
+        # Align button
+        # align_button = QPushButton("Align Images")
+        # align_button.clicked.connect(self.align_images)
+        # layout.addWidget(align_button)
 
         # Annotate Cells button
         annotate_button = QPushButton("Classify Cells")
