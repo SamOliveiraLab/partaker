@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 def extract_cell_morphologies(binary_image: np.array) -> pd.DataFrame:
     """
@@ -78,20 +79,11 @@ def extract_cell_morphologies_time(segmented_imgs: np.array, **kwargs) -> pd.Dat
     Returns:
     list: A list of dictionaries containing morphology properties for each cell.
     """
-    features = []
+    metrics = []
     
-    for binary_image in segmented_imgs:
-        contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for binary_image in tqdm(segmented_imgs):
         
-        features = []
+        _metrics = extract_cell_morphologies(binary_image)
+        metrics.append(_metrics.mean(axis=0))
         
-        l = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            l.append(area)
-
-        res = np.mean(l)
-
-        features.append(res)
-    
-    return features
+    return pd.concat(metrics, ignore_index=True)

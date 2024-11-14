@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel
+from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
+import PySide6.QtAsyncio as QtAsyncio
 
 import sys
 import os
@@ -31,7 +32,7 @@ import cv2
 import imageio.v3 as iio
 
 # Local imports
-from morphology import extract_cell_morphologies
+from morphology import extract_cell_morphologies, extract_cell_morphologies_time
 from segmentation import segment_all_images, segment_this_image
 from image_functions import remove_stage_jitter_MAE
 
@@ -534,6 +535,9 @@ class TabWidgetApp(QMainWindow):
         self.canvas_time_series = FigureCanvas(self.figure_time_series)
         layout.addWidget(self.canvas_time_series)
 
+        self.progress_bar = QProgressBar()
+        layout.addWidget(self.progress_bar)
+
         def process_morphology_time_series():
             p = self.slider_p.value()
             c = self.slider_c.value() if 'C' in self.dimensions else None
@@ -547,38 +551,38 @@ class TabWidgetApp(QMainWindow):
                 "solidity", "equivalent_diameter", "orientation"
             ]}
 
-            for t in range(self.dimensions.get("T", 1)):
+            if 'C' in self.dimensions: # TODO: check if 'compute()' is really needed
+                image_data = np.array(
+                    self.image_data.data[:, p, c, :, :].compute()
+                    if hasattr(self.image_data.data[:, p, c, :, :], 'compute')
+                    else self.image_data.data[:, p, c, :, :]
+                )
+            else:
+                image_data = np.array(
+                    self.image_data.data[:, p, :, :].compute()
+                    if hasattr(self.image_data.data[:, p, :, :], 'compute')
+                    else self.image_data.data[:, p, :, :]
+                )
+
+                # TODO: error check
+                # if image_data.ndim != 2:
+                #     QMessageBox.warning(self, "Data Error", f"Unexpected data shape at T={t}, P={p}. Shape: {image_data.shape}. Skipping frame.")
+                #     continue
+
                 try:
-                    if 'C' in self.dimensions:
-                        image_data = np.array(
-                            self.image_data.data[t, p, c, :, :].compute()
-                            if hasattr(self.image_data.data[t, p, c, :, :], 'compute')
-                            else self.image_data.data[t, p, c, :, :]
-                        )
-                    else:
-                        image_data = np.array(
-                            self.image_data.data[t, p, :, :].compute()
-                            if hasattr(self.image_data.data[t, p, :, :], 'compute')
-                            else self.image_data.data[t, p, :, :]
-                        )
+                    segmented_images = segment_all_images(image_data, self.progress_bar)
+                    self.morphologies_over_time = extract_cell_morphologies_time(segmented_images)
 
-                    if image_data.ndim != 2:
-                        QMessageBox.warning(self, "Data Error", f"Unexpected data shape at T={t}, P={p}. Shape: {image_data.shape}. Skipping frame.")
-                        continue
-
-                    segmented_image = segment_this_image(image_data)
-                    morphology_data = extract_cell_morphologies(segmented_image)
-
-                    for metric in self.morphologies_over_time.keys():
-                        if not morphology_data.empty:
-                            self.morphologies_over_time[metric].append(morphology_data[metric].mean())
-                        else:
-                            self.morphologies_over_time[metric].append(0)
+                    # for metric in self.morphologies_over_time.keys():
+                    #     if not morphology_data.empty:
+                    #         self.morphologies_over_time[metric].append(morphology_data[metric].mean())
+                    #     else:
+                    #         self.morphologies_over_time[metric].append(0)
 
                 except Exception as e:
                     print(f"Error processing frame T={t}, P={p}, C={c if 'C' in self.dimensions else 'N/A'}: {e}")
                     QMessageBox.warning(self, "Processing Error", f"Could not process frame at T={t}, P={p}, C={c}. Error: {e}")
-                    continue
+                    # continue
 
             update_plot()
 
