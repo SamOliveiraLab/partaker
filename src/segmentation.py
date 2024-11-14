@@ -381,7 +381,8 @@ from cellpose import models, io
 
 # Initialize the Cellpose model
 # model = models.Cellpose(model_type='cyto')
-cellposemodel = models.Cellpose(gpu=True, model_type='cyto')
+# cellposemodel = models.Cellpose(gpu=True, model_type='cyto')
+cellposemodel = models.Cellpose(gpu=False, model_type='cyto')
 
 def segment_this_image(image):
     image = np.array(image)
