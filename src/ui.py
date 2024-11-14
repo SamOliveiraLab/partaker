@@ -24,6 +24,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 import seaborn as sns
 
+from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment
+
 """
 Can hold either an ND2 file or a series of images
 """
@@ -370,7 +372,8 @@ class TabWidgetApp(QMainWindow):
             # Plot centroids
             self.figure.clear()
             ax = self.figure.add_subplot(111)
-            sns.scatterplot(data=morphology_data, x=x_key, y=y_key, hue='area', palette='viridis', ax=ax)
+            # sns.scatterplot(data=morphology_data, x=x_key, y=y_key, hue='area', palette='viridis', ax=ax)
+            sns.scatterplot(data=morphology_data, x=x_key, y=y_key, palette='viridis', ax=ax)
             ax.set_title(f'{x_key} vs {y_key}')
             self.canvas.draw()
 
@@ -567,8 +570,6 @@ class TabWidgetApp(QMainWindow):
         
         QMessageBox.information(self, "Export", f"Images exported successfully to {folder_path}")
     
-    
-    
     # Initialize the Export tab with the export button
     def initExportTab(self):
         layout = QVBoxLayout(self.exportTab)
@@ -577,7 +578,6 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(export_button)
         label = QLabel("This Tab Exports processed images sequentially.")
         layout.addWidget(label)
-
 
     def save_video(self, file_path):
         # Assuming self.image_data is a 4D numpy array with shape (frames, height, width, channels)
@@ -618,9 +618,20 @@ class TabWidgetApp(QMainWindow):
         label = QLabel("Average Pixel Intensity")
         layout.addWidget(label)
 
-        self.figure = plt.figure()
-        self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
+        self.population_figure = plt.figure()
+        self.population_canvas = FigureCanvas(self.population_figure)
+        layout.addWidget(self.population_canvas)
+
+        # Channel control
+        channel_choice_layout = QHBoxLayout()
+        channel_combo = QComboBox()
+        channel_combo.addItem('0')
+        channel_combo.addItem('1')
+        channel_combo.addItem('2')
+        # channel_combo.valueChanged.connect(self.plot_fluorescence_signal)
+        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
+        channel_choice_layout.addWidget(channel_combo)
+        self.channel_combo = channel_combo
 
         # P controls
         p_layout = QHBoxLayout()
@@ -633,17 +644,87 @@ class TabWidgetApp(QMainWindow):
         self.slider_p_5.setMinimum(0)
         self.slider_p_5.setMaximum(max_p) 
         self.slider_p_5.setValue(0) 
-        self.slider_p_5.valueChanged.connect(self.plot_average_intensity)
+        # self.slider_p_5.valueChanged.connect(self.plot_fluorescente_signal)
         self.slider_p_5.valueChanged.connect(lambda value: p_label.setText(f'P: {value}'))  
         p_layout.addWidget(self.slider_p_5)
 
+        # Button to manually plot
+        plot_fluo_btn = QPushButton("Plot Fluorescence")
+        plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
+
+        channel_choice_layout.addWidget(plot_fluo_btn)
+
         layout.addLayout(p_layout)
+        layout.addLayout(channel_choice_layout)
 
         # Only attempt to plot if image_data has been loaded
         if hasattr(self, 'image_data') and self.image_data is not None:
-            self.plot_average_intensity()
+            self.plot_fluorescente_signal()
 
-    def plot_average_intensity(self):
+    def ___plot_fluorescente_signal(self):
+        if not hasattr(self, 'image_data'):
+            return
+
+        selected_time = self.mapping_controls["time"].currentText()
+        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
+
+        full_time_range = self.dimensions.get("T", 1) - 1
+        x_axis_limit = full_time_range + 2 
+
+        # Get the current position from the position slider in the population tab
+        p = self.slider_p_5.value()
+        
+        chan_sel = int(self.channel_combo.currentText())
+
+        # get intensities
+        levels, RPUs, error = get_fluorescence_all_experiments(self.image_data.data, self.dimensions, chan_sel)
+
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+
+        for rpu in RPUs:
+            ax.plot(rpu, color='gray')
+        ax.plot(np.mean(rpu), color='red')
+        
+        ax.set_xlim(0, x_axis_limit)
+        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_xlabel('T')
+        ax.set_ylabel('Signal / RPU')
+        self.canvas.draw()
+
+    def plot_fluorescence_signal(self):
+        if not hasattr(self, 'image_data'):
+            return
+
+        selected_time = self.mapping_controls["time"].currentText()
+        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
+
+        full_time_range = self.dimensions.get("T", 1) - 1
+        x_axis_limit = full_time_range + 2 
+
+        # Get the current position from the position slider in the population tab
+        p = self.slider_p_5.value()
+
+        chan_sel = int(self.channel_combo.currentText())
+        levels, RPUs, timestamp = get_fluorescence_single_experiment(self.image_data.data, self.dimensions, p, chan_sel)
+
+        # print(levels, RPUs)
+
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+
+        ax.plot(timestamp, levels, color='blue')
+        
+        ax2 = ax.twinx()
+        ax2.plot(timestamp, RPUs, color='red')
+        
+        # ax.set_xlim(0, x_axis_limit)
+        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_xlabel('T')
+        ax.set_ylabel('Signal / RPU')
+        self.population_canvas.draw()
+
+    def __plot_fluorescente_signal(self):
         if not hasattr(self, 'image_data'):
             return
 
@@ -659,7 +740,7 @@ class TabWidgetApp(QMainWindow):
 
         # Calculate average intensities only up to max_time
         for t in range(max_time + 1): 
-            if self.image_data.data.ndim == 4:  
+            if self.image_data.data.ndim == 4:
                 image_data = self.image_data.data[t, p, :, :]
             elif self.image_data.data.ndim == 3: 
                 image_data = self.image_data.data[t, :, :]
