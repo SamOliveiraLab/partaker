@@ -30,6 +30,7 @@ import nd2
 import numpy as np
 import cv2
 import imageio.v3 as iio
+import tifffile
 
 # Local imports
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
@@ -153,6 +154,7 @@ class TabWidgetApp(QMainWindow):
 
             self.display_image()
 
+   
     def update_mapping_dropdowns(self):
         # Clear all dropdowns before updating
         for dropdown in self.mapping_controls.values():
@@ -345,33 +347,49 @@ class TabWidgetApp(QMainWindow):
             _path = file_dialog.getExistingDirectory()
             self.load_from_folder(_path)
 
-        layout = QVBoxLayout(self.importTab)
+        def slice_and_export():
+            if not hasattr(self, 'image_data') or not self.image_data.is_nd2:
+                QMessageBox.warning(self, "Error", "No ND2 file loaded to slice.")
+                return
+            
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Sliced Data", "", "TIFF Files (*.tif);;All Files (*)"
+            )
 
-        # Select file/folder button
+            if not save_path:
+                QMessageBox.warning(self, "Error", "No save location selected.")
+                return
+
+            try:
+                sliced_data = self.image_data.data[0:4, 0, :, :].compute()
+
+                tifffile.imwrite(save_path, np.array(sliced_data), imagej=True)
+                QMessageBox.information(self, "Success", f"Sliced data saved to {save_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to slice and export: {e}")
+
+        layout = QVBoxLayout(self.importTab)
+        
+        slice_button = QPushButton("Slice and Export")
+        slice_button.clicked.connect(slice_and_export)
+        layout.addWidget(slice_button)
+
         button = QPushButton("Select File / Folder")
         button.clicked.connect(
-            lambda: (
-                importFile()
-                if not self.is_folder_checkbox.isChecked()
-                else importFolder()
-            )
+            lambda: importFile() if not self.is_folder_checkbox.isChecked() else importFolder()
         )
         layout.addWidget(button)
 
-        # Checkbox to toggle between file and folder import
         self.is_folder_checkbox = QCheckBox("Load from folder?")
         layout.addWidget(self.is_folder_checkbox)
 
-        # Filename and info labels
         self.filename_label = QLabel("Filename will be shown here.")
         layout.addWidget(self.filename_label)
 
         self.info_label = QLabel("File info will be shown here.")
         layout.addWidget(self.info_label)
 
-        # Dropdowns for mapping ND2 dimensions
         self.mapping_controls = {}
-
         mapping_labels = {
             "time": "Time",
             "position": "Position",
@@ -383,17 +401,12 @@ class TabWidgetApp(QMainWindow):
         for key, label_text in mapping_labels.items():
             label = QLabel(label_text)
             layout.addWidget(label)
-
             dropdown = QComboBox()
-            dropdown.addItem("Select Dimension")  # Placeholder
+            dropdown.addItem("Select Dimension")
             layout.addWidget(dropdown)
-
             self.mapping_controls[key] = dropdown
 
-        self.mapping_info_label = QLabel(
-            "Load an ND2 file to view and assign dimension mappings."
-        )
-        layout.addWidget(self.mapping_info_label)
+
 
     def initMorphologyTab(self):
         def segment_and_plot():
