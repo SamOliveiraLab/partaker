@@ -11,3 +11,6 @@ __pycache__/
 .idea/
 
 datasets/
+
+build/
+dist/
