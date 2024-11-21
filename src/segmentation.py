@@ -416,19 +416,35 @@ def segment_this_image(image):
 
     return bw_image
 
-def segment_all_images(images, progress = None):
-    # Usage
+def segment_all_images(images, progress=None):
+    # Get the Cellpose model instance
     cellpose_inst = CellposeModelSingleton().model
 
-    # images = np.expand_dims(images, axis=0)
-    # images = np.swapaxes(images, 0, 2)
-    # Run segmentation
-    images = list(images)
-    masks, flows, styles, diams = cellpose_inst.eval(images, diameter=None, channels=[0, 0], progress=progress)
+    # Ensure images are in the correct format
+    images = [img.squeeze() if img.ndim > 2 else img for img in images]
 
-    # Create a black and white image from masks
-    bw_images = np.zeros_like(masks, dtype=np.uint8)
-    bw_images[masks > 0] = 255
+    # Run segmentation
+    try:
+        masks, _, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
+        masks = np.array(masks)  # Ensure masks are a NumPy array
+    except Exception as e:
+        print(f"Error during segmentation: {e}")
+        return None
+
+    # Create binary black-and-white masks
+    try:
+        bw_images = np.zeros_like(masks, dtype=np.uint8)
+        bw_images[masks > 0] = 255  # Convert labeled masks to binary
+    except Exception as e:
+        print(f"Error converting masks to binary: {e}")
+        return None
+
+    # Update progress if a callback is provided
+    if progress:
+        if callable(progress):  # If it's a function
+            progress(len(images))
+        else:  # Assume it's a PyQt signal
+            progress.emit(len(images))
 
     return bw_images
 

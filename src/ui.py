@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
 )
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
 from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
 
@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 from matplotlib import pyplot as plt
 import nd2
+import pandas as pd
 import numpy as np
 import cv2
 import imageio.v3 as iio
@@ -36,6 +37,7 @@ import tifffile
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
 from segmentation import segment_all_images, segment_this_image
 from image_functions import remove_stage_jitter_MAE
+from PySide6.QtCore import QThread, Signal, QObject
 
 # import pims
 from matplotlib.backends.backend_qt5agg import FigureCanvas
@@ -54,6 +56,46 @@ class ImageData:
         self.data = data
         self.processed_images = []
         self.is_nd2 = is_nd2
+
+
+class MorphologyWorker(QObject):
+    progress = Signal(int)  # Progress updates
+    finished = Signal(dict)  # Finished with results
+    error = Signal(str)  # Emit error message
+
+    def __init__(self, image_data, num_frames):
+        super().__init__()
+        self.image_data = image_data
+        self.num_frames = num_frames
+
+    def run(self):
+        results = {}
+        try:
+            for t in range(self.num_frames):
+                print(f"Processing frame {t + 1}/{self.num_frames}")
+                binary_image = segment_this_image(self.image_data[t])
+
+                # Validate the binary image before processing
+                if binary_image.sum() == 0:
+                    print(f"Frame {t + 1}: No valid contours found.")
+                    continue
+
+                metrics = extract_cell_morphologies(binary_image)
+
+                # Check if metrics contain valid data
+                if not metrics.empty:
+                    results[t] = metrics.mean(numeric_only=True, axis=0).to_dict()
+                else:
+                    print(f"Frame {t + 1}: Metrics computation returned no valid data.")
+
+                self.progress.emit(t + 1)  # Update progress bar
+
+            if results:
+                self.finished.emit(results)  # Emit processed results
+            else:
+                self.error.emit("No valid results found in any frame.")
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class TabWidgetApp(QMainWindow):
@@ -154,7 +196,6 @@ class TabWidgetApp(QMainWindow):
 
             self.display_image()
 
-   
     def update_mapping_dropdowns(self):
         # Clear all dropdowns before updating
         for dropdown in self.mapping_controls.values():
@@ -348,10 +389,10 @@ class TabWidgetApp(QMainWindow):
             self.load_from_folder(_path)
 
         def slice_and_export():
-            if not hasattr(self, 'image_data') or not self.image_data.is_nd2:
+            if not hasattr(self, "image_data") or not self.image_data.is_nd2:
                 QMessageBox.warning(self, "Error", "No ND2 file loaded to slice.")
                 return
-            
+
             save_path, _ = QFileDialog.getSaveFileName(
                 self, "Save Sliced Data", "", "TIFF Files (*.tif);;All Files (*)"
             )
@@ -364,19 +405,25 @@ class TabWidgetApp(QMainWindow):
                 sliced_data = self.image_data.data[0:4, 0, :, :].compute()
 
                 tifffile.imwrite(save_path, np.array(sliced_data), imagej=True)
-                QMessageBox.information(self, "Success", f"Sliced data saved to {save_path}")
+                QMessageBox.information(
+                    self, "Success", f"Sliced data saved to {save_path}"
+                )
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Failed to slice and export: {e}")
 
         layout = QVBoxLayout(self.importTab)
-        
+
         slice_button = QPushButton("Slice and Export")
         slice_button.clicked.connect(slice_and_export)
         layout.addWidget(slice_button)
 
         button = QPushButton("Select File / Folder")
         button.clicked.connect(
-            lambda: importFile() if not self.is_folder_checkbox.isChecked() else importFolder()
+            lambda: (
+                importFile()
+                if not self.is_folder_checkbox.isChecked()
+                else importFolder()
+            )
         )
         layout.addWidget(button)
 
@@ -405,8 +452,6 @@ class TabWidgetApp(QMainWindow):
             dropdown.addItem("Select Dimension")
             layout.addWidget(dropdown)
             self.mapping_controls[key] = dropdown
-
-
 
     def initMorphologyTab(self):
         def segment_and_plot():
@@ -504,9 +549,15 @@ class TabWidgetApp(QMainWindow):
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas)
 
-    
-        if not hasattr(self, 'morphologies_over_time') or not self.morphologies_over_time:
-            QMessageBox.warning(self, "Plot Error", "No data to plot. Please process morphology over time first.")
+        if (
+            not hasattr(self, "morphologies_over_time")
+            or not self.morphologies_over_time
+        ):
+            QMessageBox.warning(
+                self,
+                "Plot Error",
+                "No data to plot. Please process morphology over time first.",
+            )
             return
 
         selected_metric = None
@@ -517,27 +568,38 @@ class TabWidgetApp(QMainWindow):
                 break
 
         if selected_metric is None:
-            QMessageBox.warning(self, "Selection Error", "Please select a single metric to plot.")
+            QMessageBox.warning(
+                self, "Selection Error", "Please select a single metric to plot."
+            )
             return
 
         # Plot the selected metric over time
         self.figure_time_series.clear()
         ax = self.figure_time_series.add_subplot(111)
-        ax.plot(self.morphologies_over_time[selected_metric], marker='o')
-        ax.set_title(f'{selected_metric.capitalize()} Over Time (Position {self.slider_p.value()}, Channel {self.slider_c.value()})')
-        ax.set_xlabel('Time')
+        ax.plot(self.morphologies_over_time[selected_metric], marker="o")
+        ax.set_title(
+            f"{selected_metric.capitalize()} Over Time (Position {self.slider_p.value()}, Channel {self.slider_c.value()})"
+        )
+        ax.set_xlabel("Time")
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
 
-   
+    
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
 
         self.metric_dropdown = QComboBox()
-        self.metric_dropdown.addItems([
-            "area", "perimeter", "aspect_ratio", "extent", 
-            "solidity", "equivalent_diameter", "orientation"
-        ])
+        self.metric_dropdown.addItems(
+            [
+                "area",
+                "perimeter",
+                "aspect_ratio",
+                "extent",
+                "solidity",
+                "equivalent_diameter",
+                "orientation",
+            ]
+        )
         layout.addWidget(QLabel("Select Metric to Plot:"))
         layout.addWidget(self.metric_dropdown)
 
@@ -553,68 +615,101 @@ class TabWidgetApp(QMainWindow):
 
         def process_morphology_time_series():
             p = self.slider_p.value()
-            c = self.slider_c.value() if 'C' in self.dimensions else None
+            c = self.slider_c.value() if "C" in self.dimensions else None
 
             if not self.image_data.is_nd2:
                 QMessageBox.warning(self, "Error", "This feature only supports ND2 datasets.")
                 return
 
-            self.morphologies_over_time = {metric: [] for metric in [
-                "area", "perimeter", "aspect_ratio", "extent", 
-                "solidity", "equivalent_diameter", "orientation"
-            ]}
+            try:
+                # Extract image data, limiting time frames to T:0-5
+                if "C" in self.dimensions:
+                    image_data = np.array(
+                        self.image_data.data[0:6, p, c, :, :].compute()
+                        if hasattr(self.image_data.data[0:6, p, c, :, :], "compute")
+                        else self.image_data.data[0:6, p, c, :, :]
+                    )
+                else:
+                    image_data = np.array(
+                        self.image_data.data[0:6, p, :, :].compute()
+                        if hasattr(self.image_data.data[0:6, p, :, :], "compute")
+                        else self.image_data.data[0:6, p, :, :]
+                    )
 
-            if 'C' in self.dimensions: # TODO: check if 'compute()' is really needed
-                image_data = np.array(
-                    self.image_data.data[:, p, c, :, :].compute()
-                    if hasattr(self.image_data.data[:, p, c, :, :], 'compute')
-                    else self.image_data.data[:, p, c, :, :]
-                )
-            else:
-                image_data = np.array(
-                    self.image_data.data[:, p, :, :].compute()
-                    if hasattr(self.image_data.data[:, p, :, :], 'compute')
-                    else self.image_data.data[:, p, :, :]
-                )
+                if image_data.size == 0:
+                    QMessageBox.warning(self, "Error", "No valid data found for the selected position and channel.")
+                    return
+            except Exception as e:
+                QMessageBox.warning(self, "Data Error", f"Failed to extract image data: {e}")
+                return
 
-                # TODO: error check
-                # if image_data.ndim != 2:
-                #     QMessageBox.warning(self, "Data Error", f"Unexpected data shape at T={t}, P={p}. Shape: {image_data.shape}. Skipping frame.")
-                #     continue
+            num_frames = image_data.shape[0]
+            self.progress_bar.setMaximum(num_frames)
+            self.progress_bar.setValue(0)
 
-                try:
-                    segmented_images = segment_all_images(image_data, self.progress_bar)
-                    self.morphologies_over_time = extract_cell_morphologies_time(segmented_images)
+            # Start worker thread
+            self.thread = QThread()
+            self.worker = MorphologyWorker(image_data, num_frames)
+            self.worker.moveToThread(self.thread)
 
-                    # for metric in self.morphologies_over_time.keys():
-                    #     if not morphology_data.empty:
-                    #         self.morphologies_over_time[metric].append(morphology_data[metric].mean())
-                    #     else:
-                    #         self.morphologies_over_time[metric].append(0)
+            # Connect signals
+            self.thread.started.connect(self.worker.run)
+            self.worker.progress.connect(self.progress_bar.setValue)
+            self.worker.progress.connect(lambda value: print(f"Progress: {value} frames processed"))
+            self.worker.finished.connect(self.handle_results)
+            self.worker.error.connect(self.handle_error)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
 
-                except Exception as e:
-                    print(f"Error processing frame T={t}, P={p}, C={c if 'C' in self.dimensions else 'N/A'}: {e}")
-                    QMessageBox.warning(self, "Processing Error", f"Could not process frame at T={t}, P={p}, C={c}. Error: {e}")
-                    # continue
+            # Start the thread
+            self.thread.start()
 
-            update_plot()
+            # Disable the button while processing
+            self.progress_bar.setVisible(True)
+            segment_button.setEnabled(False)
+
+            # Re-enable the button after thread finishes
+            self.thread.finished.connect(lambda: segment_button.setEnabled(True))
 
         segment_button.clicked.connect(process_morphology_time_series)
 
-        def update_plot():
-            selected_metric = self.metric_dropdown.currentText()
+    def handle_results(self, results):
+        if not results:
+            QMessageBox.warning(self, "Error", "No valid results received. Please check the input data.")
+            return
 
-            if not selected_metric:
-                QMessageBox.warning(self, "Selection Error", "Please select a metric to plot.")
-                return
+        print("Results received successfully:", results)
+        self.morphologies_over_time = pd.DataFrame.from_dict(results, orient="index")
+        self.update_plot()
 
-            self.figure_time_series.clear()
-            ax = self.figure_time_series.add_subplot(111)
-            ax.plot(self.morphologies_over_time[selected_metric], marker='o')
-            ax.set_title(f'{selected_metric.capitalize()} Over Time (Position {self.slider_p.value()}, Channel {self.slider_c.value()})')
-            ax.set_xlabel('Time')
-            ax.set_ylabel(selected_metric.capitalize())
-            self.canvas_time_series.draw()
+    def handle_error(self, error_message):
+        print(f"Error: {error_message}")
+        QMessageBox.warning(self, "Processing Error", error_message)
+
+    def update_plot(self):
+        selected_metric = self.metric_dropdown.currentText()
+
+        if not hasattr(self, "morphologies_over_time"):
+            QMessageBox.warning(self, "Error", "No data to plot. Please process the frames first.")
+            return
+
+        if selected_metric not in self.morphologies_over_time.columns:
+            QMessageBox.warning(self, "Error", f"Metric {selected_metric} not found in results.")
+            return
+
+        metric_data = self.morphologies_over_time[selected_metric]
+        if metric_data.empty:
+            QMessageBox.warning(self, "Error", f"No valid data available for {selected_metric}.")
+            return
+
+        self.figure_time_series.clear()
+        ax = self.figure_time_series.add_subplot(111)
+        ax.plot(metric_data, marker="o")
+        ax.set_title(f"{selected_metric.capitalize()} Over Time")
+        ax.set_xlabel("Time")
+        ax.set_ylabel(selected_metric.capitalize())
+        self.canvas_time_series.draw()
     
     
     def initViewArea(self):
