@@ -60,7 +60,7 @@ class ImageData:
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
-    finished = Signal(dict)  # Finished with results
+    finished = Signal(object)  # Finished with results
     error = Signal(str)  # Emit error message
 
     def __init__(self, image_data, num_frames):
@@ -91,6 +91,7 @@ class MorphologyWorker(QObject):
                 self.progress.emit(t + 1)  # Update progress bar
 
             if results:
+                print('Results: ', results)
                 self.finished.emit(results)  # Emit processed results
             else:
                 self.error.emit("No valid results found in any frame.")
