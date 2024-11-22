@@ -1,16 +1,37 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        ('ui.py', '.'),
+        ('/opt/anaconda3/lib/python3.12/site-packages/cachier/version.info', 'cachier'),
+        ('/Applications/Oliveira Lab Projects/nd2-timelapse-analyzer/.venv/lib/python3.9/site-packages/distributed/distributed.yaml', 'distributed'),
+    ],
+    hiddenimports=[
+        'nd2', 
+        'matplotlib', 
+        'seaborn', 
+        'numpy', 
+        'cv2', 
+        'imageio.v3', 
+        'tensorflow', 
+        'cachier', 
+        'cellpose',
+        'torch', 
+        'torchvision',
+        'dask', 
+        'distributed'
+    ],
+
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['PyQt5'],
     noarchive=False,
     optimize=0,
 )
@@ -45,6 +66,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='main.app',
-    icon=None,
+    icon='nd2_favicon.icns',
     bundle_identifier=None,
 )
