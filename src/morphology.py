@@ -115,3 +115,4 @@ def extract_cell_morphologies_time(segmented_imgs: np.array, **kwargs) -> pd.Dat
     else:
         print("No valid metrics to aggregate.")
         return pd.DataFrame()
+    
