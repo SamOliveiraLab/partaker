@@ -648,18 +648,18 @@ class TabWidgetApp(QMainWindow):
                 return
 
             try:
-                # Extract image data for the selected position
+                # Extract image data, limiting time frames to T:0-5
                 if "C" in self.dimensions:
                     image_data = np.array(
-                        self.image_data.data[:, p, c, :, :].compute()
-                        if hasattr(self.image_data.data[:, p, c, :, :], "compute")
-                        else self.image_data.data[:, p, c, :, :]
+                        self.image_data.data[0:6, p, c, :, :].compute()
+                        if hasattr(self.image_data.data[0:6, p, c, :, :], "compute")
+                        else self.image_data.data[0:6, p, c, :, :]
                     )
                 else:
                     image_data = np.array(
-                        self.image_data.data[:, p, :, :].compute()
-                        if hasattr(self.image_data.data[:, p, :, :], "compute")
-                        else self.image_data.data[:, p, :, :]
+                        self.image_data.data[0:6, p, :, :].compute()
+                        if hasattr(self.image_data.data[0:6, p, :, :], "compute")
+                        else self.image_data.data[0:6, p, :, :]
                     )
 
                 if image_data.size == 0:
