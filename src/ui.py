@@ -64,35 +64,46 @@ class MorphologyWorker(QObject):
     finished = Signal(object)  # Finished with results
     error = Signal(str)  # Emit error message
 
-    def __init__(self, image_data, num_frames):
+    def __init__(self, image_data, images, num_frames, p, c):
         super().__init__()
         self.image_data = image_data
+        self.images = images
         self.num_frames = num_frames
+        self.p = p
+        self.c = c
 
     def run(self):
         results = {}
         try:
             for t in range(self.num_frames):
-                print(f"Processing frame {t + 1}/{self.num_frames}")
-                binary_image = segment_this_image(self.image_data[t])
+                cache_key = (t, self.p, self.c)  # Cache key format
 
-                # Validate the binary image before processing
+                # Check if segmentation is already cached
+                if cache_key in self.image_data.segmentation_cache:
+                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={self.p}, C={self.c}")
+                    binary_image = self.image_data.segmentation_cache[cache_key]
+                else:
+                    print(f"[CACHE MISS] Segmenting T={t}, P={self.p}, C={self.c}")
+                    binary_image = segment_this_image(self.images[t])
+                    self.image_data.segmentation_cache[cache_key] = binary_image
+
+                # Validate the binary image
                 if binary_image.sum() == 0:
-                    print(f"Frame {t + 1}: No valid contours found.")
+                    print(f"Frame {t}: No valid contours found.")
                     continue
 
+                # Extract morphology metrics
                 metrics = extract_cell_morphologies(binary_image)
 
                 # Check if metrics contain valid data
                 if not metrics.empty:
                     results[t] = metrics.mean(numeric_only=True, axis=0).to_dict()
                 else:
-                    print(f"Frame {t + 1}: Metrics computation returned no valid data.")
+                    print(f"Frame {t}: Metrics computation returned no valid data.")
 
                 self.progress.emit(t + 1)  # Update progress bar
 
             if results:
-                print('Results: ', results)
                 self.finished.emit(results)  # Emit processed results
             else:
                 self.error.emit("No valid results found in any frame.")
@@ -611,6 +622,7 @@ class TabWidgetApp(QMainWindow):
         self.canvas_time_series.draw()
 
     
+    
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
 
@@ -648,18 +660,18 @@ class TabWidgetApp(QMainWindow):
                 return
 
             try:
-                # Extract image data, limiting time frames to T:0-5
+                # Extract image data for the selected position
                 if "C" in self.dimensions:
                     image_data = np.array(
-                        self.image_data.data[0:6, p, c, :, :].compute()
-                        if hasattr(self.image_data.data[0:6, p, c, :, :], "compute")
-                        else self.image_data.data[0:6, p, c, :, :]
+                        self.image_data.data[:, p, c, :, :].compute()
+                        if hasattr(self.image_data.data[:, p, c, :, :], "compute")
+                        else self.image_data.data[:, p, c, :, :]
                     )
                 else:
                     image_data = np.array(
-                        self.image_data.data[0:6, p, :, :].compute()
-                        if hasattr(self.image_data.data[0:6, p, :, :], "compute")
-                        else self.image_data.data[0:6, p, :, :]
+                        self.image_data.data[:, p, :, :].compute()
+                        if hasattr(self.image_data.data[:, p, :, :], "compute")
+                        else self.image_data.data[:, p, :, :]
                     )
 
                 if image_data.size == 0:
@@ -673,43 +685,33 @@ class TabWidgetApp(QMainWindow):
             self.progress_bar.setMaximum(num_frames)
             self.progress_bar.setValue(0)
 
-            results = {}
+            # Initialize the MorphologyWorker
+            self.worker_thread = QThread()
+            self.worker = MorphologyWorker(self.image_data, image_data, num_frames, p, c)
 
-            for t in range(num_frames):
-                # Use a consistent cache key format
-                cache_key = (t, p, c)  # Allow C to be None
+            # Connect signals
+            self.worker.progress.connect(self.progress_bar.setValue)
+            self.worker.finished.connect(self.handle_results)
+            self.worker.error.connect(self.handle_error)
 
-                # Check if segmentation is already cached
-                if cache_key in self.image_data.segmentation_cache:
-                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-                    binary_image = self.image_data.segmentation_cache[cache_key]
-                else:
-                    print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                    binary_image = segment_this_image(image_data[t])
-                    self.image_data.segmentation_cache[cache_key] = binary_image
+            # Move worker to a thread
+            self.worker.moveToThread(self.worker_thread)
 
-                # Validate binary image
-                if binary_image.sum() == 0:
-                    print(f"Frame {t}: No valid contours found.")
-                    continue
+            # Start the worker when the thread starts
+            self.worker_thread.started.connect(self.worker.run)
 
-                # Extract morphology metrics
-                metrics = extract_cell_morphologies(binary_image)
+            # Clean up when done
+            self.worker.finished.connect(self.worker_thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.worker_thread.finished.connect(self.worker_thread.deleteLater)
 
-                if not metrics.empty:
-                    results[t] = metrics.mean(numeric_only=True, axis=0).to_dict()
-                else:
-                    print(f"Frame {t}: Metrics computation returned no valid data.")
+            self.worker.error.connect(self.worker_thread.quit)
+            self.worker.error.connect(self.worker.deleteLater)
+            self.worker.error.connect(self.worker_thread.deleteLater)
 
-                self.progress_bar.setValue(t + 1)  # Update progress bar
+            # Start the thread
+            self.worker_thread.start()
 
-            # Handle results after processing
-            if results:
-                self.morphologies_over_time = pd.DataFrame.from_dict(results, orient="index")
-                self.update_plot()
-            else:
-                QMessageBox.warning(self, "Error", "No valid results found in any frame.")
-        
         segment_button.clicked.connect(process_morphology_time_series)
 
     def handle_results(self, results):
@@ -748,6 +750,7 @@ class TabWidgetApp(QMainWindow):
         ax.set_xlabel("Time")
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
+
     
     
     def initViewArea(self):
