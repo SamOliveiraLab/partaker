@@ -56,6 +56,7 @@ class ImageData:
         self.data = data
         self.processed_images = []
         self.is_nd2 = is_nd2
+        self.segmentation_cache = {} 
 
 
 class MorphologyWorker(QObject):
@@ -158,6 +159,10 @@ class TabWidgetApp(QMainWindow):
 
             self.image_data.aligned_phc_path = folder_path
 
+        self.image_data.segmentation_cache.clear()  # Clear segmentation cache
+        print("Segmentation cache cleared.")
+    
+    
     def load_nd2_file(self, file_path):
 
         self.file_path = file_path
@@ -196,6 +201,11 @@ class TabWidgetApp(QMainWindow):
             )
 
             self.display_image()
+            
+            self.image_data.segmentation_cache.clear()  # Clear segmentation cache
+            print("Segmentation cache cleared.")
+            
+            
 
     def update_mapping_dropdowns(self):
         # Clear all dropdowns before updating
@@ -455,11 +465,13 @@ class TabWidgetApp(QMainWindow):
             self.mapping_controls[key] = dropdown
 
     def initMorphologyTab(self):
+        
         def segment_and_plot():
             t = self.slider_t.value()
             p = self.slider_p.value()
-            c = self.slider_c.value()
+            c = self.slider_c.value() if self.has_channels else None  # Default C to None
 
+            # Extract the current frame
             image_data = self.image_data.data
             if self.image_data.is_nd2:
                 if self.has_channels:
@@ -470,13 +482,26 @@ class TabWidgetApp(QMainWindow):
                 image_data = image_data[t]
 
             image_data = np.array(image_data)
-            segmented_image = segment_this_image(image_data)
+
+            # Use a consistent cache key format
+            cache_key = (t, p, c)  # Allow C to be None
+
+            # Check segmentation cache
+            if cache_key in self.image_data.segmentation_cache:
+                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                segmented_image = self.image_data.segmentation_cache[cache_key]
+            else:
+                print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+                segmented_image = segment_this_image(image_data)
+                self.image_data.segmentation_cache[cache_key] = segmented_image
+
+            # Extract morphology data from the segmented image
             morphology_data = extract_cell_morphologies(segmented_image)
 
+            # Update the plot with the selected X/Y variables
             x_key = self.x_dropdown.currentText()
             y_key = self.y_dropdown.currentText()
 
-            # Plot centroids
             self.figure.clear()
             ax = self.figure.add_subplot(111)
             sns.scatterplot(
@@ -489,7 +514,7 @@ class TabWidgetApp(QMainWindow):
             )
             ax.set_title(f"{x_key} vs {y_key}")
             self.canvas.draw()
-
+        
         layout = QVBoxLayout(self.morphologyTab)
 
         segment_button = QPushButton("Segment and Plot")
@@ -616,25 +641,25 @@ class TabWidgetApp(QMainWindow):
 
         def process_morphology_time_series():
             p = self.slider_p.value()
-            c = self.slider_c.value() if "C" in self.dimensions else None
+            c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
 
             if not self.image_data.is_nd2:
                 QMessageBox.warning(self, "Error", "This feature only supports ND2 datasets.")
                 return
 
             try:
-                # Extract image data, limiting time frames to T:0-5
+                # Extract image data for the selected position
                 if "C" in self.dimensions:
                     image_data = np.array(
-                        self.image_data.data[0:6, p, c, :, :].compute()
-                        if hasattr(self.image_data.data[0:6, p, c, :, :], "compute")
-                        else self.image_data.data[0:6, p, c, :, :]
+                        self.image_data.data[:, p, c, :, :].compute()
+                        if hasattr(self.image_data.data[:, p, c, :, :], "compute")
+                        else self.image_data.data[:, p, c, :, :]
                     )
                 else:
                     image_data = np.array(
-                        self.image_data.data[0:6, p, :, :].compute()
-                        if hasattr(self.image_data.data[0:6, p, :, :], "compute")
-                        else self.image_data.data[0:6, p, :, :]
+                        self.image_data.data[:, p, :, :].compute()
+                        if hasattr(self.image_data.data[:, p, :, :], "compute")
+                        else self.image_data.data[:, p, :, :]
                     )
 
                 if image_data.size == 0:
@@ -648,31 +673,43 @@ class TabWidgetApp(QMainWindow):
             self.progress_bar.setMaximum(num_frames)
             self.progress_bar.setValue(0)
 
-            # Start worker thread
-            self.thread = QThread()
-            self.worker = MorphologyWorker(image_data, num_frames)
-            self.worker.moveToThread(self.thread)
+            results = {}
 
-            # Connect signals
-            self.thread.started.connect(self.worker.run)
-            self.worker.progress.connect(self.progress_bar.setValue)
-            self.worker.progress.connect(lambda value: print(f"Progress: {value} frames processed"))
-            self.worker.finished.connect(self.handle_results)
-            self.worker.error.connect(self.handle_error)
-            self.worker.finished.connect(self.thread.quit)
-            self.worker.finished.connect(self.worker.deleteLater)
-            self.thread.finished.connect(self.thread.deleteLater)
+            for t in range(num_frames):
+                # Use a consistent cache key format
+                cache_key = (t, p, c)  # Allow C to be None
 
-            # Start the thread
-            self.thread.start()
+                # Check if segmentation is already cached
+                if cache_key in self.image_data.segmentation_cache:
+                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                    binary_image = self.image_data.segmentation_cache[cache_key]
+                else:
+                    print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+                    binary_image = segment_this_image(image_data[t])
+                    self.image_data.segmentation_cache[cache_key] = binary_image
 
-            # Disable the button while processing
-            self.progress_bar.setVisible(True)
-            segment_button.setEnabled(False)
+                # Validate binary image
+                if binary_image.sum() == 0:
+                    print(f"Frame {t}: No valid contours found.")
+                    continue
 
-            # Re-enable the button after thread finishes
-            self.thread.finished.connect(lambda: segment_button.setEnabled(True))
+                # Extract morphology metrics
+                metrics = extract_cell_morphologies(binary_image)
 
+                if not metrics.empty:
+                    results[t] = metrics.mean(numeric_only=True, axis=0).to_dict()
+                else:
+                    print(f"Frame {t}: Metrics computation returned no valid data.")
+
+                self.progress_bar.setValue(t + 1)  # Update progress bar
+
+            # Handle results after processing
+            if results:
+                self.morphologies_over_time = pd.DataFrame.from_dict(results, orient="index")
+                self.update_plot()
+            else:
+                QMessageBox.warning(self, "Error", "No valid results found in any frame.")
+        
         segment_button.clicked.connect(process_morphology_time_series)
 
     def handle_results(self, results):
