@@ -44,8 +44,6 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 import seaborn as sns
 
-from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment
-
 """
 Can hold either an ND2 file or a series of images
 """
@@ -762,9 +760,8 @@ class TabWidgetApp(QMainWindow):
 
         self.image_label = QLabel()
         self.image_label.setScaledContents(True)  # Allow the label to scale the image
-        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.image_label)
-        
+
         # Another label for aligned images
         self.aligned_image_label = QLabel()
         self.aligned_image_label.setScaledContents(
@@ -773,9 +770,9 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(self.aligned_image_label)
 
         # Align button
-        # align_button = QPushButton("Align Images")
-        # align_button.clicked.connect(self.align_images)
-        # layout.addWidget(align_button)
+        align_button = QPushButton("Align Images")
+        align_button.clicked.connect(self.align_images)
+        layout.addWidget(align_button)
 
         # T controls
         t_layout = QHBoxLayout()
@@ -964,20 +961,9 @@ class TabWidgetApp(QMainWindow):
         label = QLabel("Average Pixel Intensity")
         layout.addWidget(label)
 
-        self.population_figure = plt.figure()
-        self.population_canvas = FigureCanvas(self.population_figure)
-        layout.addWidget(self.population_canvas)
-
-        # Channel control
-        channel_choice_layout = QHBoxLayout()
-        channel_combo = QComboBox()
-        channel_combo.addItem('0')
-        channel_combo.addItem('1')
-        channel_combo.addItem('2')
-        # channel_combo.valueChanged.connect(self.plot_fluorescence_signal)
-        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
-        channel_choice_layout.addWidget(channel_combo)
-        self.channel_combo = channel_combo
+        self.figure = plt.figure()
+        self.canvas = FigureCanvas(self.figure)
+        layout.addWidget(self.canvas)
 
         # P controls
         p_layout = QHBoxLayout()
@@ -1000,14 +986,7 @@ class TabWidgetApp(QMainWindow):
         )
         p_layout.addWidget(self.slider_p_5)
 
-        # Button to manually plot
-        plot_fluo_btn = QPushButton("Plot Fluorescence")
-        plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
-
-        channel_choice_layout.addWidget(plot_fluo_btn)
-
         layout.addLayout(p_layout)
-        layout.addLayout(channel_choice_layout)
 
         # Only attempt to plot if image_data has been loaded
         if hasattr(self, "image_data") and self.image_data is not None:
