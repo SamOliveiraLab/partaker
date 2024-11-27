@@ -31,7 +31,7 @@ from skimage import io, exposure, data
 import numpy as np
 from PIL import Image
 from scipy import stats as st
-from aicsimageio import AICSImage
+# from aicsimageio import AICSImage
 
 from scipy.optimize import minimize
 from numpy import diff

@@ -10,7 +10,12 @@ __pycache__/
 .vscode/
 .idea/
 
+build/
+
+dist/
+
 datasets/
 
-build/
-dist/
+src/build/
+
+src/dist/
