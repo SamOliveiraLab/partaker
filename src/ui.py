@@ -44,6 +44,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 import seaborn as sns
 
+from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment, rpu_params_dict
+
 """
 Can hold either an ND2 file or a series of images
 """
@@ -523,6 +525,7 @@ class TabWidgetApp(QMainWindow):
                 ax=ax,
             )
             ax.set_title(f"{x_key} vs {y_key}")
+
             self.canvas.draw()
         
         layout = QVBoxLayout(self.morphologyTab)
@@ -760,19 +763,20 @@ class TabWidgetApp(QMainWindow):
 
         self.image_label = QLabel()
         self.image_label.setScaledContents(True)  # Allow the label to scale the image
+        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.image_label)
-
+        
+        # TODO: create label for aligned images, or at least some type of selection
         # Another label for aligned images
-        self.aligned_image_label = QLabel()
-        self.aligned_image_label.setScaledContents(
-            True
-        )  # Allow the label to scale the image
-        layout.addWidget(self.aligned_image_label)
+        # self.aligned_image_label = QLabel()
+        # self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
+        # self.aligned_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # layout.addWidget(self.aligned_image_label)
 
         # Align button
-        align_button = QPushButton("Align Images")
-        align_button.clicked.connect(self.align_images)
-        layout.addWidget(align_button)
+        # align_button = QPushButton("Align Images")
+        # align_button.clicked.connect(self.align_images)
+        # layout.addWidget(align_button)
 
         # T controls
         t_layout = QHBoxLayout()
@@ -887,7 +891,7 @@ class TabWidgetApp(QMainWindow):
         max_p_value = self.slider_p.value()
 
         for t in range(max_t_value + 1):
-            for p in range(max_p_value + 1):
+            for p in range(max_p_value + 1): 
                 # Retrieve the specific frame for time t and position p
                 if self.image_data.is_nd2:
                     export_image = (
@@ -961,9 +965,20 @@ class TabWidgetApp(QMainWindow):
         label = QLabel("Average Pixel Intensity")
         layout.addWidget(label)
 
-        self.figure = plt.figure()
-        self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
+        self.population_figure = plt.figure()
+        self.population_canvas = FigureCanvas(self.population_figure)
+        layout.addWidget(self.population_canvas)
+
+        # Channel control
+        channel_choice_layout = QHBoxLayout()
+        channel_combo = QComboBox()
+        channel_combo.addItem('0')
+        channel_combo.addItem('1')
+        channel_combo.addItem('2')
+        # channel_combo.valueChanged.connect(self.plot_fluorescence_signal)
+        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
+        channel_choice_layout.addWidget(channel_combo)
+        self.channel_combo = channel_combo
 
         # P controls
         p_layout = QHBoxLayout()
@@ -978,22 +993,101 @@ class TabWidgetApp(QMainWindow):
         )
         self.slider_p_5 = QSlider(Qt.Horizontal)
         self.slider_p_5.setMinimum(0)
-        self.slider_p_5.setMaximum(max_p)
-        self.slider_p_5.setValue(0)
-        self.slider_p_5.valueChanged.connect(self.plot_average_intensity)
-        self.slider_p_5.valueChanged.connect(
-            lambda value: p_label.setText(f"P: {value}")
-        )
+        self.slider_p_5.setMaximum(max_p) 
+        self.slider_p_5.setValue(0) 
+        self.slider_p_5.valueChanged.connect(lambda value: p_label.setText(f'P: {value}'))  
+
         p_layout.addWidget(self.slider_p_5)
 
+        # Button to manually plot
+        plot_fluo_btn = QPushButton("Plot Fluorescence")
+        plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
+
+        channel_choice_layout.addWidget(plot_fluo_btn)
+
         layout.addLayout(p_layout)
+        layout.addLayout(channel_choice_layout)
+
+        # Create the combobox and populate it with the dictionary keys
+        self.rpu_params_combo = QComboBox()
+        for key in rpu_params_dict.keys():
+            self.rpu_params_combo.addItem(key)
+
+        # Add the combobox to the layout
+        layout.addWidget(QLabel("Select RPU Parameters:"))
+        layout.addWidget(self.rpu_params_combo)
 
         # Only attempt to plot if image_data has been loaded
-        if hasattr(self, "image_data") and self.image_data is not None:
-            self.plot_average_intensity()
+        if hasattr(self, 'image_data') and self.image_data is not None:
+            self.plot_fluorescente_signal()
 
-    def plot_average_intensity(self):
-        if not hasattr(self, "image_data"):
+    def ___plot_fluorescente_signal(self):
+        if not hasattr(self, 'image_data'):
+            return
+
+        selected_time = self.mapping_controls["time"].currentText()
+        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
+
+        full_time_range = self.dimensions.get("T", 1) - 1
+        x_axis_limit = full_time_range + 2 
+
+        # Get the current position from the position slider in the population tab
+        p = self.slider_p_5.value()
+        
+        chan_sel = int(self.channel_combo.currentText())
+
+        # get intensities
+        levels, RPUs, error = get_fluorescence_all_experiments(self.image_data.data, self.dimensions, chan_sel)
+
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+
+        for rpu in RPUs:
+            ax.plot(rpu, color='gray')
+        ax.plot(np.mean(rpu), color='red')
+        
+        ax.set_xlim(0, x_axis_limit)
+        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_xlabel('T')
+        ax.set_ylabel('Signal / RPU')
+        self.canvas.draw()
+
+    def plot_fluorescence_signal(self):
+        if not hasattr(self, 'image_data'):
+            return
+
+        selected_time = self.mapping_controls["time"].currentText()
+        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
+
+        full_time_range = self.dimensions.get("T", 1) - 1
+        x_axis_limit = full_time_range + 2 
+
+        # Get the current position from the position slider in the population tab
+        p = self.slider_p_5.value()
+
+        chan_sel = int(self.channel_combo.currentText())
+        rpu_params = rpu_params_dict[self.rpu_params_combo.currentText()]
+        levels, RPUs, timestamp = get_fluorescence_single_experiment(self.image_data.data, self.dimensions, p, rpu_params, chan_sel)
+
+        # print(levels, RPUs)
+
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+
+        ax.plot(timestamp, levels, color='blue')
+        
+        ax2 = ax.twinx()
+        ax2.plot(timestamp, RPUs, color='red')
+        
+        # ax.set_xlim(0, x_axis_limit)
+        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_xlabel('T')
+        ax.set_ylabel('Signal / RPU')
+        self.population_canvas.draw()
+
+    def __plot_fluorescente_signal(self):
+        if not hasattr(self, 'image_data'):
+
             return
 
         selected_time = self.mapping_controls["time"].currentText()
@@ -1011,7 +1105,8 @@ class TabWidgetApp(QMainWindow):
         average_intensities = []
 
         # Calculate average intensities only up to max_time
-        for t in range(max_time + 1):
+        for t in range(max_time + 1): 
+
             if self.image_data.data.ndim == 4:
                 image_data = self.image_data.data[t, p, :, :]
             elif self.image_data.data.ndim == 3:

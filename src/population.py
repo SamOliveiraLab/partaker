@@ -19,14 +19,23 @@ class RPUParams:
     FL_BLANK: int
     RPU: int
 
-default_rpu = RPUParams(FL_BLANK, YFP_RPU)
+yfp_rpu_params = RPUParams(FL_BLANK, YFP_RPU)
+cherry_rpu_params = RPUParams(FL_CHERRY_BLANK, CHERRY_RPU)
+
+# Create a dictionary for the combobox
+rpu_params_dict = {
+    "YFP RPU Parameters": yfp_rpu_params,
+    "Cherry RPU Parameters": cherry_rpu_params
+}
 
 # TODO: study the data layout optimization to speed up computations
 
 """
 Returns the Levels, RPU and Error across all the experiments
 """
-def get_fluorescence_all_experiments(data, dimensions, exp_channel: int = None, rpu: RPUParams = default_rpu):
+
+def get_fluorescence_all_experiments(data, dimensions, rpu: RPUParams, exp_channel: int = None):
+
     num_exps = dimensions['P']
     
     levels = []
@@ -62,8 +71,8 @@ def get_fluorescence_all_experiments(data, dimensions, exp_channel: int = None, 
 """
 Returns the Levels, RPU and Error across all the experiments
 """
-def get_fluorescence_single_experiment(data, dimensions, experiment, exp_channel: int = None, rpu: RPUParams = default_rpu):
-    
+def get_fluorescence_single_experiment(data, dimensions, experiment, rpu: RPUParams, exp_channel: int = None):
+
     levels = []
     RPUs = []
     timestamp = []
