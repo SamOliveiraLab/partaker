@@ -24,7 +24,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 import seaborn as sns
 
-from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment
+from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment, rpu_params_dict
 
 """
 Can hold either an ND2 file or a series of images
@@ -659,6 +659,15 @@ class TabWidgetApp(QMainWindow):
         layout.addLayout(p_layout)
         layout.addLayout(channel_choice_layout)
 
+        # Create the combobox and populate it with the dictionary keys
+        self.rpu_params_combo = QComboBox()
+        for key in rpu_params_dict.keys():
+            self.rpu_params_combo.addItem(key)
+
+        # Add the combobox to the layout
+        layout.addWidget(QLabel("Select RPU Parameters:"))
+        layout.addWidget(self.rpu_params_combo)
+
         # Only attempt to plot if image_data has been loaded
         if hasattr(self, 'image_data') and self.image_data is not None:
             self.plot_fluorescente_signal()
@@ -708,7 +717,8 @@ class TabWidgetApp(QMainWindow):
         p = self.slider_p_5.value()
 
         chan_sel = int(self.channel_combo.currentText())
-        levels, RPUs, timestamp = get_fluorescence_single_experiment(self.image_data.data, self.dimensions, p, chan_sel)
+        rpu_params = rpu_params_dict[self.rpu_params_combo.currentText()]
+        levels, RPUs, timestamp = get_fluorescence_single_experiment(self.image_data.data, self.dimensions, p, rpu_params, chan_sel)
 
         # print(levels, RPUs)
 
