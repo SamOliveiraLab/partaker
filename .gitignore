@@ -9,3 +9,13 @@ __pycache__/
 
 .vscode/
 .idea/
+
+build/
+
+dist/
+
+datasets/
+
+src/build/
+
+src/dist/

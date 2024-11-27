@@ -28,13 +28,14 @@ rpu_params_dict = {
     "Cherry RPU Parameters": cherry_rpu_params
 }
 
-
 # TODO: study the data layout optimization to speed up computations
 
 """
 Returns the Levels, RPU and Error across all the experiments
 """
+
 def get_fluorescence_all_experiments(data, dimensions, rpu: RPUParams, exp_channel: int = None):
+
     num_exps = dimensions['P']
     
     levels = []
@@ -71,7 +72,7 @@ def get_fluorescence_all_experiments(data, dimensions, rpu: RPUParams, exp_chann
 Returns the Levels, RPU and Error across all the experiments
 """
 def get_fluorescence_single_experiment(data, dimensions, experiment, rpu: RPUParams, exp_channel: int = None):
-    
+
     levels = []
     RPUs = []
     timestamp = []
