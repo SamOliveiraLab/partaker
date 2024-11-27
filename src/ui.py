@@ -64,30 +64,31 @@ class MorphologyWorker(QObject):
     finished = Signal(object)  # Finished with results
     error = Signal(str)  # Emit error message
 
-    def __init__(self, image_data, images, num_frames, p, c):
+    def __init__(self, image_data, image_frames, num_frames, position, channel):
         super().__init__()
         self.image_data = image_data
-        self.images = images
+        self.image_frames = image_frames
         self.num_frames = num_frames
-        self.p = p
-        self.c = c
+        self.position = position
+        self.channel = channel
 
     def run(self):
         results = {}
         try:
             for t in range(self.num_frames):
-                cache_key = (t, self.p, self.c)  # Cache key format
+                # Use a consistent cache key format
+                cache_key = (t, self.position, self.channel)
 
                 # Check if segmentation is already cached
                 if cache_key in self.image_data.segmentation_cache:
-                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={self.p}, C={self.c}")
+                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={self.position}, C={self.channel}")
                     binary_image = self.image_data.segmentation_cache[cache_key]
                 else:
-                    print(f"[CACHE MISS] Segmenting T={t}, P={self.p}, C={self.c}")
-                    binary_image = segment_this_image(self.images[t])
+                    print(f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}")
+                    binary_image = segment_this_image(self.image_frames[t])
                     self.image_data.segmentation_cache[cache_key] = binary_image
 
-                # Validate the binary image
+                # Validate binary image
                 if binary_image.sum() == 0:
                     print(f"Frame {t}: No valid contours found.")
                     continue
@@ -95,7 +96,6 @@ class MorphologyWorker(QObject):
                 # Extract morphology metrics
                 metrics = extract_cell_morphologies(binary_image)
 
-                # Check if metrics contain valid data
                 if not metrics.empty:
                     results[t] = metrics.mean(numeric_only=True, axis=0).to_dict()
                 else:
@@ -109,7 +109,8 @@ class MorphologyWorker(QObject):
                 self.error.emit("No valid results found in any frame.")
         except Exception as e:
             self.error.emit(str(e))
-
+            
+                      
 
 class TabWidgetApp(QMainWindow):
     def __init__(self):
@@ -626,6 +627,7 @@ class TabWidgetApp(QMainWindow):
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
 
+        # Dropdown for selecting metric to plot
         self.metric_dropdown = QComboBox()
         self.metric_dropdown.addItems(
             [
@@ -641,9 +643,11 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(QLabel("Select Metric to Plot:"))
         layout.addWidget(self.metric_dropdown)
 
-        segment_button = QPushButton("Process Morphology Over Time")
-        layout.addWidget(segment_button)
+        # Process button
+        self.segment_button = QPushButton("Process Morphology Over Time")
+        layout.addWidget(self.segment_button)
 
+        # Plot and progress bar
         self.figure_time_series = plt.figure()
         self.canvas_time_series = FigureCanvas(self.figure_time_series)
         layout.addWidget(self.canvas_time_series)
@@ -660,18 +664,19 @@ class TabWidgetApp(QMainWindow):
                 return
 
             try:
-                # Extract image data for the selected position
+                # Extract image data
+                
                 if "C" in self.dimensions:
                     image_data = np.array(
-                        self.image_data.data[:, p, c, :, :].compute()
-                        if hasattr(self.image_data.data[:, p, c, :, :], "compute")
-                        else self.image_data.data[:, p, c, :, :]
+                        self.image_data.data[0:6, p, c, :, :].compute()
+                        if hasattr(self.image_data.data[0:6, p, c, :, :], "compute")
+                        else self.image_data.data[0:6, p, c, :, :]
                     )
                 else:
                     image_data = np.array(
-                        self.image_data.data[:, p, :, :].compute()
-                        if hasattr(self.image_data.data[:, p, :, :], "compute")
-                        else self.image_data.data[:, p, :, :]
+                        self.image_data.data[0:6, p, :, :].compute()
+                        if hasattr(self.image_data.data[0:6, p, :, :], "compute")
+                        else self.image_data.data[0:6, p, :, :]
                     )
 
                 if image_data.size == 0:
@@ -685,34 +690,31 @@ class TabWidgetApp(QMainWindow):
             self.progress_bar.setMaximum(num_frames)
             self.progress_bar.setValue(0)
 
-            # Initialize the MorphologyWorker
-            self.worker_thread = QThread()
-            self.worker = MorphologyWorker(self.image_data, image_data, num_frames, p, c)
+            # Disable the button while the worker is running
+            self.segment_button.setEnabled(False)
 
-            # Connect signals
+            # Create the worker and thread
+            self.worker = MorphologyWorker(self.image_data, image_data, num_frames, p, c)
+            self.thread = QThread()
+            self.worker.moveToThread(self.thread)
+
+            # Connect worker signals
+            self.thread.started.connect(self.worker.run)
             self.worker.progress.connect(self.progress_bar.setValue)
             self.worker.finished.connect(self.handle_results)
             self.worker.error.connect(self.handle_error)
+            self.worker.finished.connect(self.thread.quit)
 
-            # Move worker to a thread
-            self.worker.moveToThread(self.worker_thread)
+            # Cleanup
+            self.thread.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
 
-            # Start the worker when the thread starts
-            self.worker_thread.started.connect(self.worker.run)
+            # Re-enable button when thread finishes
+            self.thread.finished.connect(lambda: self.segment_button.setEnabled(True))
 
-            # Clean up when done
-            self.worker.finished.connect(self.worker_thread.quit)
-            self.worker.finished.connect(self.worker.deleteLater)
-            self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+            self.thread.start()
 
-            self.worker.error.connect(self.worker_thread.quit)
-            self.worker.error.connect(self.worker.deleteLater)
-            self.worker.error.connect(self.worker_thread.deleteLater)
-
-            # Start the thread
-            self.worker_thread.start()
-
-        segment_button.clicked.connect(process_morphology_time_series)
+        self.segment_button.clicked.connect(process_morphology_time_series)
 
     def handle_results(self, results):
         if not results:
@@ -750,7 +752,7 @@ class TabWidgetApp(QMainWindow):
         ax.set_xlabel("Time")
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
-
+    
     
     
     def initViewArea(self):
