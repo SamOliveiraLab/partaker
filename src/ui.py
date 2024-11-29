@@ -35,7 +35,7 @@ import tifffile
 
 # Local imports
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
-from segmentation import segment_all_images, segment_this_image
+from segmentation import segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
 
@@ -774,9 +774,11 @@ class TabWidgetApp(QMainWindow):
         # layout.addWidget(self.aligned_image_label)
 
         # Align button
-        # align_button = QPushButton("Align Images")
-        # align_button.clicked.connect(self.align_images)
-        # layout.addWidget(align_button)
+        
+        # Annotate Cells button
+        annotate_button = QPushButton("Annotate Cells")
+        annotate_button.clicked.connect(self.annotate_cells)
+        layout.addWidget(annotate_button)
 
         # T controls
         t_layout = QHBoxLayout()
@@ -874,6 +876,49 @@ class TabWidgetApp(QMainWindow):
         self.threshold_slider.valueChanged.connect(self.display_image)
         layout.addWidget(self.threshold_slider)
 
+    
+    def annotate_cells(self):
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        # Extract the current frame
+        image_data = self.image_data.data
+        if self.image_data.is_nd2:
+            frame = image_data[t, p, c] if self.has_channels else image_data[t, p]
+        else:
+            frame = image_data[t]
+
+        frame = np.array(frame)  # Ensure it's a NumPy array
+
+        # Perform segmentation
+        segmented_image = segment_this_image(frame)
+
+        # Extract cell metrics and bounding boxes
+        cell_mapping = extract_cells_and_metrics(frame, segmented_image)
+
+        if not cell_mapping:
+            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
+            return
+
+        # Annotate the binary segmented image
+        annotated_binary_mask = annotate_binary_mask(segmented_image, cell_mapping)
+
+        # Display the annotated binary mask
+        height, width = annotated_binary_mask.shape[:2]
+        qimage = QImage(
+            annotated_binary_mask.data,
+            width,
+            height,
+            annotated_binary_mask.strides[0],
+            QImage.Format_RGB888,
+        )
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        self.image_label.setPixmap(pixmap)
+    
+    
     def export_images(self):
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save As", "", "TIFF Files (*.tif);;All Files (*)"
@@ -947,19 +992,259 @@ class TabWidgetApp(QMainWindow):
             #             pixelformat='yuv444p')
 
     def initUI(self):
+        # Initialize tabs as QWidget
+        self.importTab = QWidget()
+        self.exportTab = QWidget()
+        self.populationTab = QWidget()
+        self.morphologyTab = QWidget()
+        self.morphologyTimeTab = QWidget()
+        self.cellExtractionTab = QWidget()
+        self.annotatedTab = QWidget()  # New tab for annotations and scatter plot
+
+        # Add tabs to the QTabWidget
         self.tab_widget.addTab(self.importTab, "Import")
         self.tab_widget.addTab(self.exportTab, "Export")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
+        self.tab_widget.addTab(self.cellExtractionTab, "Cell Extraction")
+        self.tab_widget.addTab(self.annotatedTab, "Annotations & Scatter Plot")
 
+        # Initialize tab layouts and content
         self.initImportTab()
         self.initViewArea()
         self.initExportTab()
         self.initPopulationTab()
         self.initMorphologyTab()
         self.initMorphologyTimeTab()
+        self.initCellExtractionTab()
+        self.initAnnotatedTab()
 
+
+    def initAnnotatedTab(self):
+        layout = QVBoxLayout(self.annotatedTab)
+
+        # Annotated image display
+        self.annotated_image_label = QLabel("Annotated image will be displayed here.")
+        self.annotated_image_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.annotated_image_label)
+
+        # Scatter plot display
+        self.figure_scatter_plot = plt.figure()
+        self.canvas_scatter_plot = FigureCanvas(self.figure_scatter_plot)
+        layout.addWidget(self.canvas_scatter_plot)
+
+        # Button to trigger processing
+        process_button = QPushButton("Generate Annotations & Scatter Plot")
+        process_button.clicked.connect(self.generate_annotations_and_scatter)
+        layout.addWidget(process_button)
+
+        # Set layout to the tab
+        self.annotatedTab.setLayout(layout)
+
+
+    def generate_annotations_and_scatter(self):
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        # Extract the current frame
+        image_data = self.image_data.data
+        if self.image_data.is_nd2:
+            if self.has_channels:
+                image_data = image_data[t, p, c]
+            else:
+                image_data = image_data[t, p]
+        else:
+            image_data = image_data[t]
+
+        # Ensure image_data is a numpy array
+        image_data = np.array(image_data)
+
+        # Perform segmentation
+        segmented_image = segment_this_image(image_data)
+
+        # Extract cells and their metrics
+        self.cell_mapping = extract_cells_and_metrics(image_data, segmented_image)
+
+        if not self.cell_mapping:
+            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
+            return
+
+        # Annotate the original image
+        try:
+            annotated_image = annotate_image(image_data, self.cell_mapping)
+        except ValueError as e:
+            print(f"Annotation Error: {e}")
+            QMessageBox.warning(self, "Annotation Error", str(e))
+            return
+
+        # Display the annotated image
+        height, width = annotated_image.shape[:2]
+        qimage = QImage(
+            annotated_image.data, width, height, annotated_image.strides[0], QImage.Format_RGB888
+        )
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.annotated_image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        self.annotated_image_label.setPixmap(pixmap)
+
+        # Generate scatter plot
+        self.generate_scatter_plot()
+        
+
+    def generate_scatter_plot(self):
+        areas = [data["metrics"]["area"] for data in self.cell_mapping.values()]
+        perimeters = [data["metrics"]["perimeter"] for data in self.cell_mapping.values()]
+        ids = list(self.cell_mapping.keys())
+
+        self.figure_scatter_plot.clear()
+        ax = self.figure_scatter_plot.add_subplot(111)
+
+        # Create scatter plot with interactivity
+        scatter = ax.scatter(areas, perimeters, c=areas, cmap="viridis", picker=True)
+        ax.set_title("Area vs Perimeter")
+        ax.set_xlabel("Area")
+        ax.set_ylabel("Perimeter")
+
+        # Annotate scatter points with IDs
+        for i, txt in enumerate(ids):
+            ax.annotate(txt, (areas[i], perimeters[i]))
+
+        # Add click event handling
+        self.figure_scatter_plot.canvas.mpl_connect(
+            "pick_event", lambda event: self.on_scatter_click(event)
+        )
+
+        self.canvas_scatter_plot.draw()
+
+
+    def on_scatter_click(self, event):
+        # Get the index of the clicked point
+        ind = event.ind[0]  # Index of the clicked point
+        cell_id = list(self.cell_mapping.keys())[ind]
+
+        print(f"Clicked on scatter point: ID {cell_id}")
+
+        # Extract the specific image frame
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        if self.image_data.is_nd2:
+            if self.has_channels:
+                image_data = self.image_data.data[t, p, c]
+            else:
+                image_data = self.image_data.data[t, p]
+        else:
+            image_data = self.image_data.data[t]
+
+        image_data = np.array(image_data)  # Ensure it's a NumPy array
+
+        # Highlight the corresponding cell in the annotated image
+        annotated_image = annotate_image(image_data, {cell_id: self.cell_mapping[cell_id]})
+
+        # Update the annotated image display
+        height, width = annotated_image.shape[:2]
+        qimage = QImage(
+            annotated_image.data, width, height, annotated_image.strides[0], QImage.Format_RGB888
+        )
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.annotated_image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        self.annotated_image_label.setPixmap(pixmap)
+    
+
+    def initCellExtractionTab(self):
+        layout = QVBoxLayout(self.cellExtractionTab)
+
+        # Button to extract cells
+        extract_button = QPushButton("Extract Cells")
+        layout.addWidget(extract_button)
+
+        save_button = QPushButton("Save Extracted Cells")
+        save_button.setEnabled(False)  # Disabled until cells are extracted
+        layout.addWidget(save_button)
+
+        # Progress bar for extraction
+        self.cell_extraction_progress_bar = QProgressBar()
+        layout.addWidget(self.cell_extraction_progress_bar)
+
+        # Area to display extracted cells
+        self.extracted_cells_scroll_area = QScrollArea()
+        layout.addWidget(self.extracted_cells_scroll_area)
+
+        # Connect buttons to functions
+        extract_button.clicked.connect(self.extract_cells)
+        save_button.clicked.connect(self.save_extracted_cells)
+
+        self.cellExtractionTab.setLayout(layout)
+
+
+    def extract_cells(self):
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        # Extract the current frame
+        image_data = self.image_data.data
+        if self.image_data.is_nd2:
+            if self.has_channels:
+                image_data = image_data[t, p, c]
+            else:
+                image_data = image_data[t, p]
+        else:
+            image_data = image_data[t]
+
+        image_data = np.array(image_data)
+
+        # Perform segmentation
+        segmented_image = segment_this_image(image_data)
+
+        # Extract individual cells
+        cells = extract_individual_cells(image_data, segmented_image)
+
+        if not cells:
+            QMessageBox.warning(self, "No Cells", "No cells were detected in the current frame.")
+            return
+
+        # Display extracted cells in the scroll area
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+
+        self.cell_extraction_progress_bar.setMaximum(len(cells))
+
+        for idx, (cell, bbox) in enumerate(cells):
+            cell_label = QLabel()
+            height, width = cell.shape
+            cell_data = np.ascontiguousarray(cell)  # Ensure C-contiguous buffer
+            qimage = QImage(cell_data, width, height, QImage.Format_Grayscale8)
+            pixmap = QPixmap.fromImage(qimage)
+            cell_label.setPixmap(pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            scroll_layout.addWidget(cell_label)
+
+            # Update progress bar
+            self.cell_extraction_progress_bar.setValue(idx + 1)
+
+        self.extracted_cells_scroll_area.setWidget(scroll_content)
+        self.extracted_cells = cells  # Store extracted cells for saving
+
+
+    def save_extracted_cells(self):
+        if not hasattr(self, "extracted_cells") or not self.extracted_cells:
+            QMessageBox.warning(self, "No Cells", "No extracted cells to save.")
+            return
+
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder to Save Cells")
+        if not folder_path:
+            return
+
+        for idx, (cell, bbox) in enumerate(self.extracted_cells):
+            save_path = os.path.join(folder_path, f"cell_{idx + 1}.png")
+            cv2.imwrite(save_path, cell)
+
+        QMessageBox.information(self, "Saved", f"Extracted cells saved to {folder_path}")
+    
     def initPopulationTab(self):
         layout = QVBoxLayout(self.populationTab)
         label = QLabel("Average Pixel Intensity")

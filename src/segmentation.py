@@ -401,18 +401,32 @@ class CellposeModelSingleton:
 
         return cls._instance
 
+def preprocess_image(image):
+    # Apply contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced_image = clahe.apply(image)
+
+    # Apply Gaussian blur for denoising
+    blurred_image = cv2.GaussianBlur(enhanced_image, (5, 5), 0)
+
+    return blurred_image
+
 def segment_this_image(image):
-    # Usage
+    # Preprocess image before segmentation
+    preprocessed_image = preprocess_image(image)
+
+    # Use Cellpose for segmentation
     cellpose_inst = CellposeModelSingleton().model
+    masks, flows, styles, diams = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
 
-    image = np.array(image)
-
-    # Run segmentation
-    masks, flows, styles, diams = cellpose_inst.eval(image, diameter=None, channels=[0, 0])
-
-    # Create a black and white image from masks
+    # Create binary mask
     bw_image = np.zeros_like(masks, dtype=np.uint8)
     bw_image[masks > 0] = 255
+    
+    # Debug: Show binary mask
+    # cv2.imshow("Binary Mask", bw_image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
     return bw_image
 
@@ -469,3 +483,147 @@ def _segment_this_image(image):
 
     print(pred_imgs.shape)
     return pred_imgs[0, :, :, 0]
+
+
+
+
+def extract_individual_cells(image, segmented_image):
+    """
+    Extracts individual cells from the original image based on the segmented mask.
+
+    Parameters:
+    -----------
+    image : np.ndarray
+        The original grayscale or raw image.
+    segmented_image : np.ndarray
+        The binary segmented image where each cell is labeled uniquely.
+
+    Returns:
+    --------
+    List of tuples where each tuple contains:
+        - Cropped cell image (np.ndarray)
+        - Bounding box (x, y, w, h)
+    """
+    # Ensure the images are the same size
+    assert image.shape == segmented_image.shape, "Image and segmented image must have the same dimensions."
+
+    # Find connected components in the segmented mask
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(segmented_image, connectivity=8)
+
+    # Extract individual cells
+    extracted_cells = []
+    for label in range(1, num_labels):  # Skip the background (label=0)
+        # Extract bounding box for the label
+        x, y, w, h, area = stats[label]
+
+        # Skip small regions (noise)
+        if area < 50:
+            continue
+
+        # Crop the corresponding region from the original image
+        cropped_cell = image[y:y + h, x:x + w]
+        extracted_cells.append((cropped_cell, (x, y, w, h)))
+
+    return extracted_cells
+
+
+def extract_cells_and_metrics(image, segmented_image):
+    """
+    Extract individual cells, their bounding boxes, and metrics from a segmented image.
+
+    Parameters:
+    - image: np.ndarray, the original grayscale image.
+    - segmented_image: np.ndarray, the binary segmented image.
+
+    Returns:
+    - cell_mapping: dict, a dictionary with cell IDs as keys and a dictionary of metrics and bounding boxes as values.
+    """
+    from skimage.measure import regionprops, label
+
+    # Label connected regions in the segmented image
+    labeled_image = label(segmented_image)
+
+    # Extract properties for each labeled region
+    cell_mapping = {}
+    for region in regionprops(labeled_image, intensity_image=image):
+        if region.area < 50:  # Filter out small regions (noise)
+            continue
+
+        # Calculate bounding box and metrics
+        x1, y1, x2, y2 = region.bbox  # Bounding box coordinates
+        metrics = {
+            "area": region.area,
+            "perimeter": region.perimeter,
+            "equivalent_diameter": region.equivalent_diameter,
+            "orientation": region.orientation,
+        }
+
+        # Add cell information to the mapping
+        cell_id = len(cell_mapping) + 1
+        cell_mapping[cell_id] = {
+            "bbox": (x1, y1, x2, y2),
+            "metrics": metrics,
+        }
+
+    return cell_mapping
+
+
+def annotate_image(image, cell_mapping):
+    """
+    Annotate the original image with bounding boxes and IDs for detected cells.
+    """
+    if not isinstance(image, np.ndarray):
+        raise ValueError("The input image is not a valid numpy array.")
+    print(f"Annotating image of shape: {image.shape}")  # Debugging
+
+    annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)  # Ensure it's in RGB format
+    for cell_id, data in cell_mapping.items():
+        x1, y1, x2, y2 = data["bbox"]
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(annotated, str(cell_id), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    return annotated
+
+
+def annotate_binary_mask(segmented_image, cell_mapping):
+    """
+    Annotate the binary segmented mask with bounding boxes and cell IDs.
+
+    Parameters:
+    -----------
+    segmented_image : np.ndarray
+        The binary segmented mask (black and white).
+    cell_mapping : dict
+        Cell ID mapping with metrics and bounding boxes.
+
+    Returns:
+    --------
+    annotated : np.ndarray
+        Annotated binary mask with bounding boxes and labels.
+    """
+    # Ensure input is grayscale
+    if len(segmented_image.shape) == 3:
+        segmented_image = cv2.cvtColor(segmented_image, cv2.COLOR_BGR2GRAY)
+
+    # Convert grayscale to RGB for annotations
+    annotated = cv2.cvtColor(segmented_image, cv2.COLOR_GRAY2RGB)
+
+    for cell_id, data in cell_mapping.items():
+        x1, y1, x2, y2 = data["bbox"]
+
+        # Draw bounding box (e.g., green with 2px thickness)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        # Add cell ID within the bounding box
+        text_position = (x1 + 5, y1 + 15)  # Adjust for better placement
+        cv2.putText(
+            annotated,
+            str(cell_id),  # Cell ID as string
+            text_position,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,  # Font scale
+            (255, 255, 255),  # White text color
+            1,  # Line thickness
+            cv2.LINE_AA,  # Anti-aliased for smoother text
+        )
+
+    return annotated
