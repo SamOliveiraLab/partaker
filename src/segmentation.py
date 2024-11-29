@@ -409,117 +409,15 @@ class SegmentationModels:
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            cls._instance = super(SegmentationModels, cls).__new__(cls, *args, **kwargs)
-            cls._instance.models = {}
+            cls._instance = super(CellposeModelSingleton, cls).__new__(cls, *args, **kwargs)
+            
+            # Check environment "PARTAKER_GPU": "1" or "0"
+            if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
+                cls._instance.model = models.Cellpose(gpu=True, model_type='cyto3')
+            else:
+                cls._instance.model = models.Cellpose(gpu=False, model_type='cyto3')
+
         return cls._instance
-
-    # def get_model(self, mode):
-    #     if mode == SegmentationModels.CELLPOSE:
-    #         if SegmentationModels.CELLPOSE not in self.models:
-    #             if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-    #                 self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type='deepbacs_cp3')
-    #             else:
-    #                 self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type='deepbacs_cp3')
-    #         return self.models[SegmentationModels.CELLPOSE]
-    #     elif mode == SegmentationModels.UNET:
-    #         if SegmentationModels.UNET not in self.models:
-    #             target_size_seg = (512, 512)
-    #             self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
-    #         return self.models[SegmentationModels.UNET]
-    #     else:
-    #         raise ValueError(f"Invalid segmentation mode: {mode}")
-
-    """
-    Segments an array of images using unet
-    """
-    def segment_unet(self, images):
-        model = self.models[SegmentationModels.UNET]
-        pred_imgs = model.predict(np.array([np.expand_dims(cv2.resize(img, (512, 512)), axis=-1) for img in images]))
-
-        print(pred_imgs.shape)
-        return pred_imgs[:, :, :, 0]
-    
-    """
-    Segment an array of images using cellpose
-    """
-    def segment_cellpose(self, images, progress):
-        cellpose_inst = self.models[SegmentationModels.CELLPOSE]
-
-        # Ensure images are in the correct format
-        images = [img.squeeze() if img.ndim > 2 else img for img in images]
-
-        # Run segmentation
-        try:
-            masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
-            masks = np.array(masks)  # Ensure masks are a NumPy array
-        except Exception as e:
-            print(f"Error during segmentation: {e}")
-            return None
-
-        # Create binary black-and-white masks
-        try:
-            bw_images = np.zeros_like(masks, dtype=np.uint8)
-            bw_images[masks > 0] = 255  # Convert labeled masks to binary
-        except Exception as e:
-            print(f"Error converting masks to binary: {e}")
-            return None
-
-        # Update progress if a callback is provided
-        if progress:
-            if callable(progress):  # If it's a function
-                progress(len(images))
-            else:  # Assume it's a PyQt signal
-                progress.emit(len(images))
-
-        return bw_images        
-
-    def segment_images(self, images, mode, progress=None):
-
-        if mode == SegmentationModels.CELLPOSE:
-            if SegmentationModels.CELLPOSE not in self.models:
-                if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type='deepbacs_cp3')
-                else:
-                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type='deepbacs_cp3')
-            
-            return self.segment_cellpose(images, progress)
-        
-        elif mode == SegmentationModels.UNET:
-            if SegmentationModels.UNET not in self.models:
-                target_size_seg = (512, 512)
-                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
-            
-            return self.segment_unet(images)
-
-        else:
-            raise ValueError(f"Invalid segmentation mode: {mode}")
-
-
-# # Example usage
-# segmentation_models = SegmentationModels()
-
-# # Accessing the CELLPOSE model
-# cellpose_model = segmentation_models.get_model(SegmentationModels.CELLPOSE)
-
-# # Accessing the UNET model
-# unet_model = segmentation_models.get_model(SegmentationModels.UNET)
-
-# # Segmenting images using the CELLPOSE model
-# segmented_images = segmentation_models.segment_images(images, mode=SegmentationModels.CELLPOSE, progress=progress)
-
-# # Segmenting images using the UNET model
-# segmented_images = segmentation_models.segment_images(images, mode=SegmentationModels.UNET, progress=progress)
-
-
-def preprocess_image(image):
-    # Apply contrast enhancement
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced_image = clahe.apply(image)
-
-    # Apply Gaussian blur for denoising
-    blurred_image = cv2.GaussianBlur(enhanced_image, (5, 5), 0)
-
-    return blurred_image
 
 
 def segment_this_image(image):
