@@ -419,6 +419,15 @@ class SegmentationModels:
 
         return cls._instance
 
+def preprocess_image(image):
+    # Apply contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced_image = clahe.apply(image)
+
+    # Apply Gaussian blur for denoising
+    blurred_image = cv2.GaussianBlur(enhanced_image, (5, 5), 0)
+
+    return blurred_image
 
 def segment_this_image(image):
     # Preprocess image before segmentation
@@ -426,7 +435,7 @@ def segment_this_image(image):
 
     # Use Cellpose for segmentation
     cellpose_inst = CellposeModelSingleton().model
-    masks, flows, styles = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
+    masks, flows, styles, diams = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
 
     # Create binary mask
     bw_image = np.zeros_like(masks, dtype=np.uint8)
