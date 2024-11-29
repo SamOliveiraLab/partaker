@@ -35,7 +35,7 @@ import tifffile
 
 # Local imports
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
-from segmentation import SegmentationModels, segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
+from segmentation import SegmentationModels, segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
 

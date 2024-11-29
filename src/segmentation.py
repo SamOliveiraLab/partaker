@@ -521,13 +521,18 @@ def preprocess_image(image):
 
     return blurred_image
 
+
 def segment_this_image(image):
     # Preprocess image before segmentation
     preprocessed_image = preprocess_image(image)
 
     # Use Cellpose for segmentation
     cellpose_inst = CellposeModelSingleton().model
-    masks, flows, styles = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
+
+    image = np.array(image)
+
+    # Run segmentation
+    masks, flows, styles, diams = cellpose_inst.eval(image, diameter=None, channels=[0, 0])
 
     # Create binary mask
     bw_image = np.zeros_like(masks, dtype=np.uint8)
