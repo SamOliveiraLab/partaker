@@ -42,7 +42,7 @@ import tifffile
 
 # Local imports
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
-from segmentation import SegmentationModels, segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
+from segmentation import segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
 
@@ -1074,6 +1074,8 @@ class TabWidgetApp(QMainWindow):
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.annotatedTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
+        self.tab_widget.addTab(self.cellExtractionTab, "Cell Extraction")
+        self.tab_widget.addTab(self.annotatedTab, "Annotations & Scatter Plot")
 
         # Initialize tab layouts and content
         self.initImportTab()
