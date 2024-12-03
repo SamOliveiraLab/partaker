@@ -942,7 +942,9 @@ class TabWidgetApp(QMainWindow):
         cell_mapping = extract_cells_and_metrics(frame, segmented_image)
 
         if not cell_mapping:
-            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
+            QMessageBox.warning(
+                self, "No Cells", "No cells detected in the current frame."
+            )
             return
 
         # Annotate the original image with cell IDs and bounding boxes
@@ -954,13 +956,17 @@ class TabWidgetApp(QMainWindow):
         # **Display the annotated image on the main image display**
         height, width = annotated_binary_mask.shape[:2]
         qimage = QImage(
-            annotated_image.data, width, height, annotated_image.strides[0], QImage.Format_RGB888
+            annotated_image.data,
+            width,
+            height,
+            annotated_image.strides[0],
+            QImage.Format_RGB888,
         )
         pixmap = QPixmap.fromImage(qimage).scaled(
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
-    
+
     def export_images(self):
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save As", "", "TIFF Files (*.tif);;All Files (*)"
@@ -1050,7 +1056,6 @@ class TabWidgetApp(QMainWindow):
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.annotatedTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
-        self.tab_widget.addTab(self.cellExtractionTab, "Cell Extraction")
         self.tab_widget.addTab(self.annotatedTab, "Annotations & Scatter Plot")
 
         # Initialize tab layouts and content
@@ -1062,8 +1067,6 @@ class TabWidgetApp(QMainWindow):
         self.initMorphologyTimeTab()
         self.initAnnotatedTab()
 
-    
-   
     def initAnnotatedTab(self):
         layout = QVBoxLayout(self.annotatedTab)
 
