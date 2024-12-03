@@ -523,10 +523,7 @@ def preprocess_image(image):
 
 
 def segment_this_image(image):
-    """
-    Segment an image using Cellpose and return a binary mask.
-    """
-    # Preprocess the image before segmentation
+    # Preprocess image before segmentation
     preprocessed_image = preprocess_image(image)
 
     # Use Cellpose for segmentation
@@ -537,15 +534,16 @@ def segment_this_image(image):
     # Run segmentation
     masks, flows, styles, diams = cellpose_inst.eval(image, diameter=None, channels=[0, 0])
 
-    # Convert segmentation masks to binary masks
+    # Create binary mask
     bw_image = np.zeros_like(masks, dtype=np.uint8)
     bw_image[masks > 0] = 255
-
-    # Debug: Save segmented output for verification
-    cv2.imwrite("segmented_debug.png", bw_image)
+    
+    # Debug: Show binary mask
+    # cv2.imshow("Binary Mask", bw_image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
     return bw_image
-
 
 def segment_all_images(images, progress=None):
     # Get the Cellpose model instance
@@ -688,25 +686,13 @@ def annotate_image(image, cell_mapping):
     """
     if not isinstance(image, np.ndarray):
         raise ValueError("The input image is not a valid numpy array.")
-    print(f"Annotating image of shape: {image.shape}")
+    print(f"Annotating image of shape: {image.shape}")  # Debugging
 
-    # Ensure the image is in RGB format for annotation
-    annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    
+    annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)  # Ensure it's in RGB format
     for cell_id, data in cell_mapping.items():
         x1, y1, x2, y2 = data["bbox"]
-        # Draw bounding box in green
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        # Draw the cell ID in white text
-        cv2.putText(
-            annotated, str(cell_id), (x1 + 5, y1 + 15),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
-        )
-        print(f"Added annotation for Cell ID {cell_id} at {x1, y1, x2, y2}")
-
-    # Debug: Save annotated output for verification
-    cv2.imwrite("annotated_debug.png", annotated)
-
+        cv2.putText(annotated, str(cell_id), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     return annotated
 
 
