@@ -435,7 +435,7 @@ def segment_this_image(image):
 
     # Use Cellpose for segmentation
     cellpose_inst = CellposeModelSingleton().model
-    masks, flows, styles, diams = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
+    masks, flows, styles = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
 
     # Create binary mask
     bw_image = np.zeros_like(masks, dtype=np.uint8)

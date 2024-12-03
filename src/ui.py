@@ -325,21 +325,6 @@ class TabWidgetApp(QMainWindow):
         # plt.grid(True)
         # plt.show()
 
-        # Label connected components
-        labeled_image, num_components = measure.label(img, connectivity=2, return_num=True)
-
-        # Count pixels in each component (ignore background)
-        pixel_counts = np.bincount(labeled_image.ravel())[1:]  # Skip the first element (background)
-
-        
-        # Create a histogram of pixel counts
-        plt.hist(pixel_counts, bins=30, color='blue', alpha=0.7)
-        plt.title('Histogram of Pixel Counts of Connected Components')
-        plt.xlabel('Pixel Count')
-        plt.ylabel('Number of Components')
-        plt.grid(True)
-        plt.show()
-
 
 
 
