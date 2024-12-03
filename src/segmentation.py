@@ -413,9 +413,9 @@ class SegmentationModels:
             
             # Check environment "PARTAKER_GPU": "1" or "0"
             if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                cls._instance.model = models.Cellpose(gpu=True, model_type='cyto3')
+                cls._instance.model = models.CellposeModel(gpu=True, model_type='deepbacs_cp3')
             else:
-                cls._instance.model = models.Cellpose(gpu=False, model_type='cyto3')
+                cls._instance.model = models.CellposeModel(gpu=False, model_type='deepbacs_cp3')
 
         return cls._instance
 

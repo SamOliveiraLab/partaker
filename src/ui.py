@@ -317,13 +317,13 @@ class TabWidgetApp(QMainWindow):
 
         # TODO: de-comment
         # Create a histogram of pixel counts using Seaborn
-        plt.figure(figsize=(10, 6))
-        sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
-        plt.title("Histogram of Pixel Counts of Connected Components")
-        plt.xlabel("Pixel Count")
-        plt.ylabel("Number of Components")
-        plt.grid(True)
-        plt.show()
+        # plt.figure(figsize=(10, 6))
+        # sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
+        # plt.title("Histogram of Pixel Counts of Connected Components")
+        # plt.xlabel("Pixel Count")
+        # plt.ylabel("Number of Components")
+        # plt.grid(True)
+        # plt.show()
 
         # Label connected components
         labeled_image, num_components = measure.label(img, connectivity=2, return_num=True)
