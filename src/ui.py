@@ -301,14 +301,15 @@ class TabWidgetApp(QMainWindow):
         # Extract pixel counts for each component (ignore background)
         pixel_counts = stats[1:, cv2.CC_STAT_AREA]  # Skip the first label (background)
 
+        # TODO: de-comment
         # Create a histogram of pixel counts using Seaborn
-        plt.figure(figsize=(10, 6))
-        sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
-        plt.title("Histogram of Pixel Counts of Connected Components")
-        plt.xlabel("Pixel Count")
-        plt.ylabel("Number of Components")
-        plt.grid(True)
-        plt.show()
+        # plt.figure(figsize=(10, 6))
+        # sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
+        # plt.title("Histogram of Pixel Counts of Connected Components")
+        # plt.xlabel("Pixel Count")
+        # plt.ylabel("Number of Components")
+        # plt.grid(True)
+        # plt.show()
 
         # # Label connected components
         # labeled_image, num_components = measure.label(img, connectivity=2, return_num=True)
@@ -860,6 +861,7 @@ class TabWidgetApp(QMainWindow):
         self.button_group.addButton(self.radio_normal)
         self.button_group.addButton(self.radio_thresholding)
         self.button_group.addButton(self.radio_segmented)
+        self.button_group.buttonClicked.connect(self.display_image)
 
         # Set default selection
         self.radio_normal.setChecked(True)
@@ -876,7 +878,14 @@ class TabWidgetApp(QMainWindow):
         self.threshold_slider.valueChanged.connect(self.display_image)
         layout.addWidget(self.threshold_slider)
 
-    
+        # Segmentation model selection
+        model_label = QLabel("Select Segmentation Model:")
+        layout.addWidget(model_label)
+
+        self.model_dropdown = QComboBox()
+        self.model_dropdown.addItems(["Model A", "Model B", "Model C"])
+        layout.addWidget(self.model_dropdown)
+        
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()

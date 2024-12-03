@@ -395,9 +395,9 @@ class CellposeModelSingleton:
             
             # Check environment "PARTAKER_GPU": "1" or "0"
             if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                cls._instance.model = models.Cellpose(gpu=True, model_type='cyto3')
+                cls._instance.model = models.CellposeModel(gpu=True, model_type='deepbacs_cp3')
             else:
-                cls._instance.model = models.Cellpose(gpu=False, model_type='cyto3')
+                cls._instance.model = models.CellposeModel(gpu=False, model_type='deepbacs_cp3')
 
         return cls._instance
 
@@ -417,7 +417,7 @@ def segment_this_image(image):
 
     # Use Cellpose for segmentation
     cellpose_inst = CellposeModelSingleton().model
-    masks, flows, styles, diams = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
+    masks, flows, styles = cellpose_inst.eval(preprocessed_image, diameter=None, channels=[0, 0])
 
     # Create binary mask
     bw_image = np.zeros_like(masks, dtype=np.uint8)
@@ -439,7 +439,7 @@ def segment_all_images(images, progress=None):
 
     # Run segmentation
     try:
-        masks, _, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
+        masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
         masks = np.array(masks)  # Ensure masks are a NumPy array
     except Exception as e:
         print(f"Error during segmentation: {e}")
@@ -483,9 +483,6 @@ def _segment_this_image(image):
 
     print(pred_imgs.shape)
     return pred_imgs[0, :, :, 0]
-
-
-
 
 def extract_individual_cells(image, segmented_image):
     """
@@ -608,7 +605,7 @@ def annotate_binary_mask(segmented_image, cell_mapping):
     annotated = cv2.cvtColor(segmented_image, cv2.COLOR_GRAY2RGB)
 
     for cell_id, data in cell_mapping.items():
-        x1, y1, x2, y2 = data["bbox"]
+        y1, x1, y2, x2 = data["bbox"]
 
         # Draw bounding box (e.g., green with 2px thickness)
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
