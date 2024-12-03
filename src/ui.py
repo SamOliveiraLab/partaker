@@ -912,9 +912,6 @@ class TabWidgetApp(QMainWindow):
         
     
     def annotate_cells(self):
-        """
-        Segment and annotate the currently displayed image frame with cell IDs.
-        """
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
@@ -942,13 +939,11 @@ class TabWidgetApp(QMainWindow):
         cell_mapping = extract_cells_and_metrics(frame, segmented_image)
 
         if not cell_mapping:
-            QMessageBox.warning(
-                self, "No Cells", "No cells detected in the current frame."
-            )
+            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
             return
 
-        # Annotate the original image with cell IDs and bounding boxes
-        annotated_image = annotate_image(frame, cell_mapping)
+        # Annotate the binary segmented image
+        annotated_binary_mask = annotate_binary_mask(segmented_image, cell_mapping)
 
         # Set the annotated image for saving
         self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
@@ -956,17 +951,19 @@ class TabWidgetApp(QMainWindow):
         # **Display the annotated image on the main image display**
         height, width = annotated_binary_mask.shape[:2]
         qimage = QImage(
-            annotated_image.data,
+            annotated_binary_mask.data,
             width,
             height,
-            annotated_image.strides[0],
+            annotated_binary_mask.strides[0],
             QImage.Format_RGB888,
         )
         pixmap = QPixmap.fromImage(qimage).scaled(
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
-
+    
+    
+    
     def export_images(self):
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save As", "", "TIFF Files (*.tif);;All Files (*)"
