@@ -42,7 +42,7 @@ import tifffile
 
 # Local imports
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
-from segmentation import segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
+from segmentation import SegmentationModels, segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
 
@@ -361,6 +361,7 @@ class TabWidgetApp(QMainWindow):
         if self.radio_thresholding.isChecked():
             threshold = self.threshold_slider.value()
             image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
+            image_data = image_data.compute()
         
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
@@ -369,7 +370,7 @@ class TabWidgetApp(QMainWindow):
                 image_data = self.image_data.segmentation_cache[cache_key]
             else:
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
+                image_data = SegmentationModels().segment_images(np.array([image_data]), SegmentationModels.CELLPOSE)[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
 
