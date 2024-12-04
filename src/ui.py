@@ -35,7 +35,7 @@ import tifffile
 
 # Local imports
 from morphology import extract_cell_morphologies, extract_cell_morphologies_time
-from segmentation import segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
+from segmentation import SegmentationModels, segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
 
@@ -216,8 +216,6 @@ class TabWidgetApp(QMainWindow):
             
             self.image_data.segmentation_cache.clear()  # Clear segmentation cache
             print("Segmentation cache cleared.")
-            
-            
 
     def update_mapping_dropdowns(self):
         # Clear all dropdowns before updating
@@ -347,8 +345,9 @@ class TabWidgetApp(QMainWindow):
             threshold = self.threshold_slider.value()
             image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
             image_data = image_data.compute()
+        
         elif self.radio_segmented.isChecked():
-            image_data = segment_this_image(image_data)
+            image_data = SegmentationModels().segment_images(np.array([image_data]), SegmentationModels.CELLPOSE)[0]
             self.show_cell_area(image_data)
 
         # Normalize the image from 0 to 65535
