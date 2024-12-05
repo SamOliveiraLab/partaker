@@ -363,9 +363,9 @@ class TabWidgetApp(QMainWindow):
                 self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
 
-        # plt.figure()
-        # plt.imshow(image_data)
-        # plt.show()
+        plt.figure()
+        plt.imshow(image_data)
+        plt.show()
 
         # Normalize the image from 0 to 65535
         image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
