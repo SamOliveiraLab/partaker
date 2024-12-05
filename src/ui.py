@@ -288,6 +288,11 @@ class TabWidgetApp(QMainWindow):
         from skimage import measure
         import seaborn as sns
 
+        # Check if the image type is CV_32FC1 and convert to CV_8UC1
+        if img.dtype == np.float32:
+            img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+            img = img.astype(np.uint8)
+        
         # Binarize the image using Otsu's thresholding
         _, bw_image = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
@@ -347,8 +352,12 @@ class TabWidgetApp(QMainWindow):
             image_data = image_data.compute()
         
         elif self.radio_segmented.isChecked():
-            image_data = SegmentationModels().segment_images(np.array([image_data]), SegmentationModels.CELLPOSE)[0]
+            image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
             self.show_cell_area(image_data)
+
+        plt.figure()
+        plt.imshow(image_data)
+        plt.show()
 
         # Normalize the image from 0 to 65535
         image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
@@ -882,7 +891,7 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(model_label)
 
         self.model_dropdown = QComboBox()
-        self.model_dropdown.addItems(["Model A", "Model B", "Model C"])
+        self.model_dropdown.addItems([SegmentationModels.CELLPOSE, SegmentationModels.UNET])
         layout.addWidget(self.model_dropdown)
         
     def annotate_cells(self):
