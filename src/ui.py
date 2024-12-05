@@ -374,11 +374,14 @@ class TabWidgetApp(QMainWindow):
                 self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
 
-        # Normalize the image for display (0 to 65535)
-        if image_data.max() > 0:  # Avoid division by zero
-            image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
-                np.uint16
-            )
+        plt.figure()
+        plt.imshow(image_data)
+        plt.show()
+
+        # Normalize the image from 0 to 65535
+        image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
+            np.uint16
+        )
 
         # Update image format and display
         image_format = QImage.Format_Grayscale16
