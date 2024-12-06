@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QMessageBox,
     QRadioButton,
+    QMenu
 )
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
@@ -317,11 +318,14 @@ class TabWidgetApp(QMainWindow):
         plt.grid(True)
         plt.show()
 
+
+
     def display_image(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
-        c = self.slider_c.value()
+        c = self.slider_c.value() if self.has_channels else None
 
+        # Retrieve the current frame
         image_data = self.image_data.data
         if self.image_data.is_nd2:
             if self.has_channels:
@@ -331,34 +335,36 @@ class TabWidgetApp(QMainWindow):
         else:
             image_data = image_data[t]
 
-        # image_data = image_data.compute().data
-        image_data = np.array(image_data)
+        image_data = np.array(image_data)  # Ensure it's a NumPy array
 
         # Apply thresholding or segmentation if selected
         if self.radio_thresholding.isChecked():
             threshold = self.threshold_slider.value()
             image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
-            image_data = image_data.compute()
         
         elif self.radio_segmented.isChecked():
-            image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
+            cache_key = (t, p, c)
+            if cache_key in self.image_data.segmentation_cache:
+                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                image_data = self.image_data.segmentation_cache[cache_key]
+            else:
+                print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+                image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
+                self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
 
-        # plt.figure()
-        # plt.imshow(image_data)
-        # plt.show()
-
-        # Normalize the image from 0 to 65535
-        image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
-            np.uint16
-        )
+        # Normalize the image for display (0 to 65535)
+        if image_data.max() > 0:  # Avoid division by zero
+            image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
+                np.uint16
+            )
 
         # Update image format and display
         image_format = QImage.Format_Grayscale16
         height, width = image_data.shape[:2]
         image = QImage(image_data, width, height, image_format)
         pixmap = QPixmap.fromImage(image).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            self.image_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
 
@@ -590,6 +596,10 @@ class TabWidgetApp(QMainWindow):
         ax.set_xlabel("Time")
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
+
+
+
+
 
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
@@ -877,7 +887,14 @@ class TabWidgetApp(QMainWindow):
         frame = np.array(frame)  # Ensure it's a NumPy array
 
         # Perform segmentation
-        segmented_image = segment_this_image(frame)
+        cache_key = (t, p, c)
+        if cache_key in self.image_data.segmentation_cache:
+            print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+            segmented_image = self.image_data.segmentation_cache[cache_key]
+        else:
+            print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+            segmented_image = segment_this_image(frame)
+            self.image_data.segmentation_cache[cache_key] = segmented_image
 
         # Extract cell metrics and bounding boxes
         cell_mapping = extract_cells_and_metrics(frame, segmented_image)
@@ -888,6 +905,9 @@ class TabWidgetApp(QMainWindow):
 
         # Annotate the binary segmented image
         annotated_binary_mask = annotate_binary_mask(segmented_image, cell_mapping)
+
+        # Set the annotated image for saving
+        self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
 
         # Display the annotated binary mask
         height, width = annotated_binary_mask.shape[:2]
@@ -903,6 +923,32 @@ class TabWidgetApp(QMainWindow):
         )
         self.image_label.setPixmap(pixmap)
     
+   
+    
+    def show_context_menu(self, position):
+        context_menu = QMenu(self)
+
+        save_action = context_menu.addAction("Save Annotated Image")
+        save_action.triggered.connect(self.save_annotated_image)
+
+        context_menu.exec_(self.image_label.mapToGlobal(position))
+
+    
+    
+    def save_annotated_image(self):
+        if not hasattr(self, "annotated_image") or self.annotated_image is None:
+            QMessageBox.warning(self, "Error", "No annotated image to save.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Annotated Image", "", "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)"
+        )
+
+        if file_path:
+            cv2.imwrite(file_path, self.annotated_image)
+            QMessageBox.information(self, "Success", f"Annotated image saved to {file_path}")
+        else:
+            QMessageBox.warning(self, "Error", "No file selected.")
     
     
     def export_images(self):
@@ -1061,6 +1107,8 @@ class TabWidgetApp(QMainWindow):
         # Set layout for the tab
         self.annotatedTab.setLayout(layout)
 
+   
+   
     def update_annotation_scatter(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1069,24 +1117,10 @@ class TabWidgetApp(QMainWindow):
         # Retrieve the current frame for processing
         frame = self.get_current_frame(t, p, c)
 
-        # Debug the frame
-        print(
-            f"Frame type: {type(frame)}, shape: {frame.shape if isinstance(frame, np.ndarray) else 'N/A'}"
-        )
-
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
             QMessageBox.warning(
                 self, "Error", "No valid image data found for segmentation."
             )
-            return
-
-        # Convert grayscale to RGB or ensure it is in RGB
-        if len(frame.shape) == 2:  # Grayscale
-            self.annotated_image = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-        elif len(frame.shape) == 3 and frame.shape[2] == 3:  # Already RGB
-            self.annotated_image = frame.copy()
-        else:
-            QMessageBox.warning(self, "Error", "Unexpected image format.")
             return
 
         # Check if segmentation is cached
@@ -1099,24 +1133,43 @@ class TabWidgetApp(QMainWindow):
             print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
             segmented_image = self.image_data.segmentation_cache[cache_key]
 
-        # Check if morphology data is cached
+        # Annotate the segmented image
+        self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
+        self.annotated_image = annotate_binary_mask(segmented_image, self.cell_mapping)
+
+        # Display the annotated image in the scatter plot tab
+        height, width = self.annotated_image.shape[:2]
+        qimage = QImage(
+            self.annotated_image.data,
+            width,
+            height,
+            self.annotated_image.strides[0],
+            QImage.Format_RGB888,
+        )
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.annotated_image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self.annotated_image_label.setPixmap(pixmap)
+
+        # Generate morphology data if not cached
         if not hasattr(self, "morphology_data"):
             self.morphology_data = {}
         if cache_key not in self.morphology_data:
-            print(f"Extracting morphology data for T={t}, P={p}, C={c}")
+            print(f"[CACHE MISS] Extracting morphology data for T={t}, P={p}, C={c}")
             self.morphology_data[cache_key] = extract_cell_morphologies(segmented_image)
-            self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
         else:
-            print(f"Using cached morphology data for T={t}, P={p}, C={c}")
+            print(f"[CACHE HIT] Using cached morphology data for T={t}, P={p}, C={c}")
 
-        # Retrieve morphological data
+        # Retrieve morphology data for scatter plot
         morphology_df = self.morphology_data[cache_key]
 
         # Get the selected X and Y metrics from the dropdowns
         x_key = self.x_dropdown_annot.currentText()
         y_key = self.y_dropdown_annot.currentText()
 
-        # Check if selected metrics exist in the morphology data
+        # Validate selected metrics
         if x_key not in morphology_df.columns or y_key not in morphology_df.columns:
             QMessageBox.warning(
                 self, "Error", f"Metrics {x_key} or {y_key} not found in data."
@@ -1132,20 +1185,25 @@ class TabWidgetApp(QMainWindow):
             c=morphology_df["area"],
             cmap="viridis",
             edgecolor="white",
-            picker=True,
+            picker=True,  # Enable picking events
         )
         ax.set_title(f"{x_key} vs {y_key}")
         ax.set_xlabel(x_key)
         ax.set_ylabel(y_key)
 
-        # Extract IDs for annotation
-        ids = list(self.cell_mapping.keys())  # Ensure IDs match the cell mapping
+        # Store scatter plot data for interactive features
+        self.scatter_data = {
+            "scatter": scatter,
+            "morphology_df": morphology_df,
+            "cache_key": cache_key,
+        }
 
-        # Add dynamic annotations with hover and click functionality
-        self.annotate_scatter_points(ax, scatter, ids, morphology_df, x_key, y_key)
+        # Connect click events to highlight cells
+        self.figure_annot_scatter.canvas.mpl_connect("pick_event", self.on_scatter_click)
 
         # Render the updated scatter plot
         self.canvas_annot_scatter.draw()
+
 
     def get_current_frame(self, t, p, c=None):
         """
@@ -1235,51 +1293,39 @@ class TabWidgetApp(QMainWindow):
         # Connect hover and click events
         self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
         self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
+        
+        
+     
+     
+    def highlight_selected_cell(self, cell_id, cache_key):
+        """
+        Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
 
-    def highlight_selected_cell(self, cell_id):
+        Parameters:
+        -----------
+        cell_id : int
+            ID of the cell to highlight.
+        cache_key : tuple
+            Key to retrieve cached segmentation and cell mapping.
         """
-        Highlight the selected cell in the annotated image and save it with the cell ID inside the bounding box.
-        """
+        # Ensure cell mapping exists
+        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+            QMessageBox.warning(self, "Error", "Cell mapping not initialized.")
+            return
+
+        # Retrieve bounding box for the selected cell
         if cell_id not in self.cell_mapping:
             QMessageBox.warning(self, "Error", f"Cell ID {cell_id} not found.")
             return
 
-        # Ensure `self.annotated_image` is initialized
-        if not hasattr(self, "annotated_image"):
-            QMessageBox.warning(self, "Error", "Annotated image is not initialized.")
-            return
-
-        # Retrieve bounding box for the selected cell
         bbox = self.cell_mapping[cell_id]["bbox"]
-        x1, y1, x2, y2 = bbox
+        y1, x1, y2, x2 = bbox  # Correct order (y1, x1, y2, x2)
 
         # Create a copy of the annotated image to avoid overwriting
         highlighted_image = self.annotated_image.copy()
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # Highlight with red box
 
-        # Calculate position for the text inside the bounding box
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.5
-        font_thickness = 1
-        text_color = (0, 255, 0)  # Green color for text
-
-        # Place text inside the box, near the top-left corner
-        text_position = (
-            x1 + 5,
-            y1 + 15,
-        )  # Adjust x1 + 5 for slight padding and y1 + 15 for vertical placement
-        cv2.putText(
-            highlighted_image,
-            f"{cell_id}",
-            text_position,
-            font,
-            font_scale,
-            text_color,
-            font_thickness,
-            cv2.LINE_AA,
-        )
-
-        # Display the updated image in the UI
+        # Display the highlighted image in the scatter plot tab
         height, width = highlighted_image.shape[:2]
         qimage = QImage(
             highlighted_image.data,
@@ -1293,12 +1339,10 @@ class TabWidgetApp(QMainWindow):
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         )
-        self.annotated_image_label.setPixmap(pixmap)
+        self.annotated_image_label.setPixmap(pixmap)   
+        
+   
 
-        # Save the annotated image as a file
-        save_path = f"highlighted_cell_{cell_id}.png"
-        cv2.imwrite(save_path, highlighted_image)
-        print(f"Annotated image with ID inside the box saved as {save_path}")
 
     def generate_morphology_data(self):
         # Generate morphological data for the annotated tab
@@ -1398,6 +1442,9 @@ class TabWidgetApp(QMainWindow):
         )
 
         self.canvas_scatter_plot.draw()
+        
+        
+        
 
     def on_scatter_click(self, event):
         # Get the index of the clicked point
