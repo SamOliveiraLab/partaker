@@ -331,6 +331,7 @@ class TabWidgetApp(QMainWindow):
         # Count pixels in each component (ignore background)
         pixel_counts = np.bincount(labeled_image.ravel())[1:]  # Skip the first element (background)
 
+        
         # Create a histogram of pixel counts
         plt.hist(pixel_counts, bins=30, color='blue', alpha=0.7)
         plt.title('Histogram of Pixel Counts of Connected Components')
@@ -622,6 +623,10 @@ class TabWidgetApp(QMainWindow):
     #     ax.set_xlabel("Time")
     #     ax.set_ylabel(selected_metric.capitalize())
     #     self.canvas_time_series.draw()
+
+
+
+
 
 
 
@@ -962,6 +967,32 @@ class TabWidgetApp(QMainWindow):
         )
         self.image_label.setPixmap(pixmap)
     
+   
+    
+    def show_context_menu(self, position):
+        context_menu = QMenu(self)
+
+        save_action = context_menu.addAction("Save Annotated Image")
+        save_action.triggered.connect(self.save_annotated_image)
+
+        context_menu.exec_(self.image_label.mapToGlobal(position))
+
+    
+    
+    def save_annotated_image(self):
+        if not hasattr(self, "annotated_image") or self.annotated_image is None:
+            QMessageBox.warning(self, "Error", "No annotated image to save.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Annotated Image", "", "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)"
+        )
+
+        if file_path:
+            cv2.imwrite(file_path, self.annotated_image)
+            QMessageBox.information(self, "Success", f"Annotated image saved to {file_path}")
+        else:
+            QMessageBox.warning(self, "Error", "No file selected.")
     
     
     def export_images(self):
@@ -1227,6 +1258,7 @@ class TabWidgetApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
     
+
 
     def get_current_frame(self, t, p, c=None):
         """
