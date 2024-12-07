@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QMessageBox,
     QRadioButton,
-    QMenu
+    QMenu,
+    QTableWidget,
+    QTableWidgetItem
 )
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
@@ -871,7 +873,6 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(self.model_dropdown)
         
     
-    
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -909,7 +910,7 @@ class TabWidgetApp(QMainWindow):
         # Set the annotated image for saving
         self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
 
-        # Display the annotated binary mask
+        # **Display the annotated image on the main image display**
         height, width = annotated_binary_mask.shape[:2]
         qimage = QImage(
             annotated_binary_mask.data,
@@ -922,7 +923,9 @@ class TabWidgetApp(QMainWindow):
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
-    
+
+        # Also update the scatter tab display
+        self.update_annotation_scatter()
    
     
     def show_context_menu(self, position):
@@ -1051,8 +1054,29 @@ class TabWidgetApp(QMainWindow):
         self.initMorphologyTimeTab()
         self.initAnnotatedTab()
 
+    
+    
     def initAnnotatedTab(self):
         layout = QVBoxLayout(self.annotatedTab)
+
+        # Create QTabWidget for inner tabs
+        inner_tab_widget = QTabWidget()
+        self.scatter_tab = QWidget()
+        self.table_tab = QWidget()
+
+        # Add tabs to the inner tab widget
+        inner_tab_widget.addTab(self.scatter_tab, "Scatter Plot")
+        inner_tab_widget.addTab(self.table_tab, "Metrics Table")
+
+        # Scatter plot tab layout
+        scatter_layout = QVBoxLayout(self.scatter_tab)
+
+        # Annotated image display (adjusted size)
+        self.annotated_image_label = QLabel("Annotated image will be displayed here.")
+        self.annotated_image_label.setFixedSize(300, 300)  # Adjust size as needed
+        self.annotated_image_label.setAlignment(Qt.AlignCenter)
+        self.annotated_image_label.setScaledContents(True)
+        scatter_layout.addWidget(self.annotated_image_label)
 
         # Dropdowns for selecting X and Y metrics
         self.x_dropdown_annot = QComboBox()
@@ -1080,35 +1104,34 @@ class TabWidgetApp(QMainWindow):
             ]
         )
 
-        # Add dropdowns to the layout
+        # Add dropdowns to scatter layout
         dropdown_layout = QHBoxLayout()
         dropdown_layout.addWidget(QLabel("Select X-axis:"))
         dropdown_layout.addWidget(self.x_dropdown_annot)
         dropdown_layout.addWidget(QLabel("Select Y-axis:"))
         dropdown_layout.addWidget(self.y_dropdown_annot)
-        layout.addLayout(dropdown_layout)
-
-        # Annotated image display (adjusted size)
-        self.annotated_image_label = QLabel("Annotated image will be displayed here.")
-        self.annotated_image_label.setFixedSize(300, 300)  # Adjust size here
-        self.annotated_image_label.setAlignment(Qt.AlignCenter)
-        self.annotated_image_label.setScaledContents(True)
-        layout.addWidget(self.annotated_image_label)
+        scatter_layout.addLayout(dropdown_layout)
 
         # Scatter plot display
         self.figure_annot_scatter = plt.figure()
         self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
-        layout.addWidget(self.canvas_annot_scatter)
+        scatter_layout.addWidget(self.canvas_annot_scatter)
 
         # Connect dropdown changes to update scatter plot
         self.x_dropdown_annot.currentTextChanged.connect(self.update_annotation_scatter)
         self.y_dropdown_annot.currentTextChanged.connect(self.update_annotation_scatter)
 
-        # Set layout for the tab
-        self.annotatedTab.setLayout(layout)
+        # Table tab layout
+        table_layout = QVBoxLayout(self.table_tab)
+        self.metrics_table = QTableWidget()  # Create the table widget
+        table_layout.addWidget(self.metrics_table)
 
-   
-   
+        # Add the inner tab widget to the annotated tab layout
+        layout.addWidget(inner_tab_widget)
+    
+    
+    
+    
     def update_annotation_scatter(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1133,7 +1156,7 @@ class TabWidgetApp(QMainWindow):
             print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
             segmented_image = self.image_data.segmentation_cache[cache_key]
 
-        # Annotate the segmented image
+        # Extract cell metrics and annotate with bounding boxes
         self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
         self.annotated_image = annotate_binary_mask(segmented_image, self.cell_mapping)
 
@@ -1203,6 +1226,12 @@ class TabWidgetApp(QMainWindow):
 
         # Render the updated scatter plot
         self.canvas_annot_scatter.draw()
+        
+        # Populate the metrics table
+        self.populate_metrics_table()
+
+        
+        
 
 
     def get_current_frame(self, t, p, c=None):
@@ -1359,6 +1388,9 @@ class TabWidgetApp(QMainWindow):
         # Automatically plot default metrics
         self.update_annotation_scatter()
 
+    
+    
+    
     def generate_annotations_and_scatter(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1389,6 +1421,9 @@ class TabWidgetApp(QMainWindow):
             )
             return
 
+        # Populate the metrics table
+        self.populate_metrics_table()
+
         # Annotate the original image
         try:
             annotated_image = annotate_image(image_data, self.cell_mapping)
@@ -1415,7 +1450,33 @@ class TabWidgetApp(QMainWindow):
 
         # Generate scatter plot
         self.generate_scatter_plot()
+    
+    
+    
+    def populate_metrics_table(self):
+        if not self.cell_mapping:
+            QMessageBox.warning(self, "Error", "No cell data available for metrics table.")
+            return
 
+        # Convert cell mapping to a DataFrame
+        metrics_data = [
+            {**{"ID": cell_id}, **data["metrics"]}
+            for cell_id, data in self.cell_mapping.items()
+        ]
+        metrics_df = pd.DataFrame(metrics_data)
+
+        # Update QTableWidget
+        self.metrics_table.setRowCount(metrics_df.shape[0])
+        self.metrics_table.setColumnCount(metrics_df.shape[1])
+        self.metrics_table.setHorizontalHeaderLabels(metrics_df.columns)
+
+        for row in range(metrics_df.shape[0]):
+            for col, value in enumerate(metrics_df.iloc[row]):
+                self.metrics_table.setItem(row, col, QTableWidgetItem(str(value)))
+    
+    
+    
+    
     def generate_scatter_plot(self):
         areas = [data["metrics"]["area"] for data in self.cell_mapping.values()]
         perimeters = [
