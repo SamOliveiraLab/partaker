@@ -1,3 +1,6 @@
+import sys
+import os
+
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -22,9 +25,9 @@ from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
 from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
+from sklearn.decomposition import PCA
 
-import sys
-import os
+
 
 # import xarray as xr
 from pathlib import Path
@@ -450,154 +453,153 @@ class TabWidgetApp(QMainWindow):
             layout.addWidget(dropdown)
             self.mapping_controls[key] = dropdown
 
-    def initMorphologyTab(self):
+    # def initMorphologyTab(self):
 
-        def segment_and_plot():
-            t = self.slider_t.value()
-            p = self.slider_p.value()
-            c = (
-                self.slider_c.value() if self.has_channels else None
-            )  # Default C to None
+    #     def segment_and_plot():
+    #         t = self.slider_t.value()
+    #         p = self.slider_p.value()
+    #         c = (
+    #             self.slider_c.value() if self.has_channels else None
+    #         )  # Default C to None
 
-            # Extract the current frame
-            image_data = self.image_data.data
-            if self.image_data.is_nd2:
-                if self.has_channels:
-                    image_data = image_data[t, p, c]
-                else:
-                    image_data = image_data[t, p]
-            else:
-                image_data = image_data[t]
+    #         # Extract the current frame
+    #         image_data = self.image_data.data
+    #         if self.image_data.is_nd2:
+    #             if self.has_channels:
+    #                 image_data = image_data[t, p, c]
+    #             else:
+    #                 image_data = image_data[t, p]
+    #         else:
+    #             image_data = image_data[t]
 
-            image_data = np.array(image_data)
+    #         image_data = np.array(image_data)
 
-            # Use a consistent cache key format
-            cache_key = (t, p, c)  # Allow C to be None
+    #         # Use a consistent cache key format
+    #         cache_key = (t, p, c)  # Allow C to be None
 
-            # Check segmentation cache
-            if cache_key in self.image_data.segmentation_cache:
-                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-                segmented_image = self.image_data.segmentation_cache[cache_key]
-            else:
-                print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                segmented_image = segment_this_image(image_data)
-                self.image_data.segmentation_cache[cache_key] = segmented_image
+    #         # Check segmentation cache
+    #         if cache_key in self.image_data.segmentation_cache:
+    #             print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+    #             segmented_image = self.image_data.segmentation_cache[cache_key]
+    #         else:
+    #             print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+    #             segmented_image = segment_this_image(image_data)
+    #             self.image_data.segmentation_cache[cache_key] = segmented_image
 
-            # Extract morphology data from the segmented image
-            morphology_data = extract_cell_morphologies(segmented_image)
+    #         # Extract morphology data from the segmented image
+    #         morphology_data = extract_cell_morphologies(segmented_image)
 
-            # Update the plot with the selected X/Y variables
-            x_key = self.x_dropdown.currentText()
-            y_key = self.y_dropdown.currentText()
+    #         # Update the plot with the selected X/Y variables
+    #         x_key = self.x_dropdown.currentText()
+    #         y_key = self.y_dropdown.currentText()
 
-            self.figure.clear()
-            ax = self.figure.add_subplot(111)
-            sns.scatterplot(
-                data=morphology_data,
-                x=x_key,
-                y=y_key,
-                hue="area",
-                palette="viridis",
-                ax=ax,
-            )
-            ax.set_title(f"{x_key} vs {y_key}")
+    #         self.figure.clear()
+    #         ax = self.figure.add_subplot(111)
+    #         sns.scatterplot(
+    #             data=morphology_data,
+    #             x=x_key,
+    #             y=y_key,
+    #             hue="area",
+    #             palette="viridis",
+    #             ax=ax,
+    #         )
+    #         ax.set_title(f"{x_key} vs {y_key}")
+    #         self.canvas.draw()
 
-            self.canvas.draw()
+    #     layout = QVBoxLayout(self.morphologyTab)
 
-        layout = QVBoxLayout(self.morphologyTab)
+    #     segment_button = QPushButton("Segment and Plot")
+    #     segment_button.clicked.connect(segment_and_plot)
 
-        segment_button = QPushButton("Segment and Plot")
-        segment_button.clicked.connect(segment_and_plot)
+    #     """
+    #         morphology = {
+    #             'area': area,
+    #             'perimeter': perimeter,
+    #             'bounding_box': (x, y, w, h),
+    #             'aspect_ratio': aspect_ratio,
+    #             'extent': extent,
+    #             'solidity': solidity,
+    #             'equivalent_diameter': equivalent_diameter,
+    #             'orientation': angle
+    #         }
+    #     """
+    #     labels_layout = QHBoxLayout()
 
-        """
-            morphology = {
-                'area': area,
-                'perimeter': perimeter,
-                'bounding_box': (x, y, w, h),
-                'aspect_ratio': aspect_ratio,
-                'extent': extent,
-                'solidity': solidity,
-                'equivalent_diameter': equivalent_diameter,
-                'orientation': angle
-            }
-        """
-        labels_layout = QHBoxLayout()
+    #     x_dropdown_w = QVBoxLayout()
+    #     x_dropdown_w.addWidget(QLabel("Select X variable"))
+    #     x_dropdown = QComboBox()
+    #     x_dropdown.addItem("area")
+    #     x_dropdown.addItem("perimeter")
+    #     x_dropdown.addItem("bounding_box")
+    #     x_dropdown.addItem("aspect_ratio")
+    #     x_dropdown.addItem("extent")
+    #     x_dropdown.addItem("solidity")
+    #     x_dropdown.addItem("equivalent_diameter")
+    #     x_dropdown.addItem("orientation")
+    #     x_dropdown_w.addWidget(x_dropdown)
+    #     wid = QWidget()
+    #     wid.setLayout(x_dropdown_w)
+    #     labels_layout.addWidget(wid)
 
-        x_dropdown_w = QVBoxLayout()
-        x_dropdown_w.addWidget(QLabel("Select X variable"))
-        x_dropdown = QComboBox()
-        x_dropdown.addItem("area")
-        x_dropdown.addItem("perimeter")
-        x_dropdown.addItem("bounding_box")
-        x_dropdown.addItem("aspect_ratio")
-        x_dropdown.addItem("extent")
-        x_dropdown.addItem("solidity")
-        x_dropdown.addItem("equivalent_diameter")
-        x_dropdown.addItem("orientation")
-        x_dropdown_w.addWidget(x_dropdown)
-        wid = QWidget()
-        wid.setLayout(x_dropdown_w)
-        labels_layout.addWidget(wid)
+    #     y_dropdown_w = QVBoxLayout()
+    #     y_dropdown_w.addWidget(QLabel("Select Y variable"))
+    #     y_dropdown = QComboBox()
+    #     y_dropdown.addItem("area")
+    #     y_dropdown.addItem("perimeter")
+    #     y_dropdown.addItem("bounding_box")
+    #     y_dropdown.addItem("aspect_ratio")
+    #     y_dropdown.addItem("extent")
+    #     y_dropdown.addItem("solidity")
+    #     y_dropdown.addItem("equivalent_diameter")
+    #     y_dropdown.addItem("orientation")
+    #     y_dropdown_w.addWidget(y_dropdown)
+    #     wid = QWidget()
+    #     wid.setLayout(y_dropdown_w)
+    #     labels_layout.addWidget(wid)
+    #     layout.addLayout(labels_layout)
 
-        y_dropdown_w = QVBoxLayout()
-        y_dropdown_w.addWidget(QLabel("Select Y variable"))
-        y_dropdown = QComboBox()
-        y_dropdown.addItem("area")
-        y_dropdown.addItem("perimeter")
-        y_dropdown.addItem("bounding_box")
-        y_dropdown.addItem("aspect_ratio")
-        y_dropdown.addItem("extent")
-        y_dropdown.addItem("solidity")
-        y_dropdown.addItem("equivalent_diameter")
-        y_dropdown.addItem("orientation")
-        y_dropdown_w.addWidget(y_dropdown)
-        wid = QWidget()
-        wid.setLayout(y_dropdown_w)
-        labels_layout.addWidget(wid)
-        layout.addLayout(labels_layout)
+    #     self.x_dropdown = x_dropdown
+    #     self.y_dropdown = y_dropdown
 
-        self.x_dropdown = x_dropdown
-        self.y_dropdown = y_dropdown
+    #     layout.addWidget(segment_button)
+    #     self.figure = plt.figure()
+    #     self.canvas = FigureCanvas(self.figure)
+    #     layout.addWidget(self.canvas)
 
-        layout.addWidget(segment_button)
-        self.figure = plt.figure()
-        self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
+    #     if (
+    #         not hasattr(self, "morphologies_over_time")
+    #         or not self.morphologies_over_time
+    #     ):
+    #         QMessageBox.warning(
+    #             self,
+    #             "Plot Error",
+    #             "No data to plot. Please process morphology over time first.",
+    #         )
+    #         return
 
-        if (
-            not hasattr(self, "morphologies_over_time")
-            or not self.morphologies_over_time
-        ):
-            QMessageBox.warning(
-                self,
-                "Plot Error",
-                "No data to plot. Please process morphology over time first.",
-            )
-            return
+    #     selected_metric = None
 
-        selected_metric = None
+    #     for metric, checkbox in self.metric_checkboxes.items():
+    #         if checkbox.isChecked():
+    #             selected_metric = metric
+    #             break
 
-        for metric, checkbox in self.metric_checkboxes.items():
-            if checkbox.isChecked():
-                selected_metric = metric
-                break
+    #     if selected_metric is None:
+    #         QMessageBox.warning(
+    #             self, "Selection Error", "Please select a single metric to plot."
+    #         )
+    #         return
 
-        if selected_metric is None:
-            QMessageBox.warning(
-                self, "Selection Error", "Please select a single metric to plot."
-            )
-            return
-
-        # Plot the selected metric over time
-        self.figure_time_series.clear()
-        ax = self.figure_time_series.add_subplot(111)
-        ax.plot(self.morphologies_over_time[selected_metric], marker="o")
-        ax.set_title(
-            f"{selected_metric.capitalize()} Over Time (Position {self.slider_p.value()}, Channel {self.slider_c.value()})"
-        )
-        ax.set_xlabel("Time")
-        ax.set_ylabel(selected_metric.capitalize())
-        self.canvas_time_series.draw()
+    #     # Plot the selected metric over time
+    #     self.figure_time_series.clear()
+    #     ax = self.figure_time_series.add_subplot(111)
+    #     ax.plot(self.morphologies_over_time[selected_metric], marker="o")
+    #     ax.set_title(
+    #         f"{selected_metric.capitalize()} Over Time (Position {self.slider_p.value()}, Channel {self.slider_c.value()})"
+    #     )
+    #     ax.set_xlabel("Time")
+    #     ax.set_ylabel(selected_metric.capitalize())
+    #     self.canvas_time_series.draw()
 
 
 
@@ -763,7 +765,7 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(self.image_label)
 
         # Annotate Cells button
-        annotate_button = QPushButton("Annotate Cells")
+        annotate_button = QPushButton("Classify Cells")
         annotate_button.clicked.connect(self.annotate_cells)
         layout.addWidget(annotate_button)
 
@@ -1041,16 +1043,15 @@ class TabWidgetApp(QMainWindow):
         self.tab_widget.addTab(self.importTab, "Import")
         self.tab_widget.addTab(self.exportTab, "Export")
         self.tab_widget.addTab(self.populationTab, "Population")
-        self.tab_widget.addTab(self.morphologyTab, "Morphology")
+        self.tab_widget.addTab(self.annotatedTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
-        self.tab_widget.addTab(self.annotatedTab, "Annotations & Scatter Plot")
 
         # Initialize tab layouts and content
         self.initImportTab()
         self.initViewArea()
         self.initExportTab()
         self.initPopulationTab()
-        self.initMorphologyTab()
+        # self.initMorphologyTab()
         self.initMorphologyTimeTab()
         self.initAnnotatedTab()
 
