@@ -1056,7 +1056,7 @@ class TabWidgetApp(QMainWindow):
         self.initAnnotatedTab()
 
     
-    
+   
     def initAnnotatedTab(self):
         layout = QVBoxLayout(self.annotatedTab)
 
@@ -1066,10 +1066,10 @@ class TabWidgetApp(QMainWindow):
         self.table_tab = QWidget()
 
         # Add tabs to the inner tab widget
-        inner_tab_widget.addTab(self.scatter_tab, "Scatter Plot")
+        inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
         inner_tab_widget.addTab(self.table_tab, "Metrics Table")
 
-        # Scatter plot tab layout
+        # Scatter plot tab layout (PCA)
         scatter_layout = QVBoxLayout(self.scatter_tab)
 
         # Annotated image display (adjusted size)
@@ -1079,21 +1079,9 @@ class TabWidgetApp(QMainWindow):
         self.annotated_image_label.setScaledContents(True)
         scatter_layout.addWidget(self.annotated_image_label)
 
-        # Dropdowns for selecting X and Y metrics
-        self.x_dropdown_annot = QComboBox()
-        self.x_dropdown_annot.addItems(
-            [
-                "area",
-                "perimeter",
-                "aspect_ratio",
-                "extent",
-                "solidity",
-                "equivalent_diameter",
-                "orientation",
-            ]
-        )
-        self.y_dropdown_annot = QComboBox()
-        self.y_dropdown_annot.addItems(
+        # Dropdown for selecting metric to color PCA scatter plot
+        self.color_dropdown_annot = QComboBox()
+        self.color_dropdown_annot.addItems(
             [
                 "area",
                 "perimeter",
@@ -1105,134 +1093,90 @@ class TabWidgetApp(QMainWindow):
             ]
         )
 
-        # Add dropdowns to scatter layout
+        # Add dropdown for coloring
         dropdown_layout = QHBoxLayout()
-        dropdown_layout.addWidget(QLabel("Select X-axis:"))
-        dropdown_layout.addWidget(self.x_dropdown_annot)
-        dropdown_layout.addWidget(QLabel("Select Y-axis:"))
-        dropdown_layout.addWidget(self.y_dropdown_annot)
+        dropdown_layout.addWidget(QLabel("Color by:"))
+        dropdown_layout.addWidget(self.color_dropdown_annot)
         scatter_layout.addLayout(dropdown_layout)
 
-        # Scatter plot display
+        # PCA scatter plot display
         self.figure_annot_scatter = plt.figure()
         self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
         scatter_layout.addWidget(self.canvas_annot_scatter)
 
-        # Connect dropdown changes to update scatter plot
-        self.x_dropdown_annot.currentTextChanged.connect(self.update_annotation_scatter)
-        self.y_dropdown_annot.currentTextChanged.connect(self.update_annotation_scatter)
+        # Connect dropdown change to PCA plot update
+        self.color_dropdown_annot.currentTextChanged.connect(self.update_annotation_scatter)
 
-        # Table tab layout
+        # Table tab layout (Metrics Table)
         table_layout = QVBoxLayout(self.table_tab)
         self.metrics_table = QTableWidget()  # Create the table widget
         table_layout.addWidget(self.metrics_table)
 
         # Add the inner tab widget to the annotated tab layout
         layout.addWidget(inner_tab_widget)
-    
-    
-    
+   
+   
     
     def update_annotation_scatter(self):
-        t = self.slider_t.value()
-        p = self.slider_p.value()
-        c = self.slider_c.value() if self.has_channels else None
+        try:
+            # Extract current frame and segmentation
+            t = self.slider_t.value()
+            p = self.slider_p.value()
+            c = self.slider_c.value() if self.has_channels else None
+            frame = self.get_current_frame(t, p, c)
+            cache_key = (t, p, c)
 
-        # Retrieve the current frame for processing
-        frame = self.get_current_frame(t, p, c)
+            # Perform segmentation if not cached
+            if cache_key not in self.image_data.segmentation_cache:
+                segmented_image = segment_this_image(frame)
+                self.image_data.segmentation_cache[cache_key] = segmented_image
+            else:
+                segmented_image = self.image_data.segmentation_cache[cache_key]
 
-        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
-            QMessageBox.warning(
-                self, "Error", "No valid image data found for segmentation."
+            # Extract cell metrics
+            self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
+
+            # Prepare DataFrame
+            metrics_data = [
+                {**{"ID": cell_id}, **data["metrics"], **{"Class": data["metrics"]["morphology_class"]}}
+                for cell_id, data in self.cell_mapping.items()
+            ]
+            morphology_df = pd.DataFrame(metrics_data)
+
+            if morphology_df.empty:
+                QMessageBox.warning(self, "Error", "No morphological data available.")
+                return
+
+            # Perform PCA
+            numeric_columns = morphology_df.select_dtypes(include=[np.number])
+            pca = PCA(n_components=2)
+            principal_components = pca.fit_transform(numeric_columns)
+
+            # Prepare DataFrame for PCA results
+            pca_df = pd.DataFrame(principal_components, columns=["PC1", "PC2"])
+            pca_df["Class"] = morphology_df["Class"]
+
+            # Plot PCA scatter plot
+            self.figure_annot_scatter.clear()
+            ax = self.figure_annot_scatter.add_subplot(111)
+
+            sns.scatterplot(
+                x="PC1",
+                y="PC2",
+                hue="Class",
+                data=pca_df,
+                palette="Set2",
+                s=50,
+                ax=ax,
+                edgecolor="w",
             )
-            return
+            ax.set_title("PCA: PC1 vs PC2 (Class Colored)")
+            ax.set_xlabel("PC1")
+            ax.set_ylabel("PC2")
+            self.canvas_annot_scatter.draw()
 
-        # Check if segmentation is cached
-        cache_key = (t, p, c)
-        if cache_key not in self.image_data.segmentation_cache:
-            print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-            segmented_image = segment_this_image(frame)
-            self.image_data.segmentation_cache[cache_key] = segmented_image
-        else:
-            print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-            segmented_image = self.image_data.segmentation_cache[cache_key]
-
-        # Extract cell metrics and annotate with bounding boxes
-        self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
-        self.annotated_image = annotate_binary_mask(segmented_image, self.cell_mapping)
-
-        # Display the annotated image in the scatter plot tab
-        height, width = self.annotated_image.shape[:2]
-        qimage = QImage(
-            self.annotated_image.data,
-            width,
-            height,
-            self.annotated_image.strides[0],
-            QImage.Format_RGB888,
-        )
-        pixmap = QPixmap.fromImage(qimage).scaled(
-            self.annotated_image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
-        self.annotated_image_label.setPixmap(pixmap)
-
-        # Generate morphology data if not cached
-        if not hasattr(self, "morphology_data"):
-            self.morphology_data = {}
-        if cache_key not in self.morphology_data:
-            print(f"[CACHE MISS] Extracting morphology data for T={t}, P={p}, C={c}")
-            self.morphology_data[cache_key] = extract_cell_morphologies(segmented_image)
-        else:
-            print(f"[CACHE HIT] Using cached morphology data for T={t}, P={p}, C={c}")
-
-        # Retrieve morphology data for scatter plot
-        morphology_df = self.morphology_data[cache_key]
-
-        # Get the selected X and Y metrics from the dropdowns
-        x_key = self.x_dropdown_annot.currentText()
-        y_key = self.y_dropdown_annot.currentText()
-
-        # Validate selected metrics
-        if x_key not in morphology_df.columns or y_key not in morphology_df.columns:
-            QMessageBox.warning(
-                self, "Error", f"Metrics {x_key} or {y_key} not found in data."
-            )
-            return
-
-        # Plot the scatter plot
-        self.figure_annot_scatter.clear()
-        ax = self.figure_annot_scatter.add_subplot(111)
-        scatter = ax.scatter(
-            morphology_df[x_key],
-            morphology_df[y_key],
-            c=morphology_df["area"],
-            cmap="viridis",
-            edgecolor="white",
-            picker=True,  # Enable picking events
-        )
-        ax.set_title(f"{x_key} vs {y_key}")
-        ax.set_xlabel(x_key)
-        ax.set_ylabel(y_key)
-
-        # Store scatter plot data for interactive features
-        self.scatter_data = {
-            "scatter": scatter,
-            "morphology_df": morphology_df,
-            "cache_key": cache_key,
-        }
-
-        # Connect click events to highlight cells
-        self.figure_annot_scatter.canvas.mpl_connect("pick_event", self.on_scatter_click)
-
-        # Render the updated scatter plot
-        self.canvas_annot_scatter.draw()
-        
-        # Populate the metrics table
-        self.populate_metrics_table()
-
-        
-        
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
 
     def get_current_frame(self, t, p, c=None):
@@ -1249,11 +1193,9 @@ class TabWidgetApp(QMainWindow):
 
         # Convert to NumPy array if needed
         return np.array(frame)
-
-    def annotate_scatter_points(self, ax, scatter, ids, morphology_df, x_key, y_key):
-        """
-        Add dynamic annotations to scatter points on hover or click.
-        """
+    
+    
+    def annotate_scatter_points(self, ax, scatter, ids, pca_df):
         annot = ax.annotate(
             "",
             xy=(0, 0),
@@ -1266,64 +1208,22 @@ class TabWidgetApp(QMainWindow):
         annot.set_visible(False)
 
         def update_annot(ind):
-            """
-            Update annotation text and position based on the selected point.
-            """
             index = ind["ind"][0]
             pos = scatter.get_offsets()[index]
             annot.xy = pos
-
-            # Retrieve X and Y values for the hovered point
-            x_val = morphology_df.iloc[index][x_key]
-            y_val = morphology_df.iloc[index][y_key]
-
-            # Retrieve the ID of the cell
             selected_id = ids[index]
-
-            # Set the annotation text dynamically
-            text = f"ID: {selected_id}\n{x_key}: {x_val:.2f}\n{y_key}: {y_val:.2f}"
-            annot.set_text(text)
+            cell_class = pca_df.iloc[index]["Class"]
+            annot.set_text(f"ID: {selected_id}\nClass: {cell_class}")
             annot.get_bbox_patch().set_alpha(0.8)
 
-        def on_hover(event):
-            """
-            Display annotation when hovering over a point.
-            """
-            vis = annot.get_visible()
-            if event.inaxes == ax:
-                cont, ind = scatter.contains(event)
-                if cont:
-                    update_annot(ind)
-                    annot.set_visible(True)
-                    self.canvas_annot_scatter.draw_idle()
-                else:
-                    if vis:
-                        annot.set_visible(False)
-                        self.canvas_annot_scatter.draw_idle()
-
         def on_click(event):
-            """
-            Highlight the selected point and annotate the corresponding cell.
-            """
-            if event.inaxes == ax:
-                cont, ind = scatter.contains(event)
-                if cont:
-                    # Retrieve the ID of the selected point
-                    selected_id = ids[ind["ind"][0]]
-                    print(f"Clicked Cell ID: {selected_id}")
+            cont, ind = scatter.contains(event)
+            if cont:
+                update_annot(ind)
+                annot.set_visible(True)
+                self.canvas_annot_scatter.draw_idle()
 
-                    # Highlight the cell in the image
-                    self.highlight_selected_cell(selected_id)
-
-                    # Show annotation for the clicked point
-                    update_annot(ind)
-                    annot.set_visible(True)
-                    self.canvas_annot_scatter.draw_idle()
-
-        # Connect hover and click events
-        self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
         self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
-        
         
      
      
