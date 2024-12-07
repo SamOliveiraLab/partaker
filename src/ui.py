@@ -1084,7 +1084,6 @@ class TabWidgetApp(QMainWindow):
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.annotatedTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
-        self.tab_widget.addTab(self.annotatedTab, "Annotations & Scatter Plot")
 
         # Initialize tab layouts and content
         self.initImportTab()
