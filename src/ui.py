@@ -26,6 +26,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
 from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 
 
@@ -124,6 +125,20 @@ class MorphologyWorker(QObject):
 class TabWidgetApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        
+        self.morphology_colors = {
+            "Small": (255, 0, 0),       # Blue
+            "Round": (0, 0, 255),       # Red
+            "Normal": (0, 255, 0),      # Green
+            "Elongated": (0, 255, 255), # Yellow
+            "Deformed": (255, 0, 255),  # Magenta
+        }
+
+        self.morphology_colors_rgb = {
+            key: (color[2] / 255, color[1] / 255, color[0] / 255)
+            for key, color in self.morphology_colors.items()
+        }
 
         # Initialize the processed_images list to store images for export
         self.processed_images = []
@@ -1094,10 +1109,10 @@ class TabWidgetApp(QMainWindow):
         )
 
         # Add dropdown for coloring
-        dropdown_layout = QHBoxLayout()
-        dropdown_layout.addWidget(QLabel("Color by:"))
-        dropdown_layout.addWidget(self.color_dropdown_annot)
-        scatter_layout.addLayout(dropdown_layout)
+        # dropdown_layout = QHBoxLayout()
+        # dropdown_layout.addWidget(QLabel("Color by:"))
+        # dropdown_layout.addWidget(self.color_dropdown_annot)
+        # scatter_layout.addLayout(dropdown_layout)
 
         # PCA scatter plot display
         self.figure_annot_scatter = plt.figure()
@@ -1110,13 +1125,15 @@ class TabWidgetApp(QMainWindow):
         # Table tab layout (Metrics Table)
         table_layout = QVBoxLayout(self.table_tab)
         self.metrics_table = QTableWidget()  # Create the table widget
+        # Connect the table item click signal to the handler
+        self.metrics_table.itemClicked.connect(self.on_table_item_click)
         table_layout.addWidget(self.metrics_table)
 
         # Add the inner tab widget to the annotated tab layout
         layout.addWidget(inner_tab_widget)
    
    
-    
+   
     def update_annotation_scatter(self):
         try:
             # Extract current frame and segmentation
@@ -1135,7 +1152,10 @@ class TabWidgetApp(QMainWindow):
 
             # Extract cell metrics
             self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
-
+            
+            # Populate the metrics table
+            self.populate_metrics_table()
+            
             # Prepare DataFrame
             metrics_data = [
                 {**{"ID": cell_id}, **data["metrics"], **{"Class": data["metrics"]["morphology_class"]}}
@@ -1143,41 +1163,78 @@ class TabWidgetApp(QMainWindow):
             ]
             morphology_df = pd.DataFrame(metrics_data)
 
-            if morphology_df.empty:
-                QMessageBox.warning(self, "Error", "No morphological data available.")
-                return
-
+            # Select numeric features for PCA
+            numeric_features = ['area', 'perimeter', 'equivalent_diameter', 'orientation', 
+                            'aspect_ratio', 'circularity', 'solidity']
+            X = morphology_df[numeric_features].values
+            
+            # Scale the features
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            
             # Perform PCA
-            numeric_columns = morphology_df.select_dtypes(include=[np.number])
             pca = PCA(n_components=2)
-            principal_components = pca.fit_transform(numeric_columns)
-
-            # Prepare DataFrame for PCA results
-            pca_df = pd.DataFrame(principal_components, columns=["PC1", "PC2"])
-            pca_df["Class"] = morphology_df["Class"]
-
-            # Plot PCA scatter plot
+            principal_components = pca.fit_transform(X_scaled)
+            
+            # Calculate loadings
+            loadings = pd.DataFrame(
+                pca.components_.T,
+                columns=['PC1', 'PC2'],
+                index=numeric_features
+            )
+            
+            # Calculate explained variance
+            explained_variance = pca.explained_variance_ratio_
+            print("Explained variance ratio:", explained_variance)
+            print("\nFeature contributions to principal components:")
+            print(loadings)
+            
+            # Create PCA scatter plot with updated title showing variance
             self.figure_annot_scatter.clear()
             ax = self.figure_annot_scatter.add_subplot(111)
-
+            
+            # Create DataFrame for plotting
+            pca_df = pd.DataFrame(principal_components, columns=['PC1', 'PC2'])
+            pca_df['Class'] = morphology_df['Class']
+            
+            # Plot scatter with explained variance in title
             sns.scatterplot(
-                x="PC1",
-                y="PC2",
-                hue="Class",
+                x='PC1',
+                y='PC2',
+                hue='Class',
                 data=pca_df,
-                palette="Set2",
+                palette=self.morphology_colors_rgb,
                 s=50,
                 ax=ax,
-                edgecolor="w",
+                edgecolor='w',
             )
-            ax.set_title("PCA: PC1 vs PC2 (Class Colored)")
-            ax.set_xlabel("PC1")
-            ax.set_ylabel("PC2")
+            
+            # Update title to show explained variance
+            ax.set_title(f'PCA: PC1 ({explained_variance[0]:.1%}) vs PC2 ({explained_variance[1]:.1%})')
+            ax.set_xlabel('PC1')
+            ax.set_ylabel('PC2')
+            
+            # Add loadings plot
+            # Create a new figure for loadings
+            self.figure_loadings = plt.figure(figsize=(10, 6))
+            ax_loadings = self.figure_loadings.add_subplot(111)
+            
+            # Plot loadings as a heatmap
+            sns.heatmap(loadings, 
+                    annot=True, 
+                    cmap='RdBu', 
+                    center=0,
+                    ax=ax_loadings)
+            ax_loadings.set_title('Feature Contributions to Principal Components')
+            
+            # Update both canvases
             self.canvas_annot_scatter.draw()
-
+            if hasattr(self, 'canvas_loadings'):
+                self.canvas_loadings.draw()
+                
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
-
+    
 
     def get_current_frame(self, t, p, c=None):
         """
@@ -1195,7 +1252,23 @@ class TabWidgetApp(QMainWindow):
         return np.array(frame)
     
     
+    
     def annotate_scatter_points(self, ax, scatter, ids, pca_df):
+        """
+        Add interactive annotations and highlight functionality to scatter points.
+
+        Parameters:
+        -----------
+        ax : matplotlib.axes.Axes
+            The axes object for the scatter plot.
+        scatter : matplotlib.collections.PathCollection
+            The scatter plot object.
+        ids : list
+            List of cell IDs corresponding to the points.
+        pca_df : pd.DataFrame
+            DataFrame containing PCA results and class information.
+        """
+        # Annotation setup
         annot = ax.annotate(
             "",
             xy=(0, 0),
@@ -1208,6 +1281,7 @@ class TabWidgetApp(QMainWindow):
         annot.set_visible(False)
 
         def update_annot(ind):
+            """Update annotation text and position based on hovered point."""
             index = ind["ind"][0]
             pos = scatter.get_offsets()[index]
             annot.xy = pos
@@ -1216,16 +1290,58 @@ class TabWidgetApp(QMainWindow):
             annot.set_text(f"ID: {selected_id}\nClass: {cell_class}")
             annot.get_bbox_patch().set_alpha(0.8)
 
-        def on_click(event):
-            cont, ind = scatter.contains(event)
-            if cont:
-                update_annot(ind)
-                annot.set_visible(True)
-                self.canvas_annot_scatter.draw_idle()
+        def on_hover(event):
+            """Handle hover events to show annotations."""
+            vis = annot.get_visible()
+            if event.inaxes == ax:
+                cont, ind = scatter.contains(event)
+                if cont:
+                    update_annot(ind)
+                    annot.set_visible(True)
+                    self.canvas_annot_scatter.draw_idle()
+                else:
+                    if vis:
+                        annot.set_visible(False)
+                        self.canvas_annot_scatter.draw_idle()
 
-        self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
-        
+        # Add hover functionality
+        self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
+
+        # Add legend using self.morphology_colors_rgb
+        handles = [
+            plt.Line2D(
+                [0], [0],
+                marker='o',
+                color=color,
+                label=key,
+                markersize=8,
+                linestyle='',
+            )
+            for key, color in self.morphology_colors_rgb.items()
+        ]
+        ax.legend(
+            handles=handles,
+            title="Morphology Class",
+            loc='best',
+        )
      
+     
+    
+    def on_table_item_click(self, item):
+        row = item.row()
+
+        cell_id = self.metrics_table.item(row, 0).text()
+
+        print(f"Row {row} clicked, Cell ID: {cell_id}")
+
+       
+        self.highlight_cell_in_image(cell_id)
+
+        
+    
+    def highlight_cell_in_image(self, cell_id):
+        print(f"Highlighting cell with ID: {cell_id}")    
+        
      
     def highlight_selected_cell(self, cell_id, cache_key):
         """
@@ -1365,6 +1481,11 @@ class TabWidgetApp(QMainWindow):
             for cell_id, data in self.cell_mapping.items()
         ]
         metrics_df = pd.DataFrame(metrics_data)
+
+        # Round numerical columns to 2 decimal places
+        numeric_columns = ['area', 'perimeter', 'equivalent_diameter', 'orientation', 
+                        'aspect_ratio', 'circularity', 'solidity']  # Adjust based on actual column names
+        metrics_df[numeric_columns] = metrics_df[numeric_columns].round(2)
 
         # Update QTableWidget
         self.metrics_table.setRowCount(metrics_df.shape[0])
