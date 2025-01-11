@@ -134,10 +134,11 @@ class TabWidgetApp(QMainWindow):
         self.populationTab = QWidget()
         self.morphologyTab = QWidget()
         self.morphologyTimeTab = QWidget()
+
         self.initUI()
         self.layout.addWidget(self.tab_widget)
 
-    def load_from_folder(self, folder_path, aligned_images=False):
+    def load_from_folder(self, folder_path):
         p = Path(folder_path)
 
         images = p.iterdir()
@@ -147,33 +148,18 @@ class TabWidgetApp(QMainWindow):
         preproc_img = lambda img: img  # Placeholder for now
         loaded = np.array([preproc_img(cv2.imread(str(_img))) for _img in img_filelist])
 
-        if not aligned_images:
+        self.image_data = ImageData(loaded, is_nd2=False)
 
-            self.image_data = ImageData(loaded, is_nd2=False)
+        print(f"Loaded dataset: {self.image_data.data.shape}")
+        self.info_label.setText(f"Dataset size: {self.image_data.data.shape}")
+        QMessageBox.about(
+            self, "Import", f"Loaded {self.image_data.data.shape[0]} pictures"
+        )
 
-            print(f"Loaded dataset: {self.image_data.data.shape}")
-            self.info_label.setText(f"Dataset size: {self.image_data.data.shape}")
-            QMessageBox.about(
-                self, "Import", f"Loaded {self.image_data.data.shape[0]} pictures"
-            )
-
-            self.image_data.phc_path = folder_path
-
-        else:
-            self.image_data.aligned_data = loaded
-
-            print(f"Loaded aligned: {loaded.shape}")
-            QMessageBox.about(
-                self,
-                "Import",
-                f"Loaded aligned images. Size: {self.image_data.aligned_data.shape}",
-            )
-
-            self.image_data.aligned_phc_path = folder_path
+        self.image_data.phc_path = folder_path
 
         self.image_data.segmentation_cache.clear()  # Clear segmentation cache
         print("Segmentation cache cleared.")
-    
     
     def load_nd2_file(self, file_path):
 
@@ -306,27 +292,27 @@ class TabWidgetApp(QMainWindow):
 
         # TODO: de-comment
         # Create a histogram of pixel counts using Seaborn
-        # plt.figure(figsize=(10, 6))
-        # sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
-        # plt.title("Histogram of Pixel Counts of Connected Components")
-        # plt.xlabel("Pixel Count")
-        # plt.ylabel("Number of Components")
-        # plt.grid(True)
-        # plt.show()
+        plt.figure(figsize=(10, 6))
+        sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
+        plt.title("Histogram of Pixel Counts of Connected Components")
+        plt.xlabel("Pixel Count")
+        plt.ylabel("Number of Components")
+        plt.grid(True)
+        plt.show()
 
-        # # Label connected components
-        # labeled_image, num_components = measure.label(img, connectivity=2, return_num=True)
+        # Label connected components
+        labeled_image, num_components = measure.label(img, connectivity=2, return_num=True)
 
-        # # Count pixels in each component (ignore background)
-        # pixel_counts = np.bincount(labeled_image.ravel())[1:]  # Skip the first element (background)
+        # Count pixels in each component (ignore background)
+        pixel_counts = np.bincount(labeled_image.ravel())[1:]  # Skip the first element (background)
 
-        # # Create a histogram of pixel counts
-        # plt.hist(pixel_counts, bins=30, color='blue', alpha=0.7)
-        # plt.title('Histogram of Pixel Counts of Connected Components')
-        # plt.xlabel('Pixel Count')
-        # plt.ylabel('Number of Components')
-        # plt.grid(True)
-        # plt.show()
+        # Create a histogram of pixel counts
+        plt.hist(pixel_counts, bins=30, color='blue', alpha=0.7)
+        plt.title('Histogram of Pixel Counts of Connected Components')
+        plt.xlabel('Pixel Count')
+        plt.ylabel('Number of Components')
+        plt.grid(True)
+        plt.show()
 
     def display_image(self):
         t = self.slider_t.value()
@@ -355,9 +341,9 @@ class TabWidgetApp(QMainWindow):
             image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
             self.show_cell_area(image_data)
 
-        plt.figure()
-        plt.imshow(image_data)
-        plt.show()
+        # plt.figure()
+        # plt.imshow(image_data)
+        # plt.show()
 
         # Normalize the image from 0 to 65535
         image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
@@ -375,38 +361,6 @@ class TabWidgetApp(QMainWindow):
 
         # Store this processed image for export
         self.processed_images.append(image_data)
-
-    def align_images(self):
-
-        # Check if the dataset and phc_path are loaded
-        if not hasattr(self.image_data, "data") or not hasattr(
-            self.image_data, "phc_path"
-        ):
-            QMessageBox.warning(
-                self,
-                "Alignment Error",
-                "No phase contrast images loaded or missing path.",
-            )
-            return
-
-        stage_MAE_scores = remove_stage_jitter_MAE(
-            "./mat/aligned_phc/",
-            self.image_data.phc_path,
-            None,
-            None,
-            None,
-            None,
-            10000,
-            -15,
-            True,
-            False,
-        )
-
-        self.load_from_folder("./mat/aligned_phc/", aligned_images=True)
-
-        QMessageBox.about(
-            self, "Alignment", f"Alignment completed successfully. {stage_MAE_scores}"
-        )
 
     def initImportTab(self):
         def importFile():
@@ -774,16 +728,7 @@ class TabWidgetApp(QMainWindow):
         self.image_label.setScaledContents(True)  # Allow the label to scale the image
         self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.image_label)
-        
-        # TODO: create label for aligned images, or at least some type of selection
-        # Another label for aligned images
-        # self.aligned_image_label = QLabel()
-        # self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
-        # self.aligned_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # layout.addWidget(self.aligned_image_label)
 
-        # Align button
-        
         # Annotate Cells button
         annotate_button = QPushButton("Annotate Cells")
         annotate_button.clicked.connect(self.annotate_cells)
