@@ -96,7 +96,7 @@ class MorphologyWorker(QObject):
                     print(
                         f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}"
                     )
-                    binary_image = segment_this_image(self.image_frames[t])
+                    binary_image = SegmentationModels().segment_images([self.image_frames[t]], SegmentationModels.CELLPOSE)[0]
                     self.image_data.segmentation_cache[cache_key] = binary_image
 
                 # Validate binary image
@@ -922,7 +922,7 @@ class TabWidgetApp(QMainWindow):
             segmented_image = self.image_data.segmentation_cache[cache_key]
         else:
             print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-            segmented_image = segment_this_image(frame)
+            segmented_image = SegmentationModels().segment_images([frame], SegmentationModels.CELLPOSE)[0]
             self.image_data.segmentation_cache[cache_key] = segmented_image
 
         # Extract cell metrics and bounding boxes
@@ -951,7 +951,7 @@ class TabWidgetApp(QMainWindow):
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
-    
+        self.update_annotation_scatter()
    
     
     def show_context_menu(self, position):
@@ -1057,29 +1057,24 @@ class TabWidgetApp(QMainWindow):
         self.populationTab = QWidget()
         self.morphologyTab = QWidget()
         self.morphologyTimeTab = QWidget()
-        self.cellExtractionTab = QWidget()
-        self.annotatedTab = QWidget()  # New tab for annotations and scatter plot
 
         # Add tabs to the QTabWidget
         self.tab_widget.addTab(self.importTab, "Import")
         self.tab_widget.addTab(self.exportTab, "Export")
         self.tab_widget.addTab(self.populationTab, "Population")
-        self.tab_widget.addTab(self.annotatedTab, "Morphology")
+        self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
-        self.tab_widget.addTab(self.cellExtractionTab, "Cell Extraction")
-        self.tab_widget.addTab(self.annotatedTab, "Annotations & Scatter Plot")
 
         # Initialize tab layouts and content
         self.initImportTab()
         self.initViewArea()
         self.initExportTab()
         self.initPopulationTab()
-        # self.initMorphologyTab()
+        self.initMorphologyTab()
         self.initMorphologyTimeTab()
-        self.initAnnotatedTab()
 
-    def initAnnotatedTab(self):
-        layout = QVBoxLayout(self.annotatedTab)
+    def initMorphologyTab(self):
+        layout = QVBoxLayout(self.morphologyTab)
 
         # Create QTabWidget for inner tabs
         inner_tab_widget = QTabWidget()
