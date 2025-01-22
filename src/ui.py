@@ -1125,6 +1125,14 @@ class TabWidgetApp(QMainWindow):
 
         # Table tab layout (Metrics Table)
         table_layout = QVBoxLayout(self.table_tab)
+        # Add the Export Button at the top of the table layout
+        self.export_button = QPushButton("Export to CSV")
+        self.export_button.setStyleSheet("background-color: white; color: black; font-size: 14px;")
+        table_layout.addWidget(self.export_button)
+
+        # Connect the button to the export function (use annotation or define it here)
+        self.export_button.clicked.connect(self.export_metrics_to_csv)
+        
         self.metrics_table = QTableWidget()  # Create the table widget
         # Connect the table item click signal to the handler
         self.metrics_table.itemClicked.connect(self.on_table_item_click)
@@ -1132,6 +1140,40 @@ class TabWidgetApp(QMainWindow):
 
         # Add the inner tab widget to the annotated tab layout
         layout.addWidget(inner_tab_widget)
+        
+        
+    
+    def export_metrics_to_csv(self):
+        """
+        Exports the metrics table data to a CSV file.
+        """
+        try:
+            if not self.cell_mapping:
+                QMessageBox.warning(self, "Error", "No cell data available.")
+                return
+
+            metrics_data = [
+                {**{"ID": cell_id}, **data["metrics"]}
+                for cell_id, data in self.cell_mapping.items()
+            ]
+            metrics_df = pd.DataFrame(metrics_data)
+
+            if metrics_df.empty:
+                QMessageBox.warning(self, "Error", "No data available to export.")
+                return
+
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Metrics Data", "", "CSV Files (*.csv);;All Files (*)"
+            )
+            if save_path:
+                metrics_df.to_csv(save_path, index=False)
+                QMessageBox.information(
+                    self, "Success", f"Metrics data exported to {save_path}"
+                )
+            else:
+                QMessageBox.warning(self, "Cancelled", "Export cancelled.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
    
    
    
