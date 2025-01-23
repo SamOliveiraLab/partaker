@@ -108,7 +108,17 @@ class MorphologyWorker(QObject):
                 metrics = extract_cell_morphologies(binary_image)
 
                 if not metrics.empty:
-                    results[t] = metrics.mean(numeric_only=True, axis=0).to_dict()
+                    # Calculate Intact Cell Ratio
+                    total_cells = len(metrics)
+                    intact_cells = metrics[metrics["morphology_class"] != "Lysed"].shape[0]
+                    intact_ratio = intact_cells / total_cells
+
+                    # Calculate Morphology Fractions
+                    morphology_counts = metrics["morphology_class"].value_counts(normalize=True)
+                    fractions = morphology_counts.to_dict()
+
+                    # Save results for this frame
+                    results[t] = {"intact_ratio": intact_ratio, "fractions": fractions}
                 else:
                     print(f"Frame {t}: Metrics computation returned no valid data.")
 
@@ -620,106 +630,109 @@ class TabWidgetApp(QMainWindow):
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
 
-        # Dropdown for selecting metric to plot
-        self.metric_dropdown = QComboBox()
-        self.metric_dropdown.addItems(
-            [
-                "area",
-                "perimeter",
-                "aspect_ratio",
-                "extent",
-                "solidity",
-                "equivalent_diameter",
-                "orientation",
-            ]
-        )
-        layout.addWidget(QLabel("Select Metric to Plot:"))
-        layout.addWidget(self.metric_dropdown)
-
         # Process button
         self.segment_button = QPushButton("Process Morphology Over Time")
         layout.addWidget(self.segment_button)
 
-        # Plot and progress bar
-        self.figure_time_series = plt.figure()
-        self.canvas_time_series = FigureCanvas(self.figure_time_series)
-        layout.addWidget(self.canvas_time_series)
+        # Inner Tabs for Plots
+        self.plot_tabs = QTabWidget()
+        self.intact_ratio_tab = QWidget()
+        self.morphology_fractions_tab = QWidget()
 
+        self.plot_tabs.addTab(self.intact_ratio_tab, "Intact Cell Ratio")
+        self.plot_tabs.addTab(self.morphology_fractions_tab, "Morphology Fractions")
+        layout.addWidget(self.plot_tabs)
+
+        # Plot for Intact Cell Ratio
+        intact_ratio_layout = QVBoxLayout(self.intact_ratio_tab)
+        self.figure_intact_ratio = plt.figure()
+        self.canvas_intact_ratio = FigureCanvas(self.figure_intact_ratio)
+        intact_ratio_layout.addWidget(self.canvas_intact_ratio)
+
+        # Plot for Morphology Fractions
+        morphology_fractions_layout = QVBoxLayout(self.morphology_fractions_tab)
+        self.figure_morphology_fractions = plt.figure()
+        self.canvas_morphology_fractions = FigureCanvas(self.figure_morphology_fractions)
+        morphology_fractions_layout.addWidget(self.canvas_morphology_fractions)
+
+        # Progress Bar
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
 
-        def process_morphology_time_series():
-            p = self.slider_p.value()
-            c = (
-                self.slider_c.value() if "C" in self.dimensions else None
-            )  # Default C to None
+        # Connect Process Button
+        self.segment_button.clicked.connect(self.process_morphology_time_series)
+        
+        
+    def process_morphology_time_series(self):
+        p = self.slider_p.value()
+        c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
 
-            if not self.image_data.is_nd2:
+        if not self.image_data.is_nd2:
+            QMessageBox.warning(self, "Error", "This feature only supports ND2 datasets.")
+            return
+
+        try:
+            # Extract image data for all time points
+            t = self.dimensions["T"]  # Get the total number of time points
+            if "C" in self.dimensions:
+                image_data = np.array(
+                    self.image_data.data[0:5, p, c, :, :].compute()
+                    if hasattr(self.image_data.data[0:5, p, c, :, :], "compute")
+                    else self.image_data.data[0:5, p, c, :, :]
+                )
+            else:
+                image_data = np.array(
+                    self.image_data.data[0:5, p, :, :].compute()
+                    if hasattr(self.image_data.data[0:5, p, :, :], "compute")
+                    else self.image_data.data[0:5, p, :, :]
+                )
+
+            if image_data.size == 0:
                 QMessageBox.warning(
-                    self, "Error", "This feature only supports ND2 datasets."
+                    self,
+                    "Error",
+                    "No valid data found for the selected position and channel.",
                 )
                 return
-
-            try:
-                # Extract image data
-
-                if "C" in self.dimensions:
-                    image_data = np.array(
-                        self.image_data.data[0:6, p, c, :, :].compute()
-                        if hasattr(self.image_data.data[0:6, p, c, :, :], "compute")
-                        else self.image_data.data[0:6, p, c, :, :]
-                    )
-                else:
-                    image_data = np.array(
-                        self.image_data.data[0:6, p, :, :].compute()
-                        if hasattr(self.image_data.data[0:6, p, :, :], "compute")
-                        else self.image_data.data[0:6, p, :, :]
-                    )
-
-                if image_data.size == 0:
-                    QMessageBox.warning(
-                        self,
-                        "Error",
-                        "No valid data found for the selected position and channel.",
-                    )
-                    return
-            except Exception as e:
-                QMessageBox.warning(
-                    self, "Data Error", f"Failed to extract image data: {e}"
-                )
-                return
-
-            num_frames = image_data.shape[0]
-            self.progress_bar.setMaximum(num_frames)
-            self.progress_bar.setValue(0)
-
-            # Disable the button while the worker is running
-            self.segment_button.setEnabled(False)
-
-            # Create the worker and thread
-            self.worker = MorphologyWorker(
-                self.image_data, image_data, num_frames, p, c
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Data Error", f"Failed to extract image data: {e}"
             )
-            self.thread = QThread()
-            self.worker.moveToThread(self.thread)
+            return
 
-            # Connect worker signals
-            self.thread.started.connect(self.worker.run)
-            self.worker.progress.connect(self.progress_bar.setValue)
-            self.worker.finished.connect(self.handle_results)
-            self.worker.error.connect(self.handle_error)
-            self.worker.finished.connect(self.thread.quit)
+        num_frames = image_data.shape[0]
+        self.progress_bar.setMaximum(num_frames)
+        self.progress_bar.setValue(0)
 
-            # Cleanup
-            self.thread.finished.connect(self.worker.deleteLater)
-            self.thread.finished.connect(self.thread.deleteLater)
+        # Disable the button while the worker is running
+        self.segment_button.setEnabled(False)
 
-            # Re-enable button when thread finishes
-            self.thread.finished.connect(lambda: self.segment_button.setEnabled(True))
+        # Create the worker and thread
+        self.worker = MorphologyWorker(
+            self.image_data, image_data, num_frames, p, c
+        )
+        self.thread = QThread()
+        self.worker.moveToThread(self.thread)
 
-            self.thread.start()
+        # Connect worker signals
+        self.thread.started.connect(self.worker.run)
+        self.worker.progress.connect(self.progress_bar.setValue)
+        self.worker.finished.connect(self.handle_results)
+        self.worker.error.connect(self.handle_error)
+        self.worker.finished.connect(self.thread.quit)
 
-        self.segment_button.clicked.connect(process_morphology_time_series)
+        # Cleanup
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        # Re-enable button when thread finishes
+        self.thread.finished.connect(lambda: self.segment_button.setEnabled(True))
+
+        self.thread.start()
+    
+    
+    
+    
 
     def handle_results(self, results):
         if not results:
@@ -729,8 +742,34 @@ class TabWidgetApp(QMainWindow):
             return
 
         print("Results received successfully:", results)
-        self.morphologies_over_time = pd.DataFrame.from_dict(results, orient="index")
-        self.update_plot()
+
+        # Update Intact Cell Ratio Plot
+        intact_ratios = [frame_data["intact_ratio"] for frame_data in results.values()]
+        self.figure_intact_ratio.clear()
+        ax1 = self.figure_intact_ratio.add_subplot(111)
+        ax1.plot(range(len(intact_ratios)), intact_ratios, marker="o", label="Intact Ratio")
+        ax1.set_title("Intact Cell Ratio Over Time")
+        ax1.set_xlabel("Time")
+        ax1.set_ylabel("Ratio")
+        ax1.legend()
+        self.canvas_intact_ratio.draw()
+
+        # Update Morphology Fractions Plot
+        morphology_fractions = {key: [] for key in results[0]["fractions"].keys()}
+        for frame_data in results.values():
+            for morphology, fraction in frame_data["fractions"].items():
+                morphology_fractions[morphology].append(fraction)
+
+        self.figure_morphology_fractions.clear()
+        ax2 = self.figure_morphology_fractions.add_subplot(111)
+        for morphology, fractions in morphology_fractions.items():
+            ax2.plot(range(len(fractions)), fractions, marker="o", label=morphology)
+        ax2.set_title("Morphology Fractions Over Time")
+        ax2.set_xlabel("Time")
+        ax2.set_ylabel("Fraction")
+        ax2.legend()
+        self.canvas_morphology_fractions.draw()
+
 
     def handle_error(self, error_message):
         print(f"Error: {error_message}")
@@ -766,6 +805,8 @@ class TabWidgetApp(QMainWindow):
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
 
+    
+    
     def initViewArea(self):
         layout = QVBoxLayout(self.viewArea)
         # label = QLabel("Content of Tab 2")
