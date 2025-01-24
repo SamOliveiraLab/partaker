@@ -28,6 +28,10 @@ from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+
+from cellpose import models, utils
+
+# import xarray as xr
 from pathlib import Path
 from matplotlib import pyplot as plt
 import nd2
@@ -311,7 +315,25 @@ class TabWidgetApp(QMainWindow):
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
                 image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
-            # self.show_cell_area(image_data)
+            self.show_cell_area(image_data)
+            
+        elif self.radio_overlay_outlines.isChecked():
+            # Generate overlay with outlines
+            cache_key = (t, p, c)
+            if cache_key in self.image_data.segmentation_cache:
+                segmented_image = self.image_data.segmentation_cache[cache_key]
+            else:
+                segmented_image = SegmentationModels().segment_images([image_data], SegmentationModels.CELLPOSE)[0]
+                self.image_data.segmentation_cache[cache_key] = segmented_image
+
+            outlines = utils.masks_to_outlines(segmented_image)
+            overlay = image_data.copy()
+            overlay[outlines] = overlay.max()  # Set outline pixels to max intensity
+            image_data = overlay
+
+        # plt.figure()
+        # plt.imshow(image_data)
+        # plt.show()
 
         # Normalize the image from 0 to 65535
         image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
@@ -660,12 +682,14 @@ class TabWidgetApp(QMainWindow):
         self.radio_normal = QRadioButton("Normal")
         self.radio_thresholding = QRadioButton("Thresholding")
         self.radio_segmented = QRadioButton("Segmented")
+        self.radio_overlay_outlines = QRadioButton("Overlay with Outlines")
 
         # Create a button group and add the radio buttons to it
         self.button_group = QButtonGroup()
         self.button_group.addButton(self.radio_normal)
         self.button_group.addButton(self.radio_thresholding)
         self.button_group.addButton(self.radio_segmented)
+        self.button_group.addButton(self.radio_overlay_outlines)
         self.button_group.buttonClicked.connect(self.display_image)
 
         # Set default selection
@@ -675,6 +699,7 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(self.radio_thresholding)
         layout.addWidget(self.radio_normal)
         layout.addWidget(self.radio_segmented)
+        layout.addWidget(self.radio_overlay_outlines)
 
         # Threshold slider
         self.threshold_slider = QSlider(Qt.Horizontal)
