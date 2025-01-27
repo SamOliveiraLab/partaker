@@ -27,10 +27,6 @@ from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-
-
-
-# import xarray as xr
 from pathlib import Path
 from matplotlib import pyplot as plt
 import nd2
@@ -39,10 +35,10 @@ import numpy as np
 import cv2
 import imageio.v3 as iio
 import tifffile
+from morphology import annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_cell_morphologies, extract_cell_morphologies_time
 
-# Local imports
-from morphology import extract_cell_morphologies, extract_cell_morphologies_time
-from segmentation import SegmentationModels, segment_all_images, segment_this_image, extract_individual_cells, annotate_image, extract_cells_and_metrics, annotate_binary_mask
+from segmentation.segmentation_models import SegmentationModels
+
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
 
