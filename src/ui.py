@@ -273,15 +273,18 @@ class TabWidgetApp(QMainWindow):
         # Extract pixel counts for each component (ignore background)
         pixel_counts = stats[1:, cv2.CC_STAT_AREA]  # Skip the first label (background)
 
-        # TODO: de-comment
-        # Create a histogram of pixel counts using Seaborn
-        plt.figure(figsize=(10, 6))
-        sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
-        plt.title("Histogram of Pixel Counts of Connected Components")
-        plt.xlabel("Pixel Count")
-        plt.ylabel("Number of Components")
-        plt.grid(True)
-        plt.show()
+        # # TODO: de-comment
+        # # Create a histogram of pixel counts using Seaborn
+        # plt.figure(figsize=(10, 6))
+        # sns.histplot(pixel_counts, bins=30, kde=False, color="blue", alpha=0.7)
+        # plt.title("Histogram of Pixel Counts of Connected Components")
+        # plt.xlabel("Pixel Count")
+        # plt.ylabel("Number of Components")
+        # plt.grid(True)
+        # plt.show()
+
+
+
 
     def display_image(self):
         t = self.slider_t.value()
@@ -299,6 +302,11 @@ class TabWidgetApp(QMainWindow):
             image_data = image_data[t]
 
         image_data = np.array(image_data)  # Ensure it's a NumPy array
+        
+        # Determine the model type based on the selected channel
+        model_type = 'deepbacs_cp3' if c == 0 else 'bact_fluor_cp3'
+        
+        print(f"Using model type: {model_type} for channel {c}")
 
         # Apply thresholding or segmentation if selected
         if self.radio_thresholding.isChecked():
@@ -313,7 +321,12 @@ class TabWidgetApp(QMainWindow):
                 image_data = self.image_data.segmentation_cache[cache_key]
             else:
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
+                # Pass the determined model_type to the segmentation function
+                image_data = SegmentationModels().segment_images(
+                    np.array([image_data]), 
+                    SegmentationModels.CELLPOSE, 
+                    model_type=model_type
+                )[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
             
@@ -323,17 +336,18 @@ class TabWidgetApp(QMainWindow):
             if cache_key in self.image_data.segmentation_cache:
                 segmented_image = self.image_data.segmentation_cache[cache_key]
             else:
-                segmented_image = SegmentationModels().segment_images([image_data], SegmentationModels.CELLPOSE)[0]
+                # Pass the determined model_type to the segmentation function
+                segmented_image = SegmentationModels().segment_images(
+                    [image_data], 
+                    SegmentationModels.CELLPOSE, 
+                    model_type=model_type
+                )[0]
                 self.image_data.segmentation_cache[cache_key] = segmented_image
 
             outlines = utils.masks_to_outlines(segmented_image)
             overlay = image_data.copy()
             overlay[outlines] = overlay.max()  # Set outline pixels to max intensity
             image_data = overlay
-
-        # plt.figure()
-        # plt.imshow(image_data)
-        # plt.show()
 
         # Normalize the image from 0 to 65535
         image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
@@ -351,6 +365,7 @@ class TabWidgetApp(QMainWindow):
 
         # Store this processed image for export
         self.processed_images.append(image_data)
+
 
     def initImportTab(self):
         def importFile():
