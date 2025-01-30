@@ -517,15 +517,15 @@ class TabWidgetApp(QMainWindow):
             t = self.dimensions["T"]  # Get the total number of time points
             if "C" in self.dimensions:
                 image_data = np.array(
-                    self.image_data.data[0:5, p, c, :, :].compute()
-                    if hasattr(self.image_data.data[0:5, p, c, :, :], "compute")
-                    else self.image_data.data[0:5, p, c, :, :]
+                    self.image_data.data[0:t, p, c, :, :].compute()
+                    if hasattr(self.image_data.data[0:t, p, c, :, :], "compute")
+                    else self.image_data.data[0:t, p, c, :, :]
                 )
             else:
                 image_data = np.array(
-                    self.image_data.data[0:5, p, :, :].compute()
-                    if hasattr(self.image_data.data[0:5, p, :, :], "compute")
-                    else self.image_data.data[0:5, p, :, :]
+                    self.image_data.data[0:t, p, :, :].compute()
+                    if hasattr(self.image_data.data[0:t, p, :, :], "compute")
+                    else self.image_data.data[0:t, p, :, :]
                 )
 
             if image_data.size == 0:
@@ -586,7 +586,7 @@ class TabWidgetApp(QMainWindow):
         for frame_data in results.values():
             for morphology, fraction in frame_data["fractions"].items():
                 morphology_fractions[morphology].append(fraction)
-
+        
         self.figure_morphology_fractions.clear()
         ax2 = self.figure_morphology_fractions.add_subplot(111)
         for morphology, fractions in morphology_fractions.items():
