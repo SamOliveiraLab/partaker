@@ -723,18 +723,17 @@ def extract_cells_and_metrics(image, segmented_image):
     from skimage.measure import regionprops, label
     from skimage.color import rgb2gray
     from skimage.transform import resize
-    import numpy as np
 
     # Debugging: print input shapes
     print(f"Original image shape: {image.shape}")
     print(f"Segmented image shape: {segmented_image.shape}")
 
-    # Convert multi-channel intensity image to grayscale if needed
+    # Ensure the intensity image is single-channel (convert if multi-channel)
     if image.ndim == 3 and image.shape[-1] in [3, 4]:  # RGB or RGBA
         print("Converting multi-channel image to grayscale.")
         image = rgb2gray(image)
 
-    # Ensure intensity image matches segmented image shape
+    # Check and handle shape mismatches between the intensity image and the segmented image
     if image.shape != segmented_image.shape:
         print(f"Resizing intensity image from {image.shape} to {segmented_image.shape}")
         image = resize(image, segmented_image.shape, preserve_range=True, anti_aliasing=True)
