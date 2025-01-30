@@ -84,42 +84,59 @@ class MorphologyWorker(QObject):
         results = {}
         try:
             for t in range(self.num_frames):
-                # Use a consistent cache key format
                 cache_key = (t, self.position, self.channel)
-
+                
                 # Check if segmentation is already cached
                 if cache_key in self.image_data.segmentation_cache:
-                    print(
-                        f"[CACHE HIT] Using cached segmentation for T={t}, P={self.position}, C={self.channel}"
-                    )
+                    print(f"[CACHE HIT] T={t}, P={self.position}, C={self.channel}")
                     binary_image = self.image_data.segmentation_cache[cache_key]
                 else:
-                    print(
-                        f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}"
-                    )
-                    binary_image = SegmentationModels().segment_images([self.image_frames[t]], self.model_dropdown.currentText())[0]
-                    self.image_data.segmentation_cache[cache_key] = binary_image
+                    print(f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}")
+                    current_frame = self.image_frames[t]
+                    
+                    # Skip empty/invalid frames
+                    if np.mean(current_frame) == 0 or np.std(current_frame) == 0:
+                        print(f"Skipping empty frame T={t}")
+                        self.progress.emit(t + 1)
+                        continue
+                        
+                    try:
+                        # Get model type based on channel
+                        model_type = 'bact_phase_cp3' if self.channel in (0, None) else 'bact_fluor_cp3'
+                        seg_result = SegmentationModels().segment_images(
+                            [current_frame], 
+                            SegmentationModels.CELLPOSE,
+                            model_type=model_type
+                        )
+                        
+                        if seg_result is None or len(seg_result) == 0:
+                            raise ValueError("Empty segmentation result")
+                            
+                        binary_image = seg_result[0]
+                        self.image_data.segmentation_cache[cache_key] = binary_image
+                    except Exception as seg_error:
+                        print(f"Segmentation failed for T={t}: {str(seg_error)}")
+                        self.progress.emit(t + 1)
+                        continue
 
-                # Validate binary image
-                if binary_image.sum() == 0:
-                    print(f"Frame {t}: No valid contours found.")
+                # Validate segmentation result
+                if binary_image is None or binary_image.sum() == 0:
+                    print(f"Frame {t}: No valid segmentation")
+                    self.progress.emit(t + 1)
                     continue
 
                 # Extract morphology metrics
                 metrics = extract_cell_morphologies(binary_image)
 
                 if not metrics.empty:
-                    # Calculate Intact Cell Ratio
                     total_cells = len(metrics)
-                    intact_cells = metrics[metrics["morphology_class"] != "Lysed"].shape[0]
-                    intact_ratio = intact_cells / total_cells
 
                     # Calculate Morphology Fractions
                     morphology_counts = metrics["morphology_class"].value_counts(normalize=True)
                     fractions = morphology_counts.to_dict()
 
                     # Save results for this frame
-                    results[t] = {"intact_ratio": intact_ratio, "fractions": fractions}
+                    results[t] = {"fractions": fractions}
                 else:
                     print(f"Frame {t}: Metrics computation returned no valid data.")
 
@@ -306,7 +323,7 @@ class TabWidgetApp(QMainWindow):
         # Determine the model type based on the selected channel
         model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
         
-        print(f"Using model type: {model_type} for channel {c}")
+        # print(f"Using model type: {model_type} for channel {c}")
 
         # Handle binary masks (thresholding and segmentation)
         if self.radio_thresholding.isChecked():
@@ -467,18 +484,11 @@ class TabWidgetApp(QMainWindow):
 
         # Inner Tabs for Plots
         self.plot_tabs = QTabWidget()
-        self.intact_ratio_tab = QWidget()
         self.morphology_fractions_tab = QWidget()
 
-        self.plot_tabs.addTab(self.intact_ratio_tab, "Intact Cell Ratio")
         self.plot_tabs.addTab(self.morphology_fractions_tab, "Morphology Fractions")
         layout.addWidget(self.plot_tabs)
 
-        # Plot for Intact Cell Ratio
-        intact_ratio_layout = QVBoxLayout(self.intact_ratio_tab)
-        self.figure_intact_ratio = plt.figure()
-        self.canvas_intact_ratio = FigureCanvas(self.figure_intact_ratio)
-        intact_ratio_layout.addWidget(self.canvas_intact_ratio)
 
         # Plot for Morphology Fractions
         morphology_fractions_layout = QVBoxLayout(self.morphology_fractions_tab)
@@ -570,16 +580,6 @@ class TabWidgetApp(QMainWindow):
 
         print("Results received successfully:", results)
 
-        # Update Intact Cell Ratio Plot
-        intact_ratios = [frame_data["intact_ratio"] for frame_data in results.values()]
-        self.figure_intact_ratio.clear()
-        ax1 = self.figure_intact_ratio.add_subplot(111)
-        ax1.plot(range(len(intact_ratios)), intact_ratios, marker="o", label="Intact Ratio")
-        ax1.set_title("Intact Cell Ratio Over Time")
-        ax1.set_xlabel("Time")
-        ax1.set_ylabel("Ratio")
-        ax1.legend()
-        self.canvas_intact_ratio.draw()
 
         # Update Morphology Fractions Plot
         morphology_fractions = {key: [] for key in results[0]["fractions"].keys()}
@@ -1427,6 +1427,7 @@ class TabWidgetApp(QMainWindow):
         )
 
         self.canvas_scatter_plot.draw()
+        
         
         
         
