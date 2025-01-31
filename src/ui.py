@@ -52,15 +52,12 @@ from population import get_fluorescence_all_experiments, get_fluorescence_single
 """
 Can hold either an ND2 file or a series of images
 """
-
-
 class ImageData:
     def __init__(self, data, is_nd2=False):
         self.data = data
         self.processed_images = []
         self.is_nd2 = is_nd2
         self.segmentation_cache = {}
-
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -131,7 +128,6 @@ class MorphologyWorker(QObject):
 class TabWidgetApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        
         
         self.morphology_colors = {
             "Small": (255, 0, 0),       # Blue
@@ -218,54 +214,11 @@ class TabWidgetApp(QMainWindow):
             max_position = self.dimensions.get("P", 1) - 1
             self.slider_p.setMaximum(max_position)
             self.slider_p_5.setMaximum(max_position)  # Update population tab slider
-
-            self.update_mapping_dropdowns()
             self.update_controls()
-
-            self.mapping_controls["time"].currentIndexChanged.connect(
-                self.update_slider_range
-            )
-            self.mapping_controls["position"].currentIndexChanged.connect(
-                self.update_slider_range
-            )
-
             self.display_image()
 
             self.image_data.segmentation_cache.clear()  # Clear segmentation cache
             print("Segmentation cache cleared.")
-
-    def update_mapping_dropdowns(self):
-        # Clear all dropdowns before updating
-        for dropdown in self.mapping_controls.values():
-            dropdown.clear()
-
-        # Populate each dropdown based on its specific dimension
-        time_dim = self.dimensions.get("T", 1)
-        position_dim = self.dimensions.get("P", 1)
-        channel_dim = self.dimensions.get("C", 1)
-        x_dim = self.dimensions.get("X", 1)
-        y_dim = self.dimensions.get("Y", 1)
-
-        self.mapping_controls["time"].addItem("Select Time")
-        for i in range(time_dim):
-            self.mapping_controls["time"].addItem(str(i))
-
-        self.mapping_controls["position"].addItem("Select Position")
-        for i in range(position_dim):
-            self.mapping_controls["position"].addItem(str(i))
-
-        # Populate Channel dropdown if multiple channels exist
-        if "C" in self.dimensions:
-            self.mapping_controls["channel"].addItem("Select Channel")
-            for i in range(channel_dim):
-                self.mapping_controls["channel"].addItem(str(i))
-
-        self.mapping_controls["x_coord"].addItem(
-            "Fixed X range: 0 to {}".format(x_dim - 1)
-        )
-        self.mapping_controls["y_coord"].addItem(
-            "Fixed Y range: 0 to {}".format(y_dim - 1)
-        )
 
     def display_file_info(self, file_path):
         info_text = f"Number of dimensions: {len(self.dimensions)}\n"
@@ -331,10 +284,6 @@ class TabWidgetApp(QMainWindow):
         plt.grid(True)
         plt.show()
 
-
-
-
-
     def display_image(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -367,11 +316,7 @@ class TabWidgetApp(QMainWindow):
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
                 image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
-            self.show_cell_area(image_data)
-
-        # plt.figure()
-        # plt.imshow(image_data)
-        # plt.show()
+            # self.show_cell_area(image_data)
 
         # Normalize the image from 0 to 65535
         image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
@@ -449,179 +394,6 @@ class TabWidgetApp(QMainWindow):
 
         self.info_label = QLabel("File info will be shown here.")
         layout.addWidget(self.info_label)
-
-        self.mapping_controls = {}
-        mapping_labels = {
-            "time": "Time",
-            "position": "Position",
-            "channel": "Channel",
-            "x_coord": "X Coordinate",
-            "y_coord": "Y Coordinate",
-        }
-
-        for key, label_text in mapping_labels.items():
-            label = QLabel(label_text)
-            layout.addWidget(label)
-            dropdown = QComboBox()
-            dropdown.addItem("Select Dimension")
-            layout.addWidget(dropdown)
-            self.mapping_controls[key] = dropdown
-
-    # def initMorphologyTab(self):
-
-    #     def segment_and_plot():
-    #         t = self.slider_t.value()
-    #         p = self.slider_p.value()
-    #         c = (
-    #             self.slider_c.value() if self.has_channels else None
-    #         )  # Default C to None
-
-    #         # Extract the current frame
-    #         image_data = self.image_data.data
-    #         if self.image_data.is_nd2:
-    #             if self.has_channels:
-    #                 image_data = image_data[t, p, c]
-    #             else:
-    #                 image_data = image_data[t, p]
-    #         else:
-    #             image_data = image_data[t]
-
-    #         image_data = np.array(image_data)
-
-    #         # Use a consistent cache key format
-    #         cache_key = (t, p, c)  # Allow C to be None
-
-    #         # Check segmentation cache
-    #         if cache_key in self.image_data.segmentation_cache:
-    #             print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-    #             segmented_image = self.image_data.segmentation_cache[cache_key]
-    #         else:
-    #             print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-    #             segmented_image = segment_this_image(image_data)
-    #             self.image_data.segmentation_cache[cache_key] = segmented_image
-
-    #         # Extract morphology data from the segmented image
-    #         morphology_data = extract_cell_morphologies(segmented_image)
-
-    #         # Update the plot with the selected X/Y variables
-    #         x_key = self.x_dropdown.currentText()
-    #         y_key = self.y_dropdown.currentText()
-
-    #         self.figure.clear()
-    #         ax = self.figure.add_subplot(111)
-    #         sns.scatterplot(
-    #             data=morphology_data,
-    #             x=x_key,
-    #             y=y_key,
-    #             hue="area",
-    #             palette="viridis",
-    #             ax=ax,
-    #         )
-    #         ax.set_title(f"{x_key} vs {y_key}")
-    #         self.canvas.draw()
-
-    #     layout = QVBoxLayout(self.morphologyTab)
-
-    #     segment_button = QPushButton("Segment and Plot")
-    #     segment_button.clicked.connect(segment_and_plot)
-
-    #     """
-    #         morphology = {
-    #             'area': area,
-    #             'perimeter': perimeter,
-    #             'bounding_box': (x, y, w, h),
-    #             'aspect_ratio': aspect_ratio,
-    #             'extent': extent,
-    #             'solidity': solidity,
-    #             'equivalent_diameter': equivalent_diameter,
-    #             'orientation': angle
-    #         }
-    #     """
-    #     labels_layout = QHBoxLayout()
-
-    #     x_dropdown_w = QVBoxLayout()
-    #     x_dropdown_w.addWidget(QLabel("Select X variable"))
-    #     x_dropdown = QComboBox()
-    #     x_dropdown.addItem("area")
-    #     x_dropdown.addItem("perimeter")
-    #     x_dropdown.addItem("bounding_box")
-    #     x_dropdown.addItem("aspect_ratio")
-    #     x_dropdown.addItem("extent")
-    #     x_dropdown.addItem("solidity")
-    #     x_dropdown.addItem("equivalent_diameter")
-    #     x_dropdown.addItem("orientation")
-    #     x_dropdown_w.addWidget(x_dropdown)
-    #     wid = QWidget()
-    #     wid.setLayout(x_dropdown_w)
-    #     labels_layout.addWidget(wid)
-
-    #     y_dropdown_w = QVBoxLayout()
-    #     y_dropdown_w.addWidget(QLabel("Select Y variable"))
-    #     y_dropdown = QComboBox()
-    #     y_dropdown.addItem("area")
-    #     y_dropdown.addItem("perimeter")
-    #     y_dropdown.addItem("bounding_box")
-    #     y_dropdown.addItem("aspect_ratio")
-    #     y_dropdown.addItem("extent")
-    #     y_dropdown.addItem("solidity")
-    #     y_dropdown.addItem("equivalent_diameter")
-    #     y_dropdown.addItem("orientation")
-    #     y_dropdown_w.addWidget(y_dropdown)
-    #     wid = QWidget()
-    #     wid.setLayout(y_dropdown_w)
-    #     labels_layout.addWidget(wid)
-    #     layout.addLayout(labels_layout)
-
-    #     self.x_dropdown = x_dropdown
-    #     self.y_dropdown = y_dropdown
-
-    #     layout.addWidget(segment_button)
-    #     self.figure = plt.figure()
-    #     self.canvas = FigureCanvas(self.figure)
-    #     layout.addWidget(self.canvas)
-
-    #     if (
-    #         not hasattr(self, "morphologies_over_time")
-    #         or not self.morphologies_over_time
-    #     ):
-    #         QMessageBox.warning(
-    #             self,
-    #             "Plot Error",
-    #             "No data to plot. Please process morphology over time first.",
-    #         )
-    #         return
-
-    #     selected_metric = None
-
-    #     for metric, checkbox in self.metric_checkboxes.items():
-    #         if checkbox.isChecked():
-    #             selected_metric = metric
-    #             break
-
-    #     if selected_metric is None:
-    #         QMessageBox.warning(
-    #             self, "Selection Error", "Please select a single metric to plot."
-    #         )
-    #         return
-
-    #     # Plot the selected metric over time
-    #     self.figure_time_series.clear()
-    #     ax = self.figure_time_series.add_subplot(111)
-    #     ax.plot(self.morphologies_over_time[selected_metric], marker="o")
-    #     ax.set_title(
-    #         f"{selected_metric.capitalize()} Over Time (Position {self.slider_p.value()}, Channel {self.slider_c.value()})"
-    #     )
-    #     ax.set_xlabel("Time")
-    #     ax.set_ylabel(selected_metric.capitalize())
-    #     self.canvas_time_series.draw()
-
-
-
-
-
-
-
-
 
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
@@ -796,13 +568,9 @@ class TabWidgetApp(QMainWindow):
         ax.set_xlabel("Time")
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
-
-    
-    
+ 
     def initViewArea(self):
         layout = QVBoxLayout(self.viewArea)
-        # label = QLabel("Content of Tab 2")
-        # layout.addWidget(label)
 
         self.image_label = QLabel()
         self.image_label.setScaledContents(True)  # Allow the label to scale the image
@@ -811,19 +579,7 @@ class TabWidgetApp(QMainWindow):
         
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_label.customContextMenuRequested.connect(self.show_context_menu)
-        
-        # Another label for aligned images
-        # self.aligned_image_label = QLabel()
-        # self.aligned_image_label.setScaledContents(True)  # Allow the label to scale the image
-        # self.aligned_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # layout.addWidget(self.aligned_image_label)
 
-        # Align button
-        # align_button = QPushButton("Align Images")
-        # align_button.clicked.connect(self.align_images)
-        # layout.addWidget(align_button)
-
-        # Annotate Cells button
         annotate_button = QPushButton("Classify Cells")
         annotate_button.clicked.connect(self.annotate_cells)
         layout.addWidget(annotate_button)
@@ -984,7 +740,6 @@ class TabWidgetApp(QMainWindow):
         )
         self.image_label.setPixmap(pixmap)
         self.update_annotation_scatter()
-   
     
     def show_context_menu(self, position):
         context_menu = QMenu(self)
@@ -994,8 +749,6 @@ class TabWidgetApp(QMainWindow):
 
         context_menu.exec_(self.image_label.mapToGlobal(position))
 
-    
-    
     def save_annotated_image(self):
         if not hasattr(self, "annotated_image") or self.annotated_image is None:
             QMessageBox.warning(self, "Error", "No annotated image to save.")
@@ -1868,48 +1621,3 @@ class TabWidgetApp(QMainWindow):
         ax.set_xlabel('T')
         ax.set_ylabel('Signal / RPU')
         self.population_canvas.draw()
-
-    def __plot_fluorescente_signal(self):
-        if not hasattr(self, 'image_data'):
-            
-
-            return
-
-        selected_time = self.mapping_controls["time"].currentText()
-        max_time = (
-            int(selected_time)
-            if selected_time.isdigit()
-            else self.dimensions.get("T", 1) - 1
-        )
-
-        full_time_range = self.dimensions.get("T", 1) - 1
-        x_axis_limit = full_time_range + 2
-
-        # Get the current position from the position slider in the population tab
-        p = self.slider_p_5.value()
-        average_intensities = []
-
-        # Calculate average intensities only up to max_time
-        for t in range(max_time + 1):  
-
-            if self.image_data.data.ndim == 4:
-                image_data = self.image_data.data[t, p, :, :]
-            elif self.image_data.data.ndim == 3:
-                image_data = self.image_data.data[t, :, :]
-
-            # Convert to grayscale if necessary
-            if image_data.ndim == 3 and image_data.shape[-1] in [3, 4]:
-                image_data = cv2.cvtColor(image_data, cv2.COLOR_RGB2GRAY)
-
-            average_intensity = image_data.mean()
-            average_intensities.append(average_intensity)
-
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        ax.plot(average_intensities, marker="o")
-
-        ax.set_xlim(0, x_axis_limit)
-        ax.set_title(f"Average Pixel Intensity for Position P={p}")
-        ax.set_xlabel("T")
-        ax.set_ylabel("Intensity")
-        self.canvas.draw()
