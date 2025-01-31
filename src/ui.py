@@ -580,17 +580,38 @@ class TabWidgetApp(QMainWindow):
 
         print("Results received successfully:", results)
 
-
-        # Update Morphology Fractions Plot
-        morphology_fractions = {key: [] for key in results[0]["fractions"].keys()}
+        # Get all unique morphology classes across all frames
+        all_morphologies = set()
         for frame_data in results.values():
-            for morphology, fraction in frame_data["fractions"].items():
-                morphology_fractions[morphology].append(fraction)
+            all_morphologies.update(frame_data["fractions"].keys())
+
+        # Initialize the dictionary with all possible morphology classes
+        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+
+        # Get the maximum time point
+        max_time = max(results.keys())
+
+        # Fill in the fractions for each time point, using 0.0 for missing classes
+        for t in range(max_time + 1):
+            if t in results:
+                frame_data = results[t]["fractions"]
+                for morphology in all_morphologies:
+                    # Get the fraction if present, otherwise use 0.0
+                    fraction = frame_data.get(morphology, 0.0)
+                    morphology_fractions[morphology].append(fraction)
+            else:
+                # For frames with no data, append 0.0 for all morphologies
+                for morphology in all_morphologies:
+                    morphology_fractions[morphology].append(0.0)
         
         self.figure_morphology_fractions.clear()
         ax2 = self.figure_morphology_fractions.add_subplot(111)
+        
+        # Plot each morphology class with its corresponding color from self.morphology_colors_rgb
         for morphology, fractions in morphology_fractions.items():
-            ax2.plot(range(len(fractions)), fractions, marker="o", label=morphology)
+            color = self.morphology_colors_rgb.get(morphology, (0.5, 0.5, 0.5))  # Default to gray if color not found
+            ax2.plot(range(len(fractions)), fractions, marker="o", label=morphology, color=color)
+            
         ax2.set_title("Morphology Fractions Over Time")
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Fraction")
@@ -1427,6 +1448,7 @@ class TabWidgetApp(QMainWindow):
         )
 
         self.canvas_scatter_plot.draw()
+        
         
         
         
