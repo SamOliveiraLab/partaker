@@ -13,6 +13,8 @@ from cellpose import models, io
 
 from .unet import unet_segmentation
 
+from cellSAM import segment_cellular_image, get_model
+
 # # Example usage
 # segmentation_models = SegmentationModels()
 # # Accessing the CELLPOSE model
@@ -24,26 +26,32 @@ from .unet import unet_segmentation
 # # Segmenting images using the UNET model
 # segmented_images = segmentation_models.segment_images(images, mode=SegmentationModels.UNET, progress=progress)
 
-# @cachier(stale_after=datetime.timedelta(days=3))
-def segment_images(directory='/Users/hiram/Workspace/OliveiraLab/PartakerV3/src/aligned_data/XY8_Long_PHC', weights='/Users/hiram/Workspace/OliveiraLab/PartakerV3/src/checkpoints/delta_2_20_02_24_600eps.index'):
+# # @cachier(stale_after=datetime.timedelta(days=3))
+# def segment_images(directory='/Users/hiram/Workspace/OliveiraLab/PartakerV3/src/aligned_data/XY8_Long_PHC', weights='/Users/hiram/Workspace/OliveiraLab/PartakerV3/src/checkpoints/delta_2_20_02_24_600eps.index'):
 
-    target_size_seg = (512, 512)
-    model = unet_segmentation(input_size = target_size_seg + (1,))
-    test_images = Path(directory)
-    imgs = list(map(lambda x : cv2.imread(str(x), cv2.IMREAD_GRAYSCALE), sorted([img for img in test_images.iterdir()], key=lambda x : int(x.stem))))
+#     target_size_seg = (512, 512)
+#     model = unet_segmentation(input_size = target_size_seg + (1,))
+#     test_images = Path(directory)
+#     imgs = list(map(lambda x : cv2.imread(str(x), cv2.IMREAD_GRAYSCALE), sorted([img for img in test_images.iterdir()], key=lambda x : int(x.stem))))
 
-    def my_resize(img):
-        a = img[55:960, 150:810]
-        a = cv2.resize(a, (512, 512))
-        a = np.expand_dims(a, axis=-1)
-        return a
+#     def my_resize(img):
+#         a = img[55:960, 150:810]
+#         a = cv2.resize(a, (512, 512))
+#         a = np.expand_dims(a, axis=-1)
+#         return a
 
-    pred_imgs = model.predict(np.array(list(map(my_resize, imgs))))
-    return pred_imgs
+#     pred_imgs = model.predict(np.array(list(map(my_resize, imgs))))
+#     return pred_imgs
 
+# TODO: Implement caching for segmentation models
+
+"""
+Container class for multiple segmentation models
+"""
 class SegmentationModels:
     CELLPOSE = 'cellpose'
     UNET = 'unet'
+    CELLSAM = 'cellsam'
 
     _instance = None
 
@@ -54,8 +62,13 @@ class SegmentationModels:
         return cls._instance
     
     """
-    Segments an array of images using unet
+    Segments a single image using cellsam
     """
+    def segment_cellsam(self, images):
+        _img = np.expand_dims(images[0], axis=2)
+        _cellSAM_masks, _, _ = segment_cellular_image(_img, device='cpu')
+        return [_cellSAM_masks] # Doing this to ensure API compatibility with other segmentation methods
+
     def segment_unet(self, images):
         model = self.models[SegmentationModels.UNET]
         pred_imgs = model.predict(np.array([np.expand_dims(cv2.resize(img, (512, 512)), axis=-1) for img in images]))
@@ -63,9 +76,6 @@ class SegmentationModels:
         print(pred_imgs.shape)
         return pred_imgs[:, :, :, 0]
     
-    """
-    Segment an array of images using cellpose
-    """
     def segment_cellpose(self, images, progress):
         cellpose_inst = self.models[SegmentationModels.CELLPOSE]
 
@@ -98,6 +108,7 @@ class SegmentationModels:
         return bw_images        
 
     def segment_images(self, images, mode, progress=None):
+        print(f"Segmenting images using {mode} model")
 
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
@@ -114,6 +125,9 @@ class SegmentationModels:
                 self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
             
             return self.segment_unet(images)
+
+        elif mode == SegmentationModels.CELLSAM:
+            return self.segment_cellsam(images)
 
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")

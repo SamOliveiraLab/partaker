@@ -92,7 +92,7 @@ class MorphologyWorker(QObject):
                     print(
                         f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}"
                     )
-                    binary_image = SegmentationModels().segment_images([self.image_frames[t]], SegmentationModels.CELLPOSE)[0]
+                    binary_image = SegmentationModels().segment_images([self.image_frames[t]], self.model_dropdown.currentText())[0]
                     self.image_data.segmentation_cache[cache_key] = binary_image
 
                 # Validate binary image
@@ -306,7 +306,7 @@ class TabWidgetApp(QMainWindow):
         import seaborn as sns
 
         # Check if the image type is CV_32FC1 and convert to CV_8UC1
-        if img.dtype == np.float32:
+        if img.dtype == np.float32 or img.dtype == np.int32 or img.dtype == np.int64:
             img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
             img = img.astype(np.uint8)
         
@@ -365,7 +365,7 @@ class TabWidgetApp(QMainWindow):
                 image_data = self.image_data.segmentation_cache[cache_key]
             else:
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                image_data = SegmentationModels().segment_images(np.array([image_data]), SegmentationModels.CELLPOSE)[0]
+                image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
 
@@ -725,10 +725,6 @@ class TabWidgetApp(QMainWindow):
         self.thread.finished.connect(lambda: self.segment_button.setEnabled(True))
 
         self.thread.start()
-    
-    
-    
-    
 
     def handle_results(self, results):
         if not results:
@@ -934,9 +930,8 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(model_label)
 
         self.model_dropdown = QComboBox()
-        self.model_dropdown.addItems([SegmentationModels.CELLPOSE, SegmentationModels.UNET])
-        layout.addWidget(self.model_dropdown)
-        
+        self.model_dropdown.addItems([SegmentationModels.CELLPOSE, SegmentationModels.UNET, SegmentationModels.CELLSAM])
+        layout.addWidget(self.model_dropdown)    
     
     def annotate_cells(self):
         t = self.slider_t.value()
@@ -959,7 +954,7 @@ class TabWidgetApp(QMainWindow):
             segmented_image = self.image_data.segmentation_cache[cache_key]
         else:
             print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-            segmented_image = SegmentationModels().segment_images([frame], SegmentationModels.CELLPOSE)[0]
+            segmented_image = SegmentationModels().segment_images([frame], self.model_dropdown.currentText())[0]
             self.image_data.segmentation_cache[cache_key] = segmented_image
 
         # Extract cell metrics and bounding boxes
