@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QMenu,
     QTableWidget,
-    QTableWidgetItem
+    QTableWidgetItem,
+    QSpinBox,
 )
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
@@ -48,6 +49,9 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 import seaborn as sns
 
 from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment
+
+from fluorescence.sc import analyze_fluorescence_singlecell, analyze_fluorescence_total
+from fluorescence.rpu import AVAIL_RPUS
 
 """
 Can hold either an ND2 file or a series of images
@@ -236,23 +240,14 @@ class TabWidgetApp(QMainWindow):
         self.slider_p.setMaximum(p_max)
 
     def update_slider_range(self):
-        # Get selected values from dropdowns for time and position
-        selected_time = self.mapping_controls["time"].currentText()
-        selected_position = self.mapping_controls["position"].currentText()
+        self.slider_t.setMaximum(self.dimensions.get("T", 1) - 1)
+    
+        max_position = self.dimensions.get("P", 1) - 1
+        self.slider_p.setMaximum(max_position)
+        self.slider_p_5.setMaximum(max_position)
 
-        if selected_time.isdigit():
-            self.slider_t.setMaximum(int(selected_time))
-        else:
-            self.slider_t.setMaximum(self.dimensions.get("T", 1) - 1)
-
-        if selected_position.isdigit():
-            max_position = int(selected_position)
-            self.slider_p.setMaximum(max_position)
-            self.slider_p_5.setMaximum(max_position)
-        else:
-            max_position = self.dimensions.get("P", 1) - 1
-            self.slider_p.setMaximum(max_position)
-            self.slider_p_5.setMaximum(max_position)
+        # Population tab
+        self.time_max_box.setMaximum(self.dimensions.get("T", 1) - 1)
 
     def show_cell_area(self, img):
         from skimage import measure
@@ -583,6 +578,10 @@ class TabWidgetApp(QMainWindow):
         annotate_button = QPushButton("Classify Cells")
         annotate_button.clicked.connect(self.annotate_cells)
         layout.addWidget(annotate_button)
+
+        segment_button = QPushButton("Segment This Position")
+        segment_button.clicked.connect(self.segment_this_p)
+        layout.addWidget(segment_button)
 
         # T controls
         t_layout = QHBoxLayout()
@@ -1062,8 +1061,15 @@ class TabWidgetApp(QMainWindow):
                 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
-    
 
+    def segment_this_p(self):
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        self.segmented_time_series = SegmentationModels().segment_images(self.image_data.data[:, p, c], self.model_dropdown.currentText())
+        self.is_time_series_segmented = True # Put it to false when it changes
+
+        QMessageBox.information(self, "Segmentation Complete", f"Segmentation for all time points is complete. Shape: {self.segmented_time_series.shape}")
 
     def get_current_frame(self, t, p, c=None):
         """
@@ -1234,9 +1240,6 @@ class TabWidgetApp(QMainWindow):
         # Automatically plot default metrics
         self.update_annotation_scatter()
 
-    
-    
-    
     def generate_annotations_and_scatter(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1297,8 +1300,6 @@ class TabWidgetApp(QMainWindow):
         # Generate scatter plot
         self.generate_scatter_plot()
     
-    
-    
     def populate_metrics_table(self):
         if not self.cell_mapping:
             QMessageBox.warning(self, "Error", "No cell data available for metrics table.")
@@ -1324,9 +1325,6 @@ class TabWidgetApp(QMainWindow):
         for row in range(metrics_df.shape[0]):
             for col, value in enumerate(metrics_df.iloc[row]):
                 self.metrics_table.setItem(row, col, QTableWidgetItem(str(value)))
-    
-    
-    
     
     def generate_scatter_plot(self):
         areas = [data["metrics"]["area"] for data in self.cell_mapping.values()]
@@ -1355,9 +1353,6 @@ class TabWidgetApp(QMainWindow):
 
         self.canvas_scatter_plot.draw()
         
-        
-        
-
     def on_scatter_click(self, event):
         # Get the index of the clicked point
         ind = event.ind[0]  # Index of the clicked point
@@ -1440,6 +1435,10 @@ class TabWidgetApp(QMainWindow):
 
         p_layout.addWidget(self.slider_p_5)
 
+        # Checkbox for single cell analysis
+        self.single_cell_checkbox = QCheckBox("Single Cell Analysis")
+        layout.addWidget(self.single_cell_checkbox)
+
         # Button to manually plot
         plot_fluo_btn = QPushButton("Plot Fluorescence")
         plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
@@ -1448,176 +1447,68 @@ class TabWidgetApp(QMainWindow):
 
         layout.addLayout(p_layout)
         layout.addLayout(channel_choice_layout)
+
+        # Time range controls
+        time_range_layout = QHBoxLayout()
+        time_range_layout.addWidget(QLabel("Time Range:"))
+
+        self.time_min_box = QSpinBox()
+        time_range_layout.addWidget(self.time_min_box)
+
+        self.time_max_box = QSpinBox()
+        time_range_layout.addWidget(self.time_max_box)
+
+        layout.addLayout(time_range_layout)
 
         # Create the combobox and populate it with the dictionary keys
         self.rpu_params_combo = QComboBox()
-        for key in rpu_params_dict.keys():
+        for key in AVAIL_RPUS.keys():
             self.rpu_params_combo.addItem(key)
 
-        # Add the combobox to the layout
-        layout.addWidget(QLabel("Select RPU Parameters:"))
-        layout.addWidget(self.rpu_params_combo)
+        hb = QHBoxLayout()
+        hb.addWidget(QLabel("Select RPU Parameters:"))
+        hb.addWidget(self.rpu_params_combo)
+        layout.addLayout(hb)
 
         # Only attempt to plot if image_data has been loaded
         if hasattr(self, 'image_data') and self.image_data is not None:
             self.plot_fluorescente_signal()
 
-    def ___plot_fluorescente_signal(self):
-        if not hasattr(self, 'image_data'):
-            return
-
-        selected_time = self.mapping_controls["time"].currentText()
-        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
-
-        full_time_range = self.dimensions.get("T", 1) - 1
-        x_axis_limit = full_time_range + 2 
-
-        # Get the current position from the position slider in the population tab
-        p = self.slider_p_5.value()
-        
-        chan_sel = int(self.channel_combo.currentText())
-
-        # get intensities
-        levels, RPUs, error = get_fluorescence_all_experiments(self.image_data.data, self.dimensions, chan_sel)
-
-        self.population_figure.clear()
-        ax = self.population_figure.add_subplot(111)
-
-        for rpu in RPUs:
-            ax.plot(rpu, color='gray')
-        ax.plot(np.mean(rpu), color='red')
-        
-        ax.set_xlim(0, x_axis_limit)
-        ax.set_title(f'Fluorescence signal for Position P={p}')
-        ax.set_xlabel('T')
-        ax.set_ylabel('Signal / RPU')
-        self.canvas.draw()
-
     def plot_fluorescence_signal(self):
         if not hasattr(self, 'image_data'):
             return
 
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder to Save Cells")
-        if not folder_path:
-            return
-
-        for idx, (cell, bbox) in enumerate(self.extracted_cells):
-            save_path = os.path.join(folder_path, f"cell_{idx + 1}.png")
-            cv2.imwrite(save_path, cell)
-
-        QMessageBox.information(self, "Saved", f"Extracted cells saved to {folder_path}")
-    
-    def initPopulationTab(self):
-        layout = QVBoxLayout(self.populationTab)
-        label = QLabel("Average Pixel Intensity")
-        layout.addWidget(label)
-
-        self.population_figure = plt.figure()
-        self.population_canvas = FigureCanvas(self.population_figure)
-        layout.addWidget(self.population_canvas)
-
-        # Channel control
-        channel_choice_layout = QHBoxLayout()
-        channel_combo = QComboBox()
-        channel_combo.addItem('0')
-        channel_combo.addItem('1')
-        channel_combo.addItem('2')
-        # channel_combo.valueChanged.connect(self.plot_fluorescence_signal)
-        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
-        channel_choice_layout.addWidget(channel_combo)
-        self.channel_combo = channel_combo
-
-        # P controls
-        p_layout = QHBoxLayout()
-        p_label = QLabel("P: 0")
-        p_layout.addWidget(p_label)
-
-        # Set slider range based on loaded dimensions, or default to 0 if not loaded
-        max_p = (
-            self.dimensions.get("P", 1) - 1
-            if hasattr(self, "dimensions") and "P" in self.dimensions
-            else 0
-        )
-        self.slider_p_5 = QSlider(Qt.Horizontal)
-        self.slider_p_5.setMinimum(0)
-        self.slider_p_5.setMaximum(max_p) 
-        self.slider_p_5.setValue(0) 
-        self.slider_p_5.valueChanged.connect(lambda value: p_label.setText(f'P: {value}'))  
-
-        p_layout.addWidget(self.slider_p_5)
-
-        # Button to manually plot
-        plot_fluo_btn = QPushButton("Plot Fluorescence")
-        plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
-
-        channel_choice_layout.addWidget(plot_fluo_btn)
-
-        layout.addLayout(p_layout)
-        layout.addLayout(channel_choice_layout)
-
-        # Only attempt to plot if image_data has been loaded
-        if hasattr(self, 'image_data') and self.image_data is not None:
-            self.plot_fluorescente_signal()
-
-    def ___plot_fluorescente_signal(self):
-        if not hasattr(self, 'image_data'):
-            return
-
-        selected_time = self.mapping_controls["time"].currentText()
-        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
-
-        full_time_range = self.dimensions.get("T", 1) - 1
-        x_axis_limit = full_time_range + 2 
-
         # Get the current position from the position slider in the population tab
         p = self.slider_p_5.value()
-        
-        chan_sel = int(self.channel_combo.currentText())
+        c = int(self.channel_combo.currentText())
+        rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
+        t_s, t_e = self.time_min_box.value(), self.time_max_box.value() # Time range
 
-        # get intensities
-        levels, RPUs, error = get_fluorescence_all_experiments(self.image_data.data, self.dimensions, chan_sel)
+        fluo, timestamp = analyze_fluorescence_singlecell(self.segmented_time_series, self.image_data.data[t_s:t_e, p, c], rpu)
 
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)
 
-        for rpu in RPUs:
-            ax.plot(rpu, color='gray')
-        ax.plot(np.mean(rpu), color='red')
+        plot_timestamp = []
+        plot_fluo = []
+        fluo_mean = []
+        fluo_std = []
+
+        # Copy timestamp for each fluorescence observation
+        for t, fluo_data in zip(timestamp, fluo):
+            fluo_mean.append(np.mean(fluo_data))
+            fluo_std.append(np.std(fluo_data))
+            for f in fluo_data:
+                plot_timestamp.append(t)
+                plot_fluo.append(f)
         
-        ax.set_xlim(0, x_axis_limit)
+        fluo_mean = np.array(fluo_mean)
+        fluo_std = np.array(fluo_std)
+
+        ax.scatter(plot_timestamp, plot_fluo, color='blue', alpha=0.5)
+        ax.plot(timestamp, fluo_mean, color='red', label='Mean')
+        ax.fill_between(timestamp, fluo_mean - fluo_std, fluo_mean + fluo_std, color='red', alpha=0.2, label='Std Dev')
         ax.set_title(f'Fluorescence signal for Position P={p}')
         ax.set_xlabel('T')
-        ax.set_ylabel('Signal / RPU')
-        self.canvas.draw()
-
-    def plot_fluorescence_signal(self):
-        if not hasattr(self, 'image_data'):
-            return
-
-        selected_time = self.mapping_controls["time"].currentText()
-        max_time = int(selected_time) if selected_time.isdigit() else self.dimensions.get("T", 1) - 1
-
-        full_time_range = self.dimensions.get("T", 1) - 1
-        x_axis_limit = full_time_range + 2 
-
-        # Get the current position from the position slider in the population tab
-        p = self.slider_p_5.value()
-
-        chan_sel = int(self.channel_combo.currentText())
-        levels, RPUs, timestamp = get_fluorescence_single_experiment(self.image_data.data, self.dimensions, p, chan_sel)
-
-        # print(levels, RPUs)
-
-        self.population_figure.clear()
-        ax = self.population_figure.add_subplot(111)
-
-        ax.plot(timestamp, levels, color='blue')
-        
-        ax2 = ax.twinx()
-        ax2.plot(timestamp, RPUs, color='red')
-        
-        # ax.set_xlim(0, x_axis_limit)
-        ax.set_title(f'Fluorescence signal for Position P={p}')
-        ax.set_xlabel('T')
-        ax.set_ylabel('Signal / RPU')
+        ax.set_ylabel('Cell activity in RPUs')
         self.population_canvas.draw()
