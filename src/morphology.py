@@ -156,62 +156,7 @@ def annotate_image(image, cell_mapping):
         cv2.putText(annotated, str(cell_id), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     return annotated
 
-def annotate_binary_mask(segmented_image, cell_mapping):
-    """
-    Annotate the binary segmented mask with bounding boxes and morphology class color codes.
 
-    Parameters:
-    -----------
-    segmented_image : np.ndarray
-        The binary segmented mask (black and white).
-    cell_mapping : dict
-        Cell ID mapping with metrics and bounding boxes.
-
-    Returns:
-    --------
-    annotated : np.ndarray
-        Annotated binary mask with bounding boxes and labels.
-    """
-    # Ensure input is grayscale
-    if len(segmented_image.shape) == 3:
-        segmented_image = cv2.cvtColor(segmented_image, cv2.COLOR_BGR2GRAY)
-
-    # Convert grayscale to RGB for annotations
-    annotated = cv2.cvtColor(segmented_image, cv2.COLOR_GRAY2RGB)
-
-    # Define color mapping for morphology classes
-    morphology_colors = {
-        "Small": (0, 0, 255),  # Blue
-        "Round": (255, 0, 0),  # Red
-        "Normal": (0, 255, 0),  # Green
-        "Elongated": (255, 255, 0),  # Yellow
-        "Deformed": (255, 0, 255),  # Magenta
-    }
-
-    for cell_id, data in cell_mapping.items():
-        y1, x1, y2, x2 = data["bbox"]
-
-        # Get the morphology class and corresponding color
-        morphology_class = data["metrics"].get("morphology_class", "Normal")
-        color = morphology_colors.get(morphology_class, (255, 255, 255))  # Default to white
-
-        # Draw bounding box with morphology-specific color
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-
-        # Add text label for cell ID and class
-        label = f"{cell_id}: {morphology_class}"
-        cv2.putText(
-            annotated,
-            label,
-            (x1, y1 - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
-
-    return annotated
 
 def extract_cell_morphologies(binary_image: np.array) -> pd.DataFrame:
     """
