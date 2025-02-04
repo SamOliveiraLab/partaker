@@ -583,6 +583,9 @@ class TabWidgetApp(QMainWindow):
         segment_button.clicked.connect(self.segment_this_p)
         layout.addWidget(segment_button)
 
+        self.segmentation_progress_bar = QProgressBar()
+        layout.addWidget(self.segmentation_progress_bar)
+
         # T controls
         t_layout = QHBoxLayout()
         t_label = QLabel("T: 0")

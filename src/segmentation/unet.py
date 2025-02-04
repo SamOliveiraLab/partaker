@@ -1,11 +1,12 @@
 import tensorflow as tf
-import tensorflow.keras as keras
-from tensorflow.keras import backend as K
+# import tensorflow.keras as keras
+
+# import keras.api._v2.keras as keras
+from keras import backend as K
 from tensorflow.python.ops import array_ops, math_ops
-from tensorflow.keras.optimizers import Adam  # Adam optimizer instead of SGD...
-# from tensorflow.keras.optimizers.legacy import Adam  # Adam optimizer instead of SGD...
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import (
+from keras.optimizers import Adam 
+from keras.models import Model
+from keras.layers import (
     Input,
     Conv2D,
     MaxPooling2D,
@@ -13,6 +14,19 @@ from tensorflow.keras.layers import (
     UpSampling2D,
     Concatenate,
 )
+# from tensorflow.keras import backend as K
+# from tensorflow.python.ops import array_ops, math_ops
+# from tensorflow.keras.optimizers import Adam  # Adam optimizer instead of SGD...
+# # from tensorflow.keras.optimizers.legacy import Adam  # Adam optimizer instead of SGD...
+# from tensorflow.keras.models import Model
+# from tensorflow.keras.layers import (
+#     Input,
+#     Conv2D,
+#     MaxPooling2D,
+#     Dropout,
+#     UpSampling2D,
+#     Concatenate,
+# )
 
 # Model loading. TODO: move to another file
 

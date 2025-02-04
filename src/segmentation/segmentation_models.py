@@ -52,6 +52,7 @@ class SegmentationModels:
     CELLPOSE = 'cellpose'
     UNET = 'unet'
     CELLSAM = 'cellsam'
+    CELLPOSE_FT_0 = 'cellpose_finetuned'
 
     _instance = None
 
@@ -69,12 +70,61 @@ class SegmentationModels:
         _cellSAM_masks, _, _ = segment_cellular_image(_img, device='cpu')
         return [_cellSAM_masks] # Doing this to ensure API compatibility with other segmentation methods
 
+    """
+    Segments using U-Net
+    - Patches image
+    - Removes artifacts
+    - Indentifies singles components
+    """
     def segment_unet(self, images):
         model = self.models[SegmentationModels.UNET]
-        pred_imgs = model.predict(np.array([np.expand_dims(cv2.resize(img, (512, 512)), axis=-1) for img in images]))
+        patches = []
+        patch_indices = []
 
-        print(pred_imgs.shape)
-        return pred_imgs[:, :, :, 0]
+        # Divide each image into 512x512 patches
+        for img_idx, img in enumerate(images):
+            img = np.array(img)
+            height, width = img.shape[:2]
+
+            for i in range(0, height, 512):
+                for j in range(0, width, 512):
+                    patch = img[i:i+512, j:j+512]
+
+                    # If the patch is smaller than 512x512, pad it with zeros
+                    if patch.shape[0] < 512 or patch.shape[1] < 512:
+                        padded_patch = np.zeros((512, 512), dtype=patch.dtype)
+                        padded_patch[:patch.shape[0], :patch.shape[1]] = patch
+                        patch = padded_patch
+
+                    patches.append(np.expand_dims(patch, axis=-1))
+                    patch_indices.append((img_idx, i, j))
+
+        # Segment all patches at once
+        patches = np.array(patches)
+        segmented_patches = model.predict(patches)
+
+        # Create an empty array to store the segmented results
+        segmented_images = [np.zeros_like(img, dtype=np.uint8) for img in images]
+
+        # Combine the segmented patches back into the original images
+        for idx, (img_idx, i, j) in enumerate(patch_indices):
+            segmented_patch = segmented_patches[idx, :, :, 0]
+
+            # Remove padding if necessary
+            if i + 512 > segmented_images[img_idx].shape[0]:
+                segmented_patch = segmented_patch[:segmented_images[img_idx].shape[0] - i, :]
+            if j + 512 > segmented_images[img_idx].shape[1]:
+                segmented_patch = segmented_patch[:, :segmented_images[img_idx].shape[1] - j]
+
+            segmented_images[img_idx][i:i+512, j:j+512] = segmented_patch
+
+        return segmented_images
+    # def segment_unet(self, images):
+    #     model = self.models[SegmentationModels.UNET]
+    #     pred_imgs = model.predict(np.array([np.expand_dims(cv2.resize(np.array(img), (512, 512)), axis=-1) for img in images]))
+
+    #     print(pred_imgs.shape)
+    #     return pred_imgs[:, :, :, 0]
     
     def segment_cellpose(self, images, progress):
         cellpose_inst = self.models[SegmentationModels.CELLPOSE]
@@ -121,8 +171,11 @@ class SegmentationModels:
         
         elif mode == SegmentationModels.UNET:
             if SegmentationModels.UNET not in self.models:
+                if "UNET_WEIGHTS" not in os.environ:
+                    raise ValueError("UNET_WEIGHTS environment variable not set")
+
                 target_size_seg = (512, 512)
-                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
+                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,), pretrained_weights=os.environ["UNET_WEIGHTS"])
             
             return self.segment_unet(images)
 
