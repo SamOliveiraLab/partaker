@@ -12,6 +12,10 @@ import datetime
 from cellpose import models, io
 
 from .unet import unet_segmentation
+from scipy.ndimage import gaussian_filter
+from skimage import exposure
+from skimage.restoration import richardson_lucy
+
 
 from cellSAM import segment_cellular_image, get_model
 
@@ -61,6 +65,8 @@ class SegmentationModels:
             cls._instance = super(SegmentationModels, cls).__new__(cls, *args, **kwargs)
             cls._instance.models = {}
         return cls._instance
+    
+
     
     """
     Segments a single image using cellsam
@@ -156,31 +162,60 @@ class SegmentationModels:
                 progress.emit(len(images))
 
         return bw_images        
-
-    def segment_images(self, images, mode, progress=None):
-        print(f"Segmenting images using {mode} model")
-
-        if mode == SegmentationModels.CELLPOSE:
-            if SegmentationModels.CELLPOSE not in self.models:
-                if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type='deepbacs_cp3')
-                else:
-                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type='deepbacs_cp3')
-            
-            return self.segment_cellpose(images, progress)
         
-        elif mode == SegmentationModels.UNET:
-            if SegmentationModels.UNET not in self.models:
-                if "UNET_WEIGHTS" not in os.environ:
-                    raise ValueError("UNET_WEIGHTS environment variable not set")
+        
+        
+        
+    def segment_images(self, images, mode, model_type=None, progress=None, preprocess=True):
+        
+            # Preprocess images if the flag is enabled
+            if preprocess:
+                images = [preprocess_image(img) for img in images]
 
-                target_size_seg = (512, 512)
-                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,), pretrained_weights=os.environ["UNET_WEIGHTS"])
+            if mode == SegmentationModels.CELLPOSE:
+                if SegmentationModels.CELLPOSE not in self.models:
+                    if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
+                        self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type=model_type)
+                    else:
+                        self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type=model_type)
+                
+                # Ensure the selected model type is applied dynamically
+                self.models[self.CELLPOSE].model_type = model_type
+                
+                return self.segment_cellpose(images, progress)
             
-            return self.segment_unet(images)
+            elif mode == SegmentationModels.UNET:
+                if SegmentationModels.UNET not in self.models:
+                    target_size_seg = (512, 512)
+                    self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
+                
+                return self.segment_unet(images)
 
-        elif mode == SegmentationModels.CELLSAM:
-            return self.segment_cellsam(images)
+            else:
+                raise ValueError(f"Invalid segmentation mode: {mode}")        
+            
 
-        else:
-            raise ValueError(f"Invalid segmentation mode: {mode}")
+
+
+def preprocess_image(image):
+        """
+        Preprocess an image by applying Gaussian blur, CLAHE, and Richardson-Lucy deblurring.
+
+        Parameters:
+            image (np.ndarray): Input image.
+
+        Returns:
+            np.ndarray: Preprocessed image.
+        """
+        normalized_frame = (image - np.min(image)) / (np.max(image) - np.min(image))
+        
+        denoised_frame = gaussian_filter(normalized_frame, sigma=1)
+
+        # Apply CLAHE to improve contrast
+        clahe = exposure.equalize_adapthist(denoised_frame, clip_limit=0.03)
+
+        # Step 3: Deblur the image
+        psf = np.ones((5, 5)) / 25  # Example PSF
+        deblurred_frame = richardson_lucy(denoised_frame, psf, num_iter=30)
+
+        return deblurred_frame
