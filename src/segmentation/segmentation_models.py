@@ -9,7 +9,7 @@ import cv2
 from cachier import cachier
 import datetime
 
-from cellpose import models, io
+from cellpose import models, io, utils
 
 from .unet import unet_segmentation
 from scipy.ndimage import gaussian_filter
@@ -132,26 +132,51 @@ class SegmentationModels:
     #     print(pred_imgs.shape)
     #     return pred_imgs[:, :, :, 0]
     
+    """
+    Segment an array of images using cellpose
+    """
     def segment_cellpose(self, images, progress):
+        """
+        Segment cells using Cellpose and return binary masks with borders.
+
+        Parameters:
+        -----------
+        images : list of numpy.ndarray
+            The input images to segment.
+        progress : callable or Signal
+            A callback or signal to update progress.
+
+        Returns:
+        --------
+        binary_mask_display : numpy.ndarray
+            The binary masks with borders for each segmented cell.
+        """
         cellpose_inst = self.models[SegmentationModels.CELLPOSE]
 
         # Ensure images are in the correct format
         images = [img.squeeze() if img.ndim > 2 else img for img in images]
 
-        # Run segmentation
         try:
+            # Run segmentation with Cellpose
             masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
             masks = np.array(masks)  # Ensure masks are a NumPy array
-        except Exception as e:
-            print(f"Error during segmentation: {e}")
-            return None
 
-        # Create binary black-and-white masks
-        try:
-            bw_images = np.zeros_like(masks, dtype=np.uint8)
+            # Create binary masks with borders
+            bw_images = np.zeros_like(masks, dtype=np.uint8)  # Initialize binary mask
             bw_images[masks > 0] = 255  # Convert labeled masks to binary
+
+            # Add borders to the binary masks
+            for i in range(len(masks)):
+                # Get outlines for the current mask
+                outlines = utils.masks_to_outlines(masks[i])
+                # Set border pixels to 0 (black) on the binary mask
+                bw_images[i][outlines] = 0
+
+            # Optionally, pad the binary masks for visualization
+            binary_mask_display = np.pad(bw_images, pad_width=((0, 0), (5, 5), (5, 5)), mode='constant', constant_values=0)
+
         except Exception as e:
-            print(f"Error converting masks to binary: {e}")
+            print(f"Error during segmentation or mask processing: {e}")
             return None
 
         # Update progress if a callback is provided
@@ -161,39 +186,36 @@ class SegmentationModels:
             else:  # Assume it's a PyQt signal
                 progress.emit(len(images))
 
-        return bw_images        
-        
-        
-        
-        
+        return binary_mask_display     
+
     def segment_images(self, images, mode, model_type=None, progress=None, preprocess=True):
+    
+        # Preprocess images if the flag is enabled
+        if preprocess:
+            images = [preprocess_image(img) for img in images]
+
+        if mode == SegmentationModels.CELLPOSE:
+            if SegmentationModels.CELLPOSE not in self.models:
+                if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
+                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type=model_type)
+                else:
+                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type=model_type)
+            
+            # Ensure the selected model type is applied dynamically
+            self.models[self.CELLPOSE].model_type = model_type
+            
+            return self.segment_cellpose(images, progress)
         
-            # Preprocess images if the flag is enabled
-            if preprocess:
-                images = [preprocess_image(img) for img in images]
-
-            if mode == SegmentationModels.CELLPOSE:
-                if SegmentationModels.CELLPOSE not in self.models:
-                    if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                        self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type=model_type)
-                    else:
-                        self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type=model_type)
-                
-                # Ensure the selected model type is applied dynamically
-                self.models[self.CELLPOSE].model_type = model_type
-                
-                return self.segment_cellpose(images, progress)
+        elif mode == SegmentationModels.UNET:
+            if SegmentationModels.UNET not in self.models:
+                target_size_seg = (512, 512)
+                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
             
-            elif mode == SegmentationModels.UNET:
-                if SegmentationModels.UNET not in self.models:
-                    target_size_seg = (512, 512)
-                    self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
-                
-                return self.segment_unet(images)
+            return self.segment_unet(images)
 
-            else:
-                raise ValueError(f"Invalid segmentation mode: {mode}")        
-            
+        else:
+            raise ValueError(f"Invalid segmentation mode: {mode}")
+        
 
 
 
