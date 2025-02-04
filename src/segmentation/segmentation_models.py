@@ -208,10 +208,16 @@ class SegmentationModels:
         
         elif mode == SegmentationModels.UNET:
             if SegmentationModels.UNET not in self.models:
+                if "UNET_WEIGHTS" not in os.environ:
+                    raise ValueError("UNET_WEIGHTS environment variable not set")
+
                 target_size_seg = (512, 512)
-                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,))
+                self.models[SegmentationModels.UNET] = unet_segmentation(input_size=target_size_seg + (1,), pretrained_weights=os.environ["UNET_WEIGHTS"])
             
             return self.segment_unet(images)
+
+        elif mode == SegmentationModels.CELLSAM:
+            return self.segment_cellsam(images)
 
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
