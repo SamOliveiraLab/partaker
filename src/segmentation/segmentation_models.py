@@ -155,6 +155,15 @@ class SegmentationModels:
 
         return bw_images
 
+<<<<<<< HEAD
+=======
+    #     print(pred_imgs.shape)
+    #     return pred_imgs[:, :, :, 0]
+    
+    """
+    Segment an array of images using cellpose
+    """
+>>>>>>> 362a1f3 (Feat: Improve Cellpose segmentation with border visualization and enhanced error handling)
     def segment_cellpose(self, images, progress):
         """
         Segment cells using Cellpose and return binary masks with borders.
