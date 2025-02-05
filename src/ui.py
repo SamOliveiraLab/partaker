@@ -302,130 +302,64 @@ class TabWidgetApp(QMainWindow):
 
 
 
-
     def display_image(self):
-        t = self.slider_t.value()
-        p = self.slider_p.value()
-        c = self.slider_c.value() if self.has_channels else None
+            t = self.slider_t.value()
+            p = self.slider_p.value()
+            c = self.slider_c.value() if self.has_channels else None
 
-        # Retrieve the current frame
-        image_data = self.image_data.data
-        if self.image_data.is_nd2:
-            if self.has_channels:
-                image_data = image_data[t, p, c]
+            # Retrieve the current frame
+            image_data = self.image_data.data
+            if self.image_data.is_nd2:
+                if self.has_channels:
+                    image_data = image_data[t, p, c]
+                else:
+                    image_data = image_data[t, p]
             else:
-                image_data = image_data[t, p]
-        else:
-            image_data = image_data[t]
+                image_data = image_data[t]
 
-        image_data = np.array(image_data)  # Ensure it's a NumPy array
-        
-        # Determine the model type based on the selected channel
-        model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
-        
-        # print(f"Using model type: {model_type} for channel {c}")
+            image_data = np.array(image_data)  # Ensure it's a NumPy array
 
-        # Handle binary masks (thresholding and segmentation)
-        if self.radio_thresholding.isChecked():
-            threshold = self.threshold_slider.value()
-            image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
-            image_data = image_data.compute()
-            # Keep as binary mask
-            image_format = QImage.Format_Grayscale8
+            # Apply thresholding or segmentation if selected
+            if self.radio_thresholding.isChecked():
+                threshold = self.threshold_slider.value()
+                image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
+                image_data = image_data.compute()
             
-        elif self.radio_segmented.isChecked():
+            elif self.radio_segmented.isChecked():
                 cache_key = (t, p, c)
-                
                 if cache_key in self.image_data.segmentation_cache:
                     print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
                     image_data = self.image_data.segmentation_cache[cache_key]
                 else:
-                    print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                    
-                    # Determine model type ONLY if Cellpose is selected
+                # Determine model type ONLY if Cellpose is selected
                     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
                         model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
                     else:
                         model_type = None  # Other models don't need this
-                    
+                        
                     # Perform segmentation
                     image_data = SegmentationModels().segment_images(
                         np.array([image_data]), self.model_dropdown.currentText(), model_type=model_type
                     )[0]
-                    
-                    # Store result in cache
                     self.image_data.segmentation_cache[cache_key] = image_data
-
-                # Show cell area only for segmented images
                 # self.show_cell_area(image_data)
 
-                # Keep as binary mask
-                image_format = QImage.Format_Grayscale8
-            
-        else:  # Normal view or overlay
-            if self.radio_overlay_outlines.isChecked():
-                cache_key = (t, p, c)
-                if cache_key in self.image_data.segmentation_cache:
-                    segmented_image = self.image_data.segmentation_cache[cache_key]
-                else:
-                    segmented_image = SegmentationModels().segment_images(
-                        [image_data], 
-                        SegmentationModels.CELLPOSE, 
-                        model_type=model_type
-                    )[0]
-                    self.image_data.segmentation_cache[cache_key] = segmented_image
+            # Normalize the image from 0 to 65535
+            image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
+                np.uint16
+            )
 
-                # Ensure segmented image has same dimensions as input image
-                if segmented_image.shape != image_data.shape:
-                    segmented_image = cv2.resize(segmented_image, 
-                                               (image_data.shape[1], image_data.shape[0]), 
-                                               interpolation=cv2.INTER_NEAREST)
-                
-                outlines = utils.masks_to_outlines(segmented_image)
-                overlay = image_data.copy()
-                
-                # Verify dimensions match before applying overlay
-                if outlines.shape == overlay.shape:
-                    overlay[outlines] = overlay.max()
-                else:
-                    print(f"Dimension mismatch - Outline shape: {outlines.shape}, Image shape: {overlay.shape}")
-                    outlines = cv2.resize(outlines.astype(np.uint8), 
-                                        (overlay.shape[1], overlay.shape[0]), 
-                                        interpolation=cv2.INTER_NEAREST).astype(bool)
-                    overlay[outlines] = overlay.max()
-                
-                image_data = overlay
+            # Update image format and display
+            image_format = QImage.Format_Grayscale16
+            height, width = image_data.shape[:2]
+            image = QImage(image_data, width, height, image_format)
+            pixmap = QPixmap.fromImage(image).scaled(
+                self.image_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+            )
+            self.image_label.setPixmap(pixmap)
 
-            # Normalize and apply color for normal/overlay views
-            image_data = cv2.normalize(image_data, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            
-            # Apply color based on channel for non-binary images
-            if self.has_channels:
-                colored_image = np.zeros((image_data.shape[0], image_data.shape[1], 3), dtype=np.uint8)
-                if c == 0:  # Phase contrast - grayscale
-                    colored_image = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
-                elif c == 1:  # mCherry - red
-                    colored_image[:, :, 2] = image_data  # Red channel
-                elif c == 2:  # YFP - yellow/green
-                    colored_image[:, :, 1] = image_data  # Green channel
-                    colored_image[:, :, 2] = image_data * 0.5  # Add some red to make it more yellow
-                image_data = colored_image
-                image_format = QImage.Format_RGB888
-            else:
-                image_format = QImage.Format_Grayscale8
-
-        # Convert to QImage and display
-        height, width = image_data.shape[:2]
-        bytes_per_line = width if image_format == QImage.Format_Grayscale8 else 3 * width
-        image = QImage(image_data.data, width, height, bytes_per_line, image_format)
-        pixmap = QPixmap.fromImage(image).scaled(
-            self.image_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
-        )
-        self.image_label.setPixmap(pixmap)
-
-        # Store this processed image for export
-        self.processed_images.append(image_data)
-
+            # Store this processed image for export
+            self.processed_images.append(image_data)
 
 
 
