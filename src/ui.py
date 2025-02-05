@@ -334,21 +334,33 @@ class TabWidgetApp(QMainWindow):
             image_format = QImage.Format_Grayscale8
             
         elif self.radio_segmented.isChecked():
-            cache_key = (t, p, c)
-            if cache_key in self.image_data.segmentation_cache:
-                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-                image_data = self.image_data.segmentation_cache[cache_key]
-            else:
-                print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                image_data = SegmentationModels().segment_images(
-                    np.array([image_data]), 
-                    SegmentationModels.CELLPOSE, 
-                    model_type=model_type
-                )[0]
-                self.image_data.segmentation_cache[cache_key] = image_data
-            self.show_cell_area(image_data)
-            # Keep as binary mask
-            image_format = QImage.Format_Grayscale8
+                cache_key = (t, p, c)
+                
+                if cache_key in self.image_data.segmentation_cache:
+                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                    image_data = self.image_data.segmentation_cache[cache_key]
+                else:
+                    print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+                    
+                    # Determine model type ONLY if Cellpose is selected
+                    if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
+                        model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+                    else:
+                        model_type = None  # Other models don't need this
+                    
+                    # Perform segmentation
+                    image_data = SegmentationModels().segment_images(
+                        np.array([image_data]), self.model_dropdown.currentText(), model_type=model_type
+                    )[0]
+                    
+                    # Store result in cache
+                    self.image_data.segmentation_cache[cache_key] = image_data
+
+                # Show cell area only for segmented images
+                # self.show_cell_area(image_data)
+
+                # Keep as binary mask
+                image_format = QImage.Format_Grayscale8
             
         else:  # Normal view or overlay
             if self.radio_overlay_outlines.isChecked():
@@ -413,6 +425,8 @@ class TabWidgetApp(QMainWindow):
 
         # Store this processed image for export
         self.processed_images.append(image_data)
+
+
 
 
     def initImportTab(self):
