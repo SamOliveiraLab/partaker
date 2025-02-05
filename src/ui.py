@@ -340,11 +340,7 @@ class TabWidgetApp(QMainWindow):
                 image_data = self.image_data.segmentation_cache[cache_key]
             else:
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-                image_data = SegmentationModels().segment_images(
-                    np.array([image_data]), 
-                    SegmentationModels.CELLPOSE, 
-                    model_type=model_type
-                )[0]
+                image_data = SegmentationModels().segment_images(np.array([image_data]), self.model_dropdown.currentText())[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
             self.show_cell_area(image_data)
             # Keep as binary mask

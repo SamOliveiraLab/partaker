@@ -189,6 +189,8 @@ class SegmentationModels:
         return binary_mask_display     
 
     def segment_images(self, images, mode, model_type=None, progress=None, preprocess=True):
+        print(f"Segmenting images using {mode} model")
+        
     
         # Preprocess images if the flag is enabled
         if preprocess:
