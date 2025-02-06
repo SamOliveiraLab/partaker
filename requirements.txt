@@ -147,3 +147,4 @@ watchdog~=3.0.0
 websockets~=10.4
 xgboost~=1.7.5
 zarr
+tqdm>=4.65.0

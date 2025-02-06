@@ -1,3 +1,4 @@
+from asyncio import tasks
 from pathlib import Path
 import matplotlib.pyplot as plt
 import math
@@ -15,7 +16,7 @@ from .unet import unet_segmentation
 from scipy.ndimage import gaussian_filter
 from skimage import exposure
 from skimage.restoration import richardson_lucy
-
+from skimage.measure import label
 
 from cellSAM import segment_cellular_image, get_model
 
@@ -161,19 +162,23 @@ class SegmentationModels:
             masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
             masks = np.array(masks)  # Ensure masks are a NumPy array
 
-            # Create binary masks with borders
-            bw_images = np.zeros_like(masks, dtype=np.uint8)  # Initialize binary mask
-            bw_images[masks > 0] = 255  # Convert labeled masks to binary
-
-            # Add borders to the binary masks
+            # Label the segmented regions uniquely
+            labeled_masks = np.zeros_like(masks, dtype=np.int32)
             for i in range(len(masks)):
-                # Get outlines for the current mask
-                outlines = utils.masks_to_outlines(masks[i])
-                # Set border pixels to 0 (black) on the binary mask
-                bw_images[i][outlines] = 0
+                labeled_masks[i] = label(masks[i])  # Proper labeling of segmented regions
+
+            # Create binary masks for visualization (convert labeled regions to 255)
+            bw_images = np.where(labeled_masks > 0, 255, 0).astype(np.uint8)
+
+            # Add outlines to the binary masks
+            for i in range(len(masks)):
+                outlines = utils.masks_to_outlines(masks[i])  # Corrected from tasks[i] to masks[i]
+                bw_images[i][outlines] = 0  # Set outline pixels to black (0)
 
             # Optionally, pad the binary masks for visualization
-            binary_mask_display = np.pad(bw_images, pad_width=((0, 0), (5, 5), (5, 5)), mode='constant', constant_values=0)
+            binary_mask_display = np.pad(
+                bw_images, pad_width=((0, 0), (5, 5), (5, 5)), mode='constant', constant_values=0
+            )
 
         except Exception as e:
             print(f"Error during segmentation or mask processing: {e}")

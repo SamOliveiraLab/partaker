@@ -57,6 +57,13 @@ from population import get_fluorescence_all_experiments, get_fluorescence_single
 from fluorescence.sc import analyze_fluorescence_singlecell, analyze_fluorescence_total
 from fluorescence.rpu import AVAIL_RPUS
 
+from tracking import track_cells
+
+from tqdm import tqdm
+
+from skimage.measure import label
+import matplotlib.pyplot as plt
+
 """
 Can hold either an ND2 file or a series of images
 """
@@ -429,6 +436,11 @@ class TabWidgetApp(QMainWindow):
         # Process button
         self.segment_button = QPushButton("Process Morphology Over Time")
         layout.addWidget(self.segment_button)
+        
+        # Button to track cells over time
+        self.track_button = QPushButton("Track Cells")
+        self.track_button.clicked.connect(self.track_cells_over_time)
+        layout.addWidget(self.track_button)
 
         # Inner Tabs for Plots
         self.plot_tabs = QTabWidget()
@@ -451,7 +463,49 @@ class TabWidgetApp(QMainWindow):
         # Connect Process Button
         self.segment_button.clicked.connect(self.process_morphology_time_series)
         
-        
+    
+    
+    def track_cells_over_time(self):
+        """
+        Tracks segmented cells over time and visualizes trajectories.
+        """
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        if not self.image_data.is_nd2:
+            QMessageBox.warning(self, "Error", "Tracking requires an ND2 dataset.")
+            return
+
+        try:
+            t = self.dimensions["T"]  # Get total number of frames
+
+            # Extract segmented images for all time points
+            segmented_imgs = np.array([
+                self.image_data.segmentation_cache[(i, p, c)] for i in range(t)
+                if (i, p, c) in self.image_data.segmentation_cache
+            ])
+
+            print(f"Segmented Images Shape: {segmented_imgs.shape}")
+
+            if segmented_imgs.size == 0:
+                QMessageBox.warning(self, "Error", "No segmented images found for tracking.")
+                return
+
+            # Ensure the segmented images are binary
+            segmented_imgs = (segmented_imgs > 0).astype(np.uint8) * 255
+
+            # Run cell tracking
+            self.tracked_cells, self.lineage_tree = track_cells(segmented_imgs)
+
+            QMessageBox.information(self, "Tracking Complete", "Cell tracking completed successfully.")
+
+            # Plot tracking results
+            self.visualize_tracking(self.tracked_cells)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Tracking Error", f"Failed to track cells: {e}")
+    
+    
     def process_morphology_time_series(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
@@ -1109,11 +1163,61 @@ class TabWidgetApp(QMainWindow):
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
-        self.segmented_time_series = SegmentationModels().segment_images(self.image_data.data[:, p, c], self.model_dropdown.currentText())
-        self.is_time_series_segmented = True # Put it to false when it changes
+        # Get total number of time points
+        total_frames = min(10, self.image_data.data.shape[0])  # Only process first 10 frames
+        print(f"Processing first {total_frames} frames")
 
-        QMessageBox.information(self, "Segmentation Complete", f"Segmentation for all time points is complete. Shape: {self.segmented_time_series.shape}")
+        # Create list to store segmented results
+        segmented_results = []
 
+        for t in tqdm(range(total_frames), desc="Segmenting frames"):
+            cache_key = (t, p, c)
+
+            # Use cached segmentation if available
+            if cache_key in self.image_data.segmentation_cache:
+                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                segmented = self.image_data.segmentation_cache[cache_key]
+            else:
+                print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+
+                frame = self.image_data.data[t, p, c]
+
+                # Determine model type ONLY if Cellpose is selected
+                model_type = None
+                if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
+                    model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+
+                # Perform segmentation
+                segmented = SegmentationModels().segment_images(
+                    np.array([frame]), self.model_dropdown.currentText(), model_type=model_type
+                )[0]
+
+                # Store result in cache
+                self.image_data.segmentation_cache[cache_key] = segmented
+
+            # Label segmented objects (Assign unique label to each object)
+            labeled_cells = label(segmented)
+
+            # Visualize labeled segmentation
+            plt.figure(figsize=(5, 5))
+            plt.imshow(labeled_cells, cmap='nipy_spectral')  # Color-coded labels
+            plt.title(f'Labeled Segmentation - Frame {t}')
+            plt.axis('off')
+            plt.show()
+
+            segmented_results.append(labeled_cells)
+
+        # Convert list to numpy array
+        self.segmented_time_series = np.array(segmented_results)
+        self.is_time_series_segmented = True  # Set to false when new segmentation is needed
+
+        QMessageBox.information(
+            self, "Segmentation Complete",
+            f"Segmentation for all time points is complete. Shape: {self.segmented_time_series.shape}"
+        )
+    
+    
+    
     def get_current_frame(self, t, p, c=None):
         """
         Retrieve the current frame based on slider values for time, position, and channel.
