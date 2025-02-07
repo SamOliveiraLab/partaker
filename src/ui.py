@@ -64,6 +64,8 @@ from tqdm import tqdm
 from skimage.measure import label
 import matplotlib.pyplot as plt
 
+from skimage.measure import label, regionprops
+
 """
 Can hold either an ND2 file or a series of images
 """
@@ -375,6 +377,7 @@ class TabWidgetApp(QMainWindow):
             if hasattr(image_data, 'compute'):
                 image_data = image_data.compute()
 
+
         elif self.radio_labeled_segmentation.isChecked():
             cache_key = (t, p, c, "labeled")
 
@@ -414,6 +417,14 @@ class TabWidgetApp(QMainWindow):
                 labeled_image = plt.cm.nipy_spectral(labeled_cells.astype(float) / labeled_cells.max())
                 labeled_image = (labeled_image[:, :, :3] * 255).astype(np.uint8)
 
+                # Overlay Cell IDs
+                props = regionprops(labeled_cells)
+                for prop in props:
+                    y, x = prop.centroid  # Get centroid coordinates
+                    cell_id = prop.label  # Get cell ID
+                    cv2.putText(labeled_image, str(cell_id), (int(x), int(y)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+
                 # Cache the labeled image
                 self.image_data.segmentation_cache[cache_key] = labeled_image
 
@@ -425,6 +436,7 @@ class TabWidgetApp(QMainWindow):
             )
             self.image_label.setPixmap(pixmap)
             return  # Prevent further processing for labeled segmentation
+
 
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
