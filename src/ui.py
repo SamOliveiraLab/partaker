@@ -309,65 +309,163 @@ class TabWidgetApp(QMainWindow):
 
 
 
-    def display_image(self):
-            t = self.slider_t.value()
-            p = self.slider_p.value()
-            c = self.slider_c.value() if self.has_channels else None
 
-            # Retrieve the current frame
-            image_data = self.image_data.data
-            if self.image_data.is_nd2:
-                if self.has_channels:
-                    image_data = image_data[t, p, c]
-                else:
-                    image_data = image_data[t, p]
-            else:
-                image_data = image_data[t]
+    def overlay_labels_on_segmentation(self, segmented_images):
+        """
+        Overlay cell IDs on segmented images.
 
-            image_data = np.array(image_data)  # Ensure it's a NumPy array
+        Parameters:
+        segmented_images (list of np.ndarray): List of segmented images (labeled masks).
 
-            # Apply thresholding or segmentation if selected
-            if self.radio_thresholding.isChecked():
-                threshold = self.threshold_slider.value()
-                image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
-                image_data = image_data.compute()
+        Returns:
+        list of np.ndarray: Images with overlaid cell IDs.
+        """
+        labeled_images = []
+
+        for mask in segmented_images:
+            # Convert to RGB for color text overlay
+            labeled_image = cv2.cvtColor(mask.astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
             
-            elif self.radio_segmented.isChecked():
-                cache_key = (t, p, c)
-                if cache_key in self.image_data.segmentation_cache:
-                    print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-                    image_data = self.image_data.segmentation_cache[cache_key]
+            # Get unique cell IDs (ignore background 0)
+            unique_ids = np.unique(mask)
+            unique_ids = unique_ids[unique_ids != 0]
+
+            for cell_id in unique_ids:
+                # Find coordinates of the current cell
+                coords = np.column_stack(np.where(mask == cell_id))
+                
+                # Calculate centroid of the cell
+                centroid_y, centroid_x = coords.mean(axis=0).astype(int)
+                
+                # Overlay cell ID text at the centroid
+                cv2.putText(
+                    labeled_image, 
+                    str(cell_id), 
+                    (centroid_x, centroid_y), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.4,  # Font size
+                    (255, 255, 255),  # White color
+                    1,  # Thickness
+                    cv2.LINE_AA
+                )
+            
+            labeled_images.append(labeled_image)
+
+        return labeled_images
+    
+
+    def display_image(self):
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        # Retrieve the current frame
+        image_data = self.image_data.data
+        if self.image_data.is_nd2:
+            image_data = image_data[t, p, c] if self.has_channels else image_data[t, p]
+        else:
+            image_data = image_data[t]
+
+        image_data = np.array(image_data)  # Ensure it's a NumPy array
+
+        # Apply thresholding or segmentation if selected
+        if self.radio_thresholding.isChecked():
+            threshold = self.threshold_slider.value()
+            image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
+            if hasattr(image_data, 'compute'):
+                image_data = image_data.compute()
+
+        elif self.radio_labeled_segmentation.isChecked():
+            cache_key = (t, p, c, "labeled")
+
+            # Check if labeled segmentation is cached
+            if cache_key in self.image_data.segmentation_cache:
+                print(f"[CACHE HIT] Using cached labeled segmentation for T={t}, P={p}, C={c}")
+                labeled_image = self.image_data.segmentation_cache[cache_key]
+            else:
+                print(f"[CACHE MISS] Generating labeled segmentation for T={t}, P={p}, C={c}")
+
+                seg_cache_key = (t, p, c)
+
+                # Check if raw segmentation is cached
+                if seg_cache_key in self.image_data.segmentation_cache:
+                    print(f"[CACHE HIT] Using cached raw segmentation for T={t}, P={p}, C={c}")
+                    segmented = self.image_data.segmentation_cache[seg_cache_key]
                 else:
-                # Determine model type ONLY if Cellpose is selected
+                    print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+
+                    frame = self.image_data.data[t, p, c]
+
+                    model_type = None
                     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
                         model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
-                    else:
-                        model_type = None  # Other models don't need this
-                        
+
                     # Perform segmentation
-                    image_data = SegmentationModels().segment_images(
-                        np.array([image_data]), self.model_dropdown.currentText(), model_type=model_type
+                    segmented = SegmentationModels().segment_images(
+                        np.array([frame]), self.model_dropdown.currentText(), model_type=model_type
                     )[0]
-                    self.image_data.segmentation_cache[cache_key] = image_data
-                # self.show_cell_area(image_data)
 
-            # Normalize the image from 0 to 65535
-            image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(
-                np.uint16
-            )
+                    self.image_data.segmentation_cache[seg_cache_key] = segmented
 
-            # Update image format and display
-            image_format = QImage.Format_Grayscale16
-            height, width = image_data.shape[:2]
-            image = QImage(image_data, width, height, image_format)
-            pixmap = QPixmap.fromImage(image).scaled(
-                self.image_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+                # Label the segmented regions
+                labeled_cells = label(segmented)
+
+                # Convert labels to color image
+                labeled_image = plt.cm.nipy_spectral(labeled_cells.astype(float) / labeled_cells.max())
+                labeled_image = (labeled_image[:, :, :3] * 255).astype(np.uint8)
+
+                # Cache the labeled image
+                self.image_data.segmentation_cache[cache_key] = labeled_image
+
+            # Display the labeled image
+            height, width, _ = labeled_image.shape
+            qimage = QImage(labeled_image.data, width, height, 3 * width, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimage).scaled(
+                self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
             self.image_label.setPixmap(pixmap)
+            return  # Prevent further processing for labeled segmentation
 
-            # Store this processed image for export
-            self.processed_images.append(image_data)
+        elif self.radio_segmented.isChecked():
+            cache_key = (t, p, c)
+            if cache_key in self.image_data.segmentation_cache:
+                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                image_data = self.image_data.segmentation_cache[cache_key]
+            else:
+                if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
+                    model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+                else:
+                    model_type = None
 
+                image_data = SegmentationModels().segment_images(
+                    np.array([image_data]), self.model_dropdown.currentText(), model_type=model_type
+                )[0]
+                self.image_data.segmentation_cache[cache_key] = image_data
+
+        # Normalize the image safely for grayscale images only
+        if len(image_data.shape) == 2:  # Grayscale
+            if image_data.max() > 0:
+                image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(np.uint16)
+            else:
+                image_data = np.zeros_like(image_data, dtype=np.uint16)
+
+        # Determine format based on image type
+        if len(image_data.shape) == 3 and image_data.shape[2] == 3:
+            image_format = QImage.Format_RGB888
+            height, width, _ = image_data.shape
+        else:
+            image_format = QImage.Format_Grayscale16
+            height, width = image_data.shape[:2]
+
+        # Display image
+        image = QImage(image_data.data, width, height, image_data.strides[0], image_format)
+        pixmap = QPixmap.fromImage(image).scaled(
+            self.image_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+        )
+        self.image_label.setPixmap(pixmap)
+
+        # Store this processed image for export
+        self.processed_images.append(image_data)
 
 
     def initImportTab(self):
@@ -752,11 +850,15 @@ class TabWidgetApp(QMainWindow):
         self.radio_thresholding = QRadioButton("Thresholding")
         self.radio_segmented = QRadioButton("Segmented")
         self.radio_overlay_outlines = QRadioButton("Overlay with Outlines")
+        # Add new radio button for labeled segmentation
+        self.radio_labeled_segmentation = QRadioButton("Labeled Segmentation")
+        
 
         # Create a button group and add the radio buttons to it
         self.button_group = QButtonGroup()
         self.button_group.addButton(self.radio_normal)
         self.button_group.addButton(self.radio_thresholding)
+        self.button_group.addButton(self.radio_labeled_segmentation)
         self.button_group.addButton(self.radio_segmented)
         self.button_group.addButton(self.radio_overlay_outlines)
         self.button_group.buttonClicked.connect(self.display_image)
@@ -769,6 +871,7 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(self.radio_normal)
         layout.addWidget(self.radio_segmented)
         layout.addWidget(self.radio_overlay_outlines)
+        layout.addWidget(self.radio_labeled_segmentation)
 
         # Threshold slider
         self.threshold_slider = QSlider(Qt.Horizontal)
@@ -1203,7 +1306,7 @@ class TabWidgetApp(QMainWindow):
             plt.imshow(labeled_cells, cmap='nipy_spectral')  # Color-coded labels
             plt.title(f'Labeled Segmentation - Frame {t}')
             plt.axis('off')
-            plt.show()
+            # plt.show()
 
             segmented_results.append(labeled_cells)
 
