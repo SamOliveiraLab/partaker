@@ -454,6 +454,61 @@ class TabWidgetApp(QMainWindow):
                 )[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
 
+            
+        else:  # Normal view or overlay
+            if self.radio_overlay_outlines.isChecked():
+                cache_key = (t, p, c)
+                if cache_key in self.image_data.segmentation_cache:
+                    segmented_image = self.image_data.segmentation_cache[cache_key]
+                else:
+                    segmented_image = SegmentationModels().segment_images(
+                        [image_data], 
+                        SegmentationModels.CELLPOSE, 
+                        model_type=model_type
+                    )[0]
+                    self.image_data.segmentation_cache[cache_key] = segmented_image
+
+                # Ensure segmented image has same dimensions as input image
+                if segmented_image.shape != image_data.shape:
+                    segmented_image = cv2.resize(segmented_image, 
+                                               (image_data.shape[1], image_data.shape[0]), 
+                                               interpolation=cv2.INTER_NEAREST)
+                
+                outlines = utils.masks_to_outlines(segmented_image)
+                overlay = image_data.copy()
+                
+                # Verify dimensions match before applying overlay
+                if outlines.shape == overlay.shape:
+                    overlay[outlines] = overlay.max()
+                else:
+                    print(f"Dimension mismatch - Outline shape: {outlines.shape}, Image shape: {overlay.shape}")
+                    outlines = cv2.resize(outlines.astype(np.uint8), 
+                                        (overlay.shape[1], overlay.shape[0]), 
+                                        interpolation=cv2.INTER_NEAREST).astype(bool)
+                    overlay[outlines] = overlay.max()
+                
+                image_data = overlay
+
+            # Normalize and apply color for normal/overlay views
+            image_data = cv2.normalize(image_data, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            
+            # Apply color based on channel for non-binary images
+            if self.has_channels:
+                colored_image = np.zeros((image_data.shape[0], image_data.shape[1], 3), dtype=np.uint8)
+                if c == 0:  # Phase contrast - grayscale
+                    colored_image = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+                elif c == 1:  # mCherry - red
+                    colored_image[:, :, 2] = image_data  # Red channel
+                elif c == 2:  # YFP - yellow/green
+                    colored_image[:, :, 1] = image_data  # Green channel
+                    colored_image[:, :, 2] = image_data * 0.5  # Add some red to make it more yellow
+                image_data = colored_image
+                image_format = QImage.Format_RGB888
+            else:
+                image_format = QImage.Format_Grayscale8
+
+       
+       
         # Normalize the image safely for grayscale images only
         if len(image_data.shape) == 2:  # Grayscale
             if image_data.max() > 0:
