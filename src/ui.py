@@ -402,6 +402,7 @@ class TabWidgetApp(QMainWindow):
                     model_type = None
                     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
                         model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+                        print(f"Using model type: {model_type} for channel {c}")
 
                     # Perform segmentation
                     segmented = SegmentationModels().segment_images(
@@ -446,6 +447,7 @@ class TabWidgetApp(QMainWindow):
             else:
                 if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
                     model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+                    print(f"Using model type: {model_type} for channel {c}")
                 else:
                     model_type = None
 
