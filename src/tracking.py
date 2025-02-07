@@ -34,6 +34,11 @@ def track_cells(segmented_images):
             num_workers=4,
         )
         print(f"Number of objects detected: {len(objects)}")
+    
+        # Debugging the first few objects to check structure
+        if len(objects) > 0:
+            print("Sample object structure:", objects[0])
+
     except Exception as e:
         raise RuntimeError(f"Failed to convert segmentation to objects: {e}")
 
@@ -56,7 +61,10 @@ def track_cells(segmented_images):
 
             print("Appending objects to tracker...")
             tracker.append(objects)
-            tracker.volume = ((0, segmented_images.shape[2]), (0, segmented_images.shape[1]), (0, 1))  # Added z-dimension
+            
+            # Debug volume dimensions
+            print(f"Tracker volume dimensions: ((0, {segmented_images.shape[2]}), (0, {segmented_images.shape[1]}), (0, 1))")
+            tracker.volume = ((0, segmented_images.shape[2]), (0, segmented_images.shape[1]), (0, 1))
 
             print("Starting tracking process...")
             tracker.track()  # Use track() instead of deprecated track_interactive()
@@ -66,5 +74,9 @@ def track_cells(segmented_images):
 
     except Exception as e:
         raise RuntimeError(f"Failed to track cells: {e}")
+    
+    
+    print("Tracks returned from track_cells:", tracks)
+    print("Type of returned tracks:", type(tracks))
+    return tracks  # Make sure it’s returning exactly what you expect
 
-    return tracks

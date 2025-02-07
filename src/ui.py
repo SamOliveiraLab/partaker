@@ -574,7 +574,6 @@ class TabWidgetApp(QMainWindow):
         self.segment_button.clicked.connect(self.process_morphology_time_series)
         
     
-    
     def track_cells_over_time(self):
         """
         Tracks segmented cells over time and visualizes trajectories.
@@ -605,7 +604,11 @@ class TabWidgetApp(QMainWindow):
             segmented_imgs = (segmented_imgs > 0).astype(np.uint8) * 255
 
             # Run cell tracking
-            self.tracked_cells, self.lineage_tree = track_cells(segmented_imgs)
+            self.tracked_cells = track_cells(segmented_imgs)
+
+            # Debug: Check structure of tracked cells
+            for track in self.tracked_cells:
+                print(f"Track ID: {track['ID']}, X: {track['x']}, Y: {track['y']}")
 
             QMessageBox.information(self, "Tracking Complete", "Cell tracking completed successfully.")
 
@@ -614,7 +617,38 @@ class TabWidgetApp(QMainWindow):
 
         except Exception as e:
             QMessageBox.warning(self, "Tracking Error", f"Failed to track cells: {e}")
-    
+        
+        
+        
+    def visualize_tracking(self, tracks):
+        """
+        Visualizes the tracked cells as trajectories over time.
+
+        Parameters:
+        -----------
+        tracks : list
+            List of tracked cell objects (OrderedDict) with tracking information.
+        """
+        self.figure_morphology_fractions.clear()
+        ax = self.figure_morphology_fractions.add_subplot(111)
+
+        for track in tracks:
+            x_coords = track['x']
+            y_coords = track['y']
+            track_id = track['ID']
+
+            # Plot trajectory
+            ax.plot(x_coords, y_coords, marker='o', label=f'Track {track_id}')
+
+        ax.set_title('Cell Trajectories Over Time')
+        ax.set_xlabel('X Coordinate')
+        ax.set_ylabel('Y Coordinate')
+        ax.legend()
+
+        # Draw the plot
+        self.canvas_morphology_fractions.draw()
+
+
     
     def process_morphology_time_series(self):
         p = self.slider_p.value()
