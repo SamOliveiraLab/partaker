@@ -455,6 +455,12 @@ class TabWidgetApp(QMainWindow):
                     np.array([image_data]), self.model_dropdown.currentText(), model_type=model_type
                 )[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
+            # Extract and cache morphology metrics if not already cached
+            metrics_key = cache_key + ('metrics',)
+            if metrics_key not in self.image_data.segmentation_cache:
+                print(f"Extracting morphology metrics for T={t}, P={p}, C={c}")
+                metrics = extract_cell_morphologies(image_data)
+                self.image_data.segmentation_cache[metrics_key] = metrics
 
             
         else:  # Normal view or overlay
@@ -1144,6 +1150,7 @@ class TabWidgetApp(QMainWindow):
         self.populationTab = QWidget()
         self.morphologyTab = QWidget()
         self.morphologyTimeTab = QWidget()
+        self.morphologyVisualizationTab = QWidget()
 
         # Add tabs to the QTabWidget
         self.tab_widget.addTab(self.importTab, "Import")
@@ -1151,6 +1158,7 @@ class TabWidgetApp(QMainWindow):
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
+        self.tab_widget.addTab(self.morphologyVisualizationTab, "Morphology Visualization")
 
         # Initialize tab layouts and content
         self.initImportTab()
@@ -1159,6 +1167,7 @@ class TabWidgetApp(QMainWindow):
         self.initPopulationTab()
         self.initMorphologyTab()
         self.initMorphologyTimeTab()
+        self.initMorphologyVisualizationTab()
 
     def initMorphologyTab(self):
         layout = QVBoxLayout(self.morphologyTab)
@@ -1227,7 +1236,43 @@ class TabWidgetApp(QMainWindow):
 
         # Add the inner tab widget to the annotated tab layout
         layout.addWidget(inner_tab_widget)
-        
+
+
+
+    def initMorphologyVisualizationTab(self):
+        layout = QVBoxLayout(self.morphologyVisualizationTab)
+
+        # Dropdowns to select X and Y metrics
+        self.x_metric_dropdown = QComboBox()
+        self.y_metric_dropdown = QComboBox()
+        metrics_list = [
+            "area", "perimeter", "aspect_ratio", "circularity", "solidity", 
+            "equivalent_diameter", "orientation"
+        ]
+        self.x_metric_dropdown.addItems(metrics_list)
+        self.y_metric_dropdown.addItems(metrics_list)
+
+        # Layout for dropdowns
+        dropdown_layout = QHBoxLayout()
+        dropdown_layout.addWidget(QLabel("X-axis Metric:"))
+        dropdown_layout.addWidget(self.x_metric_dropdown)
+        dropdown_layout.addWidget(QLabel("Y-axis Metric:"))
+        dropdown_layout.addWidget(self.y_metric_dropdown)
+
+        layout.addLayout(dropdown_layout)
+
+        # Button to trigger plotting
+        plot_button = QPushButton("Plot Metrics")
+        plot_button.clicked.connect(self.plot_morphology_metrics)
+        layout.addWidget(plot_button)
+
+        # Matplotlib canvas for plotting
+        self.figure_morphology_metrics = plt.figure()
+        self.canvas_morphology_metrics = FigureCanvas(self.figure_morphology_metrics)
+        layout.addWidget(self.canvas_morphology_metrics)
+
+    
+    
         
     
     def export_metrics_to_csv(self):
@@ -1365,6 +1410,49 @@ class TabWidgetApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
+    
+    def plot_morphology_metrics(self):
+        x_metric = self.x_metric_dropdown.currentText()
+        y_metric = self.y_metric_dropdown.currentText()
+
+        # Check if segmentation and metrics are available
+        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+            QMessageBox.warning(self, "Error", "No cell data available for plotting. Please classify cells first.")
+            return
+
+        # Extract data for selected metrics
+        x_data = [data["metrics"].get(x_metric, np.nan) for data in self.cell_mapping.values()]
+        y_data = [data["metrics"].get(y_metric, np.nan) for data in self.cell_mapping.values()]
+        classes = [data["metrics"].get("morphology_class", "Unknown") for data in self.cell_mapping.values()]
+
+        # Convert to DataFrame for easier plotting
+        morphology_df = pd.DataFrame({
+            "X": x_data,
+            "Y": y_data,
+            "Class": classes
+        })
+
+        # Plotting the data
+        self.figure_morphology_metrics.clear()
+        ax = self.figure_morphology_metrics.add_subplot(111)
+        
+        sns.scatterplot(
+            data=morphology_df,
+            x="X",
+            y="Y",
+            hue="Class",
+            palette=self.morphology_colors_rgb,
+            s=50,
+            edgecolor="w"
+        )
+
+        ax.set_title(f"{x_metric.capitalize()} vs {y_metric.capitalize()}")
+        ax.set_xlabel(x_metric.capitalize())
+        ax.set_ylabel(y_metric.capitalize())
+
+        self.canvas_morphology_metrics.draw()
+    
+    
     def segment_this_p(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
