@@ -20,12 +20,13 @@ def analyze_fluorescence_singlecell(binary_images, fluorescence_images, rpu: RPU
     results = []
     timestamps = []
 
-    for i, (binary_image, fluorescence_image) in enumerate(zip(binary_images, fluorescence_images)):
+    for i in range(binary_images.shape[0]):
         result = []
-        labeled_array, num_features = label(binary_image)
+        labeled_array, num_features = label(binary_images[i])
+        print(num_features)
         for component in range(1, num_features + 1):
             mask = labeled_array == component
-            fluorescence_avg = fluorescence_image[mask].flatten().mean()
+            fluorescence_avg = np.array(fluorescence_images[i][mask].flatten()).mean()
             if fluorescence_avg <= FLUO_EPSILON:
                 continue
 
@@ -35,6 +36,8 @@ def analyze_fluorescence_singlecell(binary_images, fluorescence_images, rpu: RPU
             continue
         timestamps.append(i)
         results.append(result)
+
+    print(timestamps)
 
     return results, timestamps
 

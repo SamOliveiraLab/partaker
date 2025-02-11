@@ -1934,7 +1934,7 @@ class TabWidgetApp(QMainWindow):
         rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
         t_s, t_e = self.time_min_box.value(), self.time_max_box.value() # Time range
 
-        fluo, timestamp = analyze_fluorescence_singlecell(self.segmented_time_series, self.image_data.data[t_s:t_e, p, c], rpu)
+        fluo, timestamp = analyze_fluorescence_singlecell(self.segmented_time_series[t_s:t_e], self.image_data.data[t_s:t_e, p, c], rpu)
 
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)
@@ -1943,6 +1943,14 @@ class TabWidgetApp(QMainWindow):
         plot_fluo = []
         fluo_mean = []
         fluo_std = []
+
+        # Each fluo is an array of the fluorescence under each bacteria
+        #
+        # timestamp = [0, 1, 2]
+        # fluo = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        # 1 2 3
+        #           1    2    3
+        #                     1    2   3     
 
         # Copy timestamp for each fluorescence observation
         for t, fluo_data in zip(timestamp, fluo):
@@ -1955,7 +1963,13 @@ class TabWidgetApp(QMainWindow):
         fluo_mean = np.array(fluo_mean)
         fluo_std = np.array(fluo_std)
 
-        ax.scatter(plot_timestamp, plot_fluo, color='blue', alpha=0.5)
+        # Randomly select up to 30 timepoints from plot_fluo and plot_timestamp
+        points = np.array(list(zip(plot_timestamp, plot_fluo)))
+        if len(points) > 200:
+            points = points[np.random.choice(points.shape[0], 200, replace=False)]
+        plot_timestamp, plot_fluo = zip(*points)
+
+        ax.scatter(plot_timestamp, plot_fluo, color='blue', alpha=0.5, marker='+')
         ax.plot(timestamp, fluo_mean, color='red', label='Mean')
         ax.fill_between(timestamp, fluo_mean - fluo_std, fluo_mean + fluo_std, color='red', alpha=0.2, label='Std Dev')
         ax.set_title(f'Fluorescence signal for Position P={p}')
