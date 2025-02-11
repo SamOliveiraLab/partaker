@@ -78,54 +78,76 @@ class SegmentationModels:
     """
     def segment_unet(self, images):
         model = self.models[SegmentationModels.UNET]
-        patches = []
-        patch_indices = []
+        # patches = []
+        # patch_indices = []
 
-        # Divide each image into 512x512 patches
-        for img_idx, img in enumerate(images):
-            img = np.array(img)
-            height, width = img.shape[:2]
+        # # Divide each image into 512x512 patches
+        # for img_idx, img in enumerate(images):
+        #     img = np.array(img)
+        #     height, width = img.shape[:2]
 
-            for i in range(0, height, 512):
-                for j in range(0, width, 512):
-                    patch = img[i:i+512, j:j+512]
+        #     for i in range(0, height, 512):
+        #         for j in range(0, width, 512):
+        #             patch = img[i:i+512, j:j+512]
 
-                    # If the patch is smaller than 512x512, pad it with zeros
-                    if patch.shape[0] < 512 or patch.shape[1] < 512:
-                        padded_patch = np.zeros((512, 512), dtype=patch.dtype)
-                        padded_patch[:patch.shape[0], :patch.shape[1]] = patch
-                        patch = padded_patch
+        #             # If the patch is smaller than 512x512, pad it with zeros
+        #             if patch.shape[0] < 512 or patch.shape[1] < 512:
+        #                 padded_patch = np.zeros((512, 512), dtype=patch.dtype)
+        #                 padded_patch[:patch.shape[0], :patch.shape[1]] = patch
+        #                 patch = padded_patch
 
-                    patches.append(np.expand_dims(patch, axis=-1))
-                    patch_indices.append((img_idx, i, j))
+        #             patches.append(np.expand_dims(patch, axis=-1))
+        #             patch_indices.append((img_idx, i, j))
 
-        # Segment all patches at once
-        patches = np.array(patches)
-        segmented_patches = model.predict(patches)
+        # # Segment all patches at once
+        # patches = np.array(patches)
+        # segmented_patches = model.predict(patches)
 
-        # Create an empty array to store the segmented results
-        segmented_images = [np.zeros_like(img, dtype=np.uint8) for img in images]
+        # # Create an empty array to store the segmented results
+        # segmented_images = np.zeros((len(images), images[0].shape[0], images[0].shape[1]), dtype=np.float32)
 
         # Combine the segmented patches back into the original images
-        for idx, (img_idx, i, j) in enumerate(patch_indices):
-            segmented_patch = segmented_patches[idx, :, :, 0]
+        # for idx, (img_idx, i, j) in enumerate(patch_indices):
+        #     segmented_patch = segmented_patches[idx, :, :, 0]
 
-            # Remove padding if necessary
-            if i + 512 > segmented_images[img_idx].shape[0]:
-                segmented_patch = segmented_patch[:segmented_images[img_idx].shape[0] - i, :]
-            if j + 512 > segmented_images[img_idx].shape[1]:
-                segmented_patch = segmented_patch[:, :segmented_images[img_idx].shape[1] - j]
+        #     # Remove padding if necessary
+        #     if i + 512 > segmented_images[img_idx].shape[0]:
+        #         segmented_patch = segmented_patch[:segmented_images[img_idx].shape[0] - i, :]
+        #     if j + 512 > segmented_images[img_idx].shape[1]:
+        #         segmented_patch = segmented_patch[:, :segmented_images[img_idx].shape[1] - j]
 
-            segmented_images[img_idx][i:i+512, j:j+512] = segmented_patch
+        #     segmented_images[img_idx, i:i+512, j:j+512] = segmented_patch
 
-        return segmented_images
-    # def segment_unet(self, images):
-    #     model = self.models[SegmentationModels.UNET]
-    #     pred_imgs = model.predict(np.array([np.expand_dims(cv2.resize(np.array(img), (512, 512)), axis=-1) for img in images]))
+        # Remove artifacts with morphological operations
+        # for idx, img in enumerate(segmented_images):
+        #     kernel = np.ones((5, 5), np.uint8)
+        #     img = cv2.morphologyEx(np.array(img), cv2.MORPH_CLOSE, kernel)
+        #     img = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+        #     segmented_images[idx] = img
 
-    #     print(pred_imgs.shape)
-    #     return pred_imgs[:, :, :, 0]
-    
+        # # Transform each binary cell in an ID using connected components
+        # for idx, img in enumerate(segmented_images):
+        #     num_labels, labels = cv2.connectedComponents(img)
+        #     segmented_images[idx] = labels
+        _images = np.array([cv2.resize(np.array(img), (512, 512)) for img in images])
+        _images = np.expand_dims(_images, axis=-1)
+        segmented_images = model.predict(_images)
+        segmented_images = np.array([cv2.resize(np.array(img), (images[0].shape[1], images[0].shape[0])) for img in segmented_images])
+
+        # for img in segmented_images:
+        #     cv2.imshow('Segmented Image', img)
+        #     cv2.waitKey(0)
+        #     cv2.destroyAllWindows()
+
+        try:
+            bw_images = np.zeros_like(segmented_images, dtype=np.uint8)
+            bw_images[segmented_images > 0] = 255  # Convert labeled masks to binary
+        except Exception as e:
+            print(f"Error converting masks to binary: {e}")
+            return None
+
+        return bw_images
+
     def segment_cellpose(self, images, progress):
         cellpose_inst = self.models[SegmentationModels.CELLPOSE]
 
@@ -155,7 +177,7 @@ class SegmentationModels:
             else:  # Assume it's a PyQt signal
                 progress.emit(len(images))
 
-        return bw_images        
+        return bw_images
 
     def segment_images(self, images, mode, progress=None):
         print(f"Segmenting images using {mode} model")
