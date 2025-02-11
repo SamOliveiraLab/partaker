@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
 
 from cellpose import models, utils
 
@@ -1420,38 +1421,40 @@ class TabWidgetApp(QMainWindow):
             QMessageBox.warning(self, "Error", "No cell data available for plotting. Please classify cells first.")
             return
 
-        # Extract data for selected metrics
+        # Extract data for selected metrics directly from cell_mapping
         x_data = [data["metrics"].get(x_metric, np.nan) for data in self.cell_mapping.values()]
         y_data = [data["metrics"].get(y_metric, np.nan) for data in self.cell_mapping.values()]
-        classes = [data["metrics"].get("morphology_class", "Unknown") for data in self.cell_mapping.values()]
 
-        # Convert to DataFrame for easier plotting
-        morphology_df = pd.DataFrame({
-            "X": x_data,
-            "Y": y_data,
-            "Class": classes
-        })
+        # Convert data to numeric and handle non-numeric values
+        x_data = pd.to_numeric(x_data, errors='coerce')
+        y_data = pd.to_numeric(y_data, errors='coerce')
 
-        # Plotting the data
-        self.figure_morphology_metrics.clear()
-        ax = self.figure_morphology_metrics.add_subplot(111)
-        
-        sns.scatterplot(
-            data=morphology_df,
-            x="X",
-            y="Y",
-            hue="Class",
-            palette=self.morphology_colors_rgb,
-            s=50,
-            edgecolor="w"
-        )
+        # Filter out NaNs
+        valid_indices = ~(pd.isna(x_data) | pd.isna(y_data))
+        x_data = x_data[valid_indices]
+        y_data = y_data[valid_indices]
 
-        ax.set_title(f"{x_metric.capitalize()} vs {y_metric.capitalize()}")
-        ax.set_xlabel(x_metric.capitalize())
-        ax.set_ylabel(y_metric.capitalize())
+        # Apply KMeans clustering
+        if len(x_data) > 0 and len(y_data) > 0:
+            kmeans = KMeans(n_clusters=3, random_state=42)
+            clusters = kmeans.fit_predict(np.column_stack((x_data, y_data)))
+            centroids = kmeans.cluster_centers_
 
-        self.canvas_morphology_metrics.draw()
-    
+            # Plotting the clustered data
+            self.figure_morphology_metrics.clear()
+            ax = self.figure_morphology_metrics.add_subplot(111)
+
+            scatter = ax.scatter(x_data, y_data, c=clusters, cmap='viridis', s=50, edgecolor='w')
+            ax.scatter(centroids[:, 0], centroids[:, 1], c='red', marker='X', s=200, label='Centroids')
+            ax.set_title(f"{x_metric.capitalize()} vs {y_metric.capitalize()} with Clustering")
+            ax.set_xlabel(x_metric.capitalize())
+            ax.set_ylabel(y_metric.capitalize())
+            ax.legend()
+
+            self.canvas_morphology_metrics.draw()
+        else:
+            QMessageBox.warning(self, "Error", "No valid data to plot.")
+
     
     def segment_this_p(self):
         p = self.slider_p.value()
