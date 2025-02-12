@@ -23,11 +23,17 @@ def analyze_fluorescence_singlecell(binary_images, fluorescence_images, rpu: RPU
     for i in range(binary_images.shape[0]):
         result = []
         labeled_array, num_features = label(binary_images[i])
+
+        # Extract baselline fluorescence from the background
+        background_mask = labeled_array == 0
+        background_fluo = np.array(fluorescence_images[i][background_mask].flatten()).mean()
+
         print(num_features)
         for component in range(1, num_features + 1):
             mask = labeled_array == component
             fluorescence_avg = np.array(fluorescence_images[i][mask].flatten()).mean()
-            if fluorescence_avg <= FLUO_EPSILON:
+            # Only adds if the fluorescence is some signal, and if this signal is larger than 110% of the background
+            if fluorescence_avg <= FLUO_EPSILON or fluorescence_avg < (background_fluo * 1.1):
                 continue
 
             result.append(rpu.compute(fluorescence_avg) if rpu else fluorescence_avg)

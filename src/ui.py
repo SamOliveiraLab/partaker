@@ -44,6 +44,7 @@ import tifffile
 from morphology import annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_cell_morphologies, extract_cell_morphologies_time
 
 from segmentation.segmentation_models import SegmentationModels
+from segmentation.segmentation_cache import SegmentationCache
 
 from image_functions import remove_stage_jitter_MAE
 from PySide6.QtCore import QThread, Signal, QObject
@@ -76,6 +77,7 @@ class ImageData:
         self.processed_images = []
         self.is_nd2 = is_nd2
         self.segmentation_cache = {}
+        self.seg_cache = SegmentationCache(data)
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -996,6 +998,7 @@ class TabWidgetApp(QMainWindow):
 
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems([SegmentationModels.CELLPOSE, SegmentationModels.UNET, SegmentationModels.CELLSAM])
+        self.model_dropdown.currentIndexChanged.connect(lambda: self.image_data.seg_cache.with_model(self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)    
     
     def annotate_cells(self):
@@ -1275,7 +1278,7 @@ class TabWidgetApp(QMainWindow):
     
     
         
-    
+
     def export_metrics_to_csv(self):
         """
         Exports the metrics table data to a CSV file.
@@ -1966,7 +1969,7 @@ class TabWidgetApp(QMainWindow):
 
         # Randomly select up to 30 timepoints from plot_fluo and plot_timestamp
         points = np.array(list(zip(plot_timestamp, plot_fluo)))
-        if len(points) > 200:
+        if len(points) > 30 * len(timestamp):
             points = points[np.random.choice(points.shape[0], 200, replace=False)]
         plot_timestamp, plot_fluo = zip(*points)
 
