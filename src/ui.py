@@ -71,6 +71,8 @@ from skimage.measure import label, regionprops
 """
 Can hold either an ND2 file or a series of images
 """
+
+
 class ImageData:
     def __init__(self, data, is_nd2=False):
         self.data = data
@@ -79,12 +81,19 @@ class ImageData:
         self.segmentation_cache = {}
         self.seg_cache = SegmentationCache(data)
 
+
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
     finished = Signal(object)  # Finished with results
     error = Signal(str)  # Emit error message
 
-    def __init__(self, image_data, image_frames, num_frames, position, channel):
+    def __init__(
+            self,
+            image_data,
+            image_frames,
+            num_frames,
+            position,
+            channel):
         super().__init__()
         self.image_data = image_data
         self.image_frames = image_frames
@@ -97,37 +106,42 @@ class MorphologyWorker(QObject):
         try:
             for t in range(self.num_frames):
                 cache_key = (t, self.position, self.channel)
-                
+
                 # Check if segmentation is already cached
                 if cache_key in self.image_data.segmentation_cache:
-                    print(f"[CACHE HIT] T={t}, P={self.position}, C={self.channel}")
+                    print(
+                        f"[CACHE HIT] T={t}, P={self.position}, C={self.channel}")
                     binary_image = self.image_data.segmentation_cache[cache_key]
                 else:
-                    print(f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}")
+                    print(
+                        f"[CACHE MISS] Segmenting T={t}, P={self.position}, C={self.channel}")
                     current_frame = self.image_frames[t]
-                    
+
                     # Skip empty/invalid frames
-                    if np.mean(current_frame) == 0 or np.std(current_frame) == 0:
+                    if np.mean(current_frame) == 0 or np.std(
+                            current_frame) == 0:
                         print(f"Skipping empty frame T={t}")
                         self.progress.emit(t + 1)
                         continue
-                        
+
                     try:
                         # Get model type based on channel
-                        model_type = 'bact_phase_cp3' if self.channel in (0, None) else 'bact_fluor_cp3'
+                        model_type = 'bact_phase_cp3' if self.channel in (
+                            0, None) else 'bact_fluor_cp3'
                         seg_result = SegmentationModels().segment_images(
-                            [current_frame], 
+                            [current_frame],
                             SegmentationModels.CELLPOSE,
                             model_type=model_type
                         )
-                        
+
                         if seg_result is None or len(seg_result) == 0:
                             raise ValueError("Empty segmentation result")
-                            
+
                         binary_image = seg_result[0]
                         self.image_data.segmentation_cache[cache_key] = binary_image
                     except Exception as seg_error:
-                        print(f"Segmentation failed for T={t}: {str(seg_error)}")
+                        print(
+                            f"Segmentation failed for T={t}: {str(seg_error)}")
                         self.progress.emit(t + 1)
                         continue
 
@@ -144,13 +158,15 @@ class MorphologyWorker(QObject):
                     total_cells = len(metrics)
 
                     # Calculate Morphology Fractions
-                    morphology_counts = metrics["morphology_class"].value_counts(normalize=True)
+                    morphology_counts = metrics["morphology_class"].value_counts(
+                        normalize=True)
                     fractions = morphology_counts.to_dict()
 
                     # Save results for this frame
                     results[t] = {"fractions": fractions}
                 else:
-                    print(f"Frame {t}: Metrics computation returned no valid data.")
+                    print(
+                        f"Frame {t}: Metrics computation returned no valid data.")
 
                 self.progress.emit(t + 1)  # Update progress bar
 
@@ -165,12 +181,12 @@ class MorphologyWorker(QObject):
 class TabWidgetApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        
+
         self.morphology_colors = {
             "Small": (255, 0, 0),       # Blue
             "Round": (0, 0, 255),       # Red
             "Normal": (0, 255, 0),      # Green
-            "Elongated": (0, 255, 255), # Yellow
+            "Elongated": (0, 255, 255),  # Yellow
             "Deformed": (255, 0, 255),  # Magenta
         }
 
@@ -198,7 +214,6 @@ class TabWidgetApp(QMainWindow):
         self.morphologyTab = QWidget()
         self.morphologyTimeTab = QWidget()
 
-
         self.initUI()
         self.layout.addWidget(self.tab_widget)
 
@@ -209,8 +224,9 @@ class TabWidgetApp(QMainWindow):
         # images = filter(lambda x : x.name.lower().endswith(('.tif')), images)
         img_filelist = sorted(images, key=lambda x: int(x.stem))
 
-        preproc_img = lambda img: img  # Placeholder for now
-        loaded = np.array([preproc_img(cv2.imread(str(_img))) for _img in img_filelist])
+        def preproc_img(img): return img  # Placeholder for now
+        loaded = np.array([preproc_img(cv2.imread(str(_img)))
+                          for _img in img_filelist])
 
         self.image_data = ImageData(loaded, is_nd2=False)
 
@@ -224,7 +240,7 @@ class TabWidgetApp(QMainWindow):
 
         self.image_data.segmentation_cache.clear()  # Clear segmentation cache
         print("Segmentation cache cleared.")
-    
+
     def load_nd2_file(self, file_path):
 
         self.file_path = file_path
@@ -245,12 +261,15 @@ class TabWidgetApp(QMainWindow):
                 self.has_channels = False
 
             self.info_label.setText(info_text)
-            self.image_data = ImageData(nd2.imread(file_path, dask=True), is_nd2=True)
+            self.image_data = ImageData(nd2.imread(
+                file_path, dask=True), is_nd2=True)
 
-            # Set the slider range for position (P) immediately based on dimensions
+            # Set the slider range for position (P) immediately based on
+            # dimensions
             max_position = self.dimensions.get("P", 1) - 1
             self.slider_p.setMaximum(max_position)
-            self.slider_p_5.setMaximum(max_position)  # Update population tab slider
+            # Update population tab slider
+            self.slider_p_5.setMaximum(max_position)
             self.update_controls()
             self.display_image()
 
@@ -274,7 +293,7 @@ class TabWidgetApp(QMainWindow):
 
     def update_slider_range(self):
         self.slider_t.setMaximum(self.dimensions.get("T", 1) - 1)
-    
+
         max_position = self.dimensions.get("P", 1) - 1
         self.slider_p.setMaximum(max_position)
         self.slider_p_5.setMaximum(max_position)
@@ -290,17 +309,18 @@ class TabWidgetApp(QMainWindow):
         if img.dtype == np.float32 or img.dtype == np.int32 or img.dtype == np.int64:
             img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
             img = img.astype(np.uint8)
-        
+
         # Binarize the image using Otsu's thresholding
-        _, bw_image = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, bw_image = cv2.threshold(
+            img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
         # Calculate connected components with stats
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
-            bw_image, connectivity=8
-        )
+            bw_image, connectivity=8)
 
         # Extract pixel counts for each component (ignore background)
-        pixel_counts = stats[1:, cv2.CC_STAT_AREA]  # Skip the first label (background)
+        # Skip the first label (background)
+        pixel_counts = stats[1:, cv2.CC_STAT_AREA]
 
         # # TODO: de-comment
         # # Create a histogram of pixel counts using Seaborn
@@ -311,9 +331,6 @@ class TabWidgetApp(QMainWindow):
         # plt.ylabel("Number of Components")
         # plt.grid(True)
         # plt.show()
-
-
-
 
     def overlay_labels_on_segmentation(self, segmented_images):
         """
@@ -329,8 +346,11 @@ class TabWidgetApp(QMainWindow):
 
         for mask in segmented_images:
             # Convert to RGB for color text overlay
-            labeled_image = cv2.cvtColor(mask.astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
-            
+            labeled_image = cv2.cvtColor(
+                mask.astype(
+                    np.uint8) * 255,
+                cv2.COLOR_GRAY2BGR)
+
             # Get unique cell IDs (ignore background 0)
             unique_ids = np.unique(mask)
             unique_ids = unique_ids[unique_ids != 0]
@@ -338,26 +358,25 @@ class TabWidgetApp(QMainWindow):
             for cell_id in unique_ids:
                 # Find coordinates of the current cell
                 coords = np.column_stack(np.where(mask == cell_id))
-                
+
                 # Calculate centroid of the cell
                 centroid_y, centroid_x = coords.mean(axis=0).astype(int)
-                
+
                 # Overlay cell ID text at the centroid
                 cv2.putText(
-                    labeled_image, 
-                    str(cell_id), 
-                    (centroid_x, centroid_y), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    labeled_image,
+                    str(cell_id),
+                    (centroid_x, centroid_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
                     0.4,  # Font size
                     (255, 255, 255),  # White color
                     1,  # Thickness
                     cv2.LINE_AA
                 )
-            
+
             labeled_images.append(labeled_image)
 
         return labeled_images
-    
 
     def display_image(self):
         t = self.slider_t.value()
@@ -367,7 +386,8 @@ class TabWidgetApp(QMainWindow):
         # Retrieve the current frame
         image_data = self.image_data.data
         if self.image_data.is_nd2:
-            image_data = image_data[t, p, c] if self.has_channels else image_data[t, p]
+            image_data = image_data[t, p,
+                                    c] if self.has_channels else image_data[t, p]
         else:
             image_data = image_data[t]
 
@@ -376,26 +396,29 @@ class TabWidgetApp(QMainWindow):
         # Apply thresholding or segmentation if selected
         if self.radio_thresholding.isChecked():
             threshold = self.threshold_slider.value()
-            image_data = cv2.threshold(image_data, threshold, 255, cv2.THRESH_BINARY)[1]
+            image_data = cv2.threshold(
+                image_data, threshold, 255, cv2.THRESH_BINARY)[1]
             if hasattr(image_data, 'compute'):
                 image_data = image_data.compute()
-
 
         elif self.radio_labeled_segmentation.isChecked():
             cache_key = (t, p, c, "labeled")
 
             # Check if labeled segmentation is cached
             if cache_key in self.image_data.segmentation_cache:
-                print(f"[CACHE HIT] Using cached labeled segmentation for T={t}, P={p}, C={c}")
+                print(
+                    f"[CACHE HIT] Using cached labeled segmentation for T={t}, P={p}, C={c}")
                 labeled_image = self.image_data.segmentation_cache[cache_key]
             else:
-                print(f"[CACHE MISS] Generating labeled segmentation for T={t}, P={p}, C={c}")
+                print(
+                    f"[CACHE MISS] Generating labeled segmentation for T={t}, P={p}, C={c}")
 
                 seg_cache_key = (t, p, c)
 
                 # Check if raw segmentation is cached
                 if seg_cache_key in self.image_data.segmentation_cache:
-                    print(f"[CACHE HIT] Using cached raw segmentation for T={t}, P={p}, C={c}")
+                    print(
+                        f"[CACHE HIT] Using cached raw segmentation for T={t}, P={p}, C={c}")
                     segmented = self.image_data.segmentation_cache[seg_cache_key]
                 else:
                     print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
@@ -404,13 +427,14 @@ class TabWidgetApp(QMainWindow):
 
                     model_type = None
                     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-                        model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
-                        print(f"Using model type: {model_type} for channel {c}")
+                        model_type = 'bact_phase_cp3' if c in (
+                            0, None) else 'bact_fluor_cp3'
+                        print(
+                            f"Using model type: {model_type} for channel {c}")
 
                     # Perform segmentation
-                    segmented = SegmentationModels().segment_images(
-                        np.array([frame]), self.model_dropdown.currentText(), model_type=model_type
-                    )[0]
+                    segmented = SegmentationModels().segment_images(np.array(
+                        [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
 
                     self.image_data.segmentation_cache[seg_cache_key] = segmented
 
@@ -418,45 +442,54 @@ class TabWidgetApp(QMainWindow):
                 labeled_cells = label(segmented)
 
                 # Convert labels to color image
-                labeled_image = plt.cm.nipy_spectral(labeled_cells.astype(float) / labeled_cells.max())
-                labeled_image = (labeled_image[:, :, :3] * 255).astype(np.uint8)
+                labeled_image = plt.cm.nipy_spectral(
+                    labeled_cells.astype(float) / labeled_cells.max())
+                labeled_image = (
+                    labeled_image[:, :, :3] * 255).astype(np.uint8)
 
                 # Overlay Cell IDs
                 props = regionprops(labeled_cells)
                 for prop in props:
                     y, x = prop.centroid  # Get centroid coordinates
                     cell_id = prop.label  # Get cell ID
-                    cv2.putText(labeled_image, str(cell_id), (int(x), int(y)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+                    cv2.putText(labeled_image, str(cell_id), (int(x), int(
+                        y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
                 # Cache the labeled image
                 self.image_data.segmentation_cache[cache_key] = labeled_image
 
             # Display the labeled image
             height, width, _ = labeled_image.shape
-            qimage = QImage(labeled_image.data, width, height, 3 * width, QImage.Format_RGB888)
+            qimage = QImage(
+                labeled_image.data,
+                width,
+                height,
+                3 * width,
+                QImage.Format_RGB888)
             pixmap = QPixmap.fromImage(qimage).scaled(
-                self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
+                self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.image_label.setPixmap(pixmap)
             return  # Prevent further processing for labeled segmentation
-
 
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
             if cache_key in self.image_data.segmentation_cache:
-                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                print(
+                    f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
                 image_data = self.image_data.segmentation_cache[cache_key]
             else:
                 if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-                    model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+                    model_type = 'bact_phase_cp3' if c in (
+                        0, None) else 'bact_fluor_cp3'
                     print(f"Using model type: {model_type} for channel {c}")
                 else:
                     model_type = None
 
                 image_data = SegmentationModels().segment_images(
-                    np.array([image_data]), self.model_dropdown.currentText(), model_type=model_type
-                )[0]
+                    np.array(
+                        [image_data]),
+                    self.model_dropdown.currentText(),
+                    model_type=model_type)[0]
                 self.image_data.segmentation_cache[cache_key] = image_data
             # Extract and cache morphology metrics if not already cached
             metrics_key = cache_key + ('metrics',)
@@ -465,7 +498,6 @@ class TabWidgetApp(QMainWindow):
                 metrics = extract_cell_morphologies(image_data)
                 self.image_data.segmentation_cache[metrics_key] = metrics
 
-            
         else:  # Normal view or overlay
             if self.radio_overlay_outlines.isChecked():
                 cache_key = (t, p, c)
@@ -473,57 +505,75 @@ class TabWidgetApp(QMainWindow):
                     segmented_image = self.image_data.segmentation_cache[cache_key]
                 else:
                     segmented_image = SegmentationModels().segment_images(
-                        [image_data], 
-                        SegmentationModels.CELLPOSE, 
+                        [image_data],
+                        SegmentationModels.CELLPOSE,
                         model_type=model_type
                     )[0]
                     self.image_data.segmentation_cache[cache_key] = segmented_image
 
                 # Ensure segmented image has same dimensions as input image
                 if segmented_image.shape != image_data.shape:
-                    segmented_image = cv2.resize(segmented_image, 
-                                               (image_data.shape[1], image_data.shape[0]), 
-                                               interpolation=cv2.INTER_NEAREST)
-                
+                    segmented_image = cv2.resize(
+                        segmented_image,
+                        (image_data.shape[1],
+                         image_data.shape[0]),
+                        interpolation=cv2.INTER_NEAREST)
+
                 outlines = utils.masks_to_outlines(segmented_image)
                 overlay = image_data.copy()
-                
+
                 # Verify dimensions match before applying overlay
                 if outlines.shape == overlay.shape:
                     overlay[outlines] = overlay.max()
                 else:
-                    print(f"Dimension mismatch - Outline shape: {outlines.shape}, Image shape: {overlay.shape}")
-                    outlines = cv2.resize(outlines.astype(np.uint8), 
-                                        (overlay.shape[1], overlay.shape[0]), 
-                                        interpolation=cv2.INTER_NEAREST).astype(bool)
+                    print(
+                        f"Dimension mismatch - Outline shape: {outlines.shape}, Image shape: {overlay.shape}")
+                    outlines = cv2.resize(
+                        outlines.astype(
+                            np.uint8),
+                        (overlay.shape[1],
+                         overlay.shape[0]),
+                        interpolation=cv2.INTER_NEAREST).astype(bool)
                     overlay[outlines] = overlay.max()
-                
+
                 image_data = overlay
 
             # Normalize and apply color for normal/overlay views
-            image_data = cv2.normalize(image_data, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            
+            image_data = cv2.normalize(
+                image_data,
+                None,
+                0,
+                255,
+                cv2.NORM_MINMAX).astype(
+                np.uint8)
+
             # Apply color based on channel for non-binary images
             if self.has_channels:
-                colored_image = np.zeros((image_data.shape[0], image_data.shape[1], 3), dtype=np.uint8)
+                colored_image = np.zeros(
+                    (image_data.shape[0], image_data.shape[1], 3), dtype=np.uint8)
                 if c == 0:  # Phase contrast - grayscale
-                    colored_image = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+                    colored_image = cv2.cvtColor(
+                        image_data, cv2.COLOR_GRAY2BGR)
                 elif c == 1:  # mCherry - red
                     colored_image[:, :, 2] = image_data  # Red channel
                 elif c == 2:  # YFP - yellow/green
                     colored_image[:, :, 1] = image_data  # Green channel
-                    colored_image[:, :, 2] = image_data * 0.5  # Add some red to make it more yellow
+                    # Add some red to make it more yellow
+                    colored_image[:, :, 2] = image_data * 0.5
                 image_data = colored_image
                 image_format = QImage.Format_RGB888
             else:
                 image_format = QImage.Format_Grayscale8
 
-       
-       
         # Normalize the image safely for grayscale images only
         if len(image_data.shape) == 2:  # Grayscale
             if image_data.max() > 0:
-                image_data = (image_data.astype(np.float32) / image_data.max() * 65535).astype(np.uint16)
+                image_data = (
+                    image_data.astype(
+                        np.float32) /
+                    image_data.max() *
+                    65535).astype(
+                    np.uint16)
             else:
                 image_data = np.zeros_like(image_data, dtype=np.uint16)
 
@@ -536,15 +586,20 @@ class TabWidgetApp(QMainWindow):
             height, width = image_data.shape[:2]
 
         # Display image
-        image = QImage(image_data.data, width, height, image_data.strides[0], image_format)
+        image = QImage(
+            image_data.data,
+            width,
+            height,
+            image_data.strides[0],
+            image_format)
         pixmap = QPixmap.fromImage(image).scaled(
-            self.image_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
-        )
+            self.image_label.size(),
+            Qt.IgnoreAspectRatio,
+            Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
 
         # Store this processed image for export
         self.processed_images.append(image_data)
-
 
     def initImportTab(self):
         def importFile():
@@ -560,15 +615,16 @@ class TabWidgetApp(QMainWindow):
 
         def slice_and_export():
             if not hasattr(self, "image_data") or not self.image_data.is_nd2:
-                QMessageBox.warning(self, "Error", "No ND2 file loaded to slice.")
+                QMessageBox.warning(
+                    self, "Error", "No ND2 file loaded to slice.")
                 return
 
             save_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Sliced Data", "", "TIFF Files (*.tif);;All Files (*)"
-            )
+                self, "Save Sliced Data", "", "TIFF Files (*.tif);;All Files (*)")
 
             if not save_path:
-                QMessageBox.warning(self, "Error", "No save location selected.")
+                QMessageBox.warning(
+                    self, "Error", "No save location selected.")
                 return
 
             try:
@@ -579,7 +635,8 @@ class TabWidgetApp(QMainWindow):
                     self, "Success", f"Sliced data saved to {save_path}"
                 )
             except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to slice and export: {e}")
+                QMessageBox.warning(
+                    self, "Error", f"Failed to slice and export: {e}")
 
         layout = QVBoxLayout(self.importTab)
 
@@ -612,7 +669,7 @@ class TabWidgetApp(QMainWindow):
         # Process button
         self.segment_button = QPushButton("Process Morphology Over Time")
         layout.addWidget(self.segment_button)
-        
+
         # Button to track cells over time
         self.track_button = QPushButton("Track Cells")
         self.track_button.clicked.connect(self.track_cells_over_time)
@@ -622,14 +679,17 @@ class TabWidgetApp(QMainWindow):
         self.plot_tabs = QTabWidget()
         self.morphology_fractions_tab = QWidget()
 
-        self.plot_tabs.addTab(self.morphology_fractions_tab, "Morphology Fractions")
+        self.plot_tabs.addTab(
+            self.morphology_fractions_tab,
+            "Morphology Fractions")
         layout.addWidget(self.plot_tabs)
 
-
         # Plot for Morphology Fractions
-        morphology_fractions_layout = QVBoxLayout(self.morphology_fractions_tab)
+        morphology_fractions_layout = QVBoxLayout(
+            self.morphology_fractions_tab)
         self.figure_morphology_fractions = plt.figure()
-        self.canvas_morphology_fractions = FigureCanvas(self.figure_morphology_fractions)
+        self.canvas_morphology_fractions = FigureCanvas(
+            self.figure_morphology_fractions)
         morphology_fractions_layout.addWidget(self.canvas_morphology_fractions)
 
         # Progress Bar
@@ -637,9 +697,9 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(self.progress_bar)
 
         # Connect Process Button
-        self.segment_button.clicked.connect(self.process_morphology_time_series)
-        
-    
+        self.segment_button.clicked.connect(
+            self.process_morphology_time_series)
+
     def track_cells_over_time(self):
         """
         Tracks segmented cells over time and visualizes trajectories.
@@ -648,7 +708,8 @@ class TabWidgetApp(QMainWindow):
         c = self.slider_c.value() if self.has_channels else None
 
         if not self.image_data.is_nd2:
-            QMessageBox.warning(self, "Error", "Tracking requires an ND2 dataset.")
+            QMessageBox.warning(
+                self, "Error", "Tracking requires an ND2 dataset.")
             return
 
         try:
@@ -663,7 +724,8 @@ class TabWidgetApp(QMainWindow):
             print(f"Segmented Images Shape: {segmented_imgs.shape}")
 
             if segmented_imgs.size == 0:
-                QMessageBox.warning(self, "Error", "No segmented images found for tracking.")
+                QMessageBox.warning(
+                    self, "Error", "No segmented images found for tracking.")
                 return
 
             # Ensure the segmented images are binary
@@ -674,18 +736,23 @@ class TabWidgetApp(QMainWindow):
 
             # Debug: Check structure of tracked cells
             for track in self.tracked_cells:
-                print(f"Track ID: {track['ID']}, X: {track['x']}, Y: {track['y']}")
+                print(
+                    f"Track ID: {track['ID']}, X: {track['x']}, Y: {track['y']}")
 
-            QMessageBox.information(self, "Tracking Complete", "Cell tracking completed successfully.")
+            QMessageBox.information(
+                self,
+                "Tracking Complete",
+                "Cell tracking completed successfully.")
 
             # Plot tracking results
             self.visualize_tracking(self.tracked_cells)
 
         except Exception as e:
-            QMessageBox.warning(self, "Tracking Error", f"Failed to track cells: {e}")
-        
-        
-        
+            QMessageBox.warning(
+                self,
+                "Tracking Error",
+                f"Failed to track cells: {e}")
+
     def visualize_tracking(self, tracks):
         """
         Visualizes the tracked cells as trajectories over time.
@@ -714,14 +781,13 @@ class TabWidgetApp(QMainWindow):
         # Draw the plot
         self.canvas_morphology_fractions.draw()
 
-
-    
     def process_morphology_time_series(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
 
         if not self.image_data.is_nd2:
-            QMessageBox.warning(self, "Error", "This feature only supports ND2 datasets.")
+            QMessageBox.warning(
+                self, "Error", "This feature only supports ND2 datasets.")
             return
 
         try:
@@ -779,15 +845,17 @@ class TabWidgetApp(QMainWindow):
         self.thread.finished.connect(self.thread.deleteLater)
 
         # Re-enable button when thread finishes
-        self.thread.finished.connect(lambda: self.segment_button.setEnabled(True))
+        self.thread.finished.connect(
+            lambda: self.segment_button.setEnabled(True))
 
         self.thread.start()
 
     def handle_results(self, results):
         if not results:
             QMessageBox.warning(
-                self, "Error", "No valid results received. Please check the input data."
-            )
+                self,
+                "Error",
+                "No valid results received. Please check the input data.")
             return
 
         print("Results received successfully:", results)
@@ -798,12 +866,14 @@ class TabWidgetApp(QMainWindow):
             all_morphologies.update(frame_data["fractions"].keys())
 
         # Initialize the dictionary with all possible morphology classes
-        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        morphology_fractions = {morphology: []
+                                for morphology in all_morphologies}
 
         # Get the maximum time point
         max_time = max(results.keys())
 
-        # Fill in the fractions for each time point, using 0.0 for missing classes
+        # Fill in the fractions for each time point, using 0.0 for missing
+        # classes
         for t in range(max_time + 1):
             if t in results:
                 frame_data = results[t]["fractions"]
@@ -815,21 +885,28 @@ class TabWidgetApp(QMainWindow):
                 # For frames with no data, append 0.0 for all morphologies
                 for morphology in all_morphologies:
                     morphology_fractions[morphology].append(0.0)
-        
+
         self.figure_morphology_fractions.clear()
         ax2 = self.figure_morphology_fractions.add_subplot(111)
-        
-        # Plot each morphology class with its corresponding color from self.morphology_colors_rgb
+
+        # Plot each morphology class with its corresponding color from
+        # self.morphology_colors_rgb
         for morphology, fractions in morphology_fractions.items():
-            color = self.morphology_colors_rgb.get(morphology, (0.5, 0.5, 0.5))  # Default to gray if color not found
-            ax2.plot(range(len(fractions)), fractions, marker="o", label=morphology, color=color)
-            
+            color = self.morphology_colors_rgb.get(
+                morphology, (0.5, 0.5, 0.5))  # Default to gray if color not found
+            ax2.plot(
+                range(
+                    len(fractions)),
+                fractions,
+                marker="o",
+                label=morphology,
+                color=color)
+
         ax2.set_title("Morphology Fractions Over Time")
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Fraction")
         ax2.legend()
         self.canvas_morphology_fractions.draw()
-
 
     def handle_error(self, error_message):
         print(f"Error: {error_message}")
@@ -840,21 +917,18 @@ class TabWidgetApp(QMainWindow):
 
         if not hasattr(self, "morphologies_over_time"):
             QMessageBox.warning(
-                self, "Error", "No data to plot. Please process the frames first."
-            )
+                self, "Error", "No data to plot. Please process the frames first.")
             return
 
         if selected_metric not in self.morphologies_over_time.columns:
             QMessageBox.warning(
-                self, "Error", f"Metric {selected_metric} not found in results."
-            )
+                self, "Error", f"Metric {selected_metric} not found in results.")
             return
 
         metric_data = self.morphologies_over_time[selected_metric]
         if metric_data.empty:
             QMessageBox.warning(
-                self, "Error", f"No valid data available for {selected_metric}."
-            )
+                self, "Error", f"No valid data available for {selected_metric}.")
             return
 
         self.figure_time_series.clear()
@@ -864,17 +938,20 @@ class TabWidgetApp(QMainWindow):
         ax.set_xlabel("Time")
         ax.set_ylabel(selected_metric.capitalize())
         self.canvas_time_series.draw()
- 
+
     def initViewArea(self):
         layout = QVBoxLayout(self.viewArea)
 
         self.image_label = QLabel()
-        self.image_label.setScaledContents(True)  # Allow the label to scale the image
-        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Allow the label to scale the image
+        self.image_label.setScaledContents(True)
+        self.image_label.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.image_label)
-        
+
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.image_label.customContextMenuRequested.connect(self.show_context_menu)
+        self.image_label.customContextMenuRequested.connect(
+            self.show_context_menu)
 
         annotate_button = QPushButton("Classify Cells")
         annotate_button.clicked.connect(self.annotate_cells)
@@ -899,7 +976,8 @@ class TabWidgetApp(QMainWindow):
 
         self.slider_t = QSlider(Qt.Horizontal)
         self.slider_t.valueChanged.connect(self.display_image)
-        self.slider_t.valueChanged.connect(lambda value: t_label.setText(f"T: {value}"))
+        self.slider_t.valueChanged.connect(
+            lambda value: t_label.setText(f"T: {value}"))
 
         t_layout.addWidget(self.slider_t)
 
@@ -923,7 +1001,8 @@ class TabWidgetApp(QMainWindow):
 
         self.slider_p = QSlider(Qt.Horizontal)
         self.slider_p.valueChanged.connect(self.display_image)
-        self.slider_p.valueChanged.connect(lambda value: p_label.setText(f"P: {value}"))
+        self.slider_p.valueChanged.connect(
+            lambda value: p_label.setText(f"P: {value}"))
         p_layout.addWidget(self.slider_p)
 
         self.p_right_button = QPushButton(">")
@@ -946,7 +1025,8 @@ class TabWidgetApp(QMainWindow):
 
         self.slider_c = QSlider(Qt.Horizontal)
         self.slider_c.valueChanged.connect(self.display_image)
-        self.slider_c.valueChanged.connect(lambda value: c_label.setText(f"C: {value}"))
+        self.slider_c.valueChanged.connect(
+            lambda value: c_label.setText(f"C: {value}"))
         c_layout.addWidget(self.slider_c)
 
         self.c_right_button = QPushButton(">")
@@ -964,7 +1044,6 @@ class TabWidgetApp(QMainWindow):
         self.radio_overlay_outlines = QRadioButton("Overlay with Outlines")
         # Add new radio button for labeled segmentation
         self.radio_labeled_segmentation = QRadioButton("Labeled Segmentation")
-        
 
         # Create a button group and add the radio buttons to it
         self.button_group = QButtonGroup()
@@ -997,10 +1076,13 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(model_label)
 
         self.model_dropdown = QComboBox()
-        self.model_dropdown.addItems([SegmentationModels.CELLPOSE, SegmentationModels.UNET, SegmentationModels.CELLSAM])
-        self.model_dropdown.currentIndexChanged.connect(lambda: self.image_data.seg_cache.with_model(self.model_dropdown.currentText()))
-        layout.addWidget(self.model_dropdown)    
-    
+        self.model_dropdown.addItems(
+            [SegmentationModels.CELLPOSE, SegmentationModels.UNET, SegmentationModels.CELLSAM])
+        self.model_dropdown.currentIndexChanged.connect(
+            lambda: self.image_data.seg_cache.with_model(
+                self.model_dropdown.currentText()))
+        layout.addWidget(self.model_dropdown)
+
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1009,7 +1091,8 @@ class TabWidgetApp(QMainWindow):
         # Extract the current frame
         image_data = self.image_data.data
         if self.image_data.is_nd2:
-            frame = image_data[t, p, c] if self.has_channels else image_data[t, p]
+            frame = image_data[t, p,
+                               c] if self.has_channels else image_data[t, p]
         else:
             frame = image_data[t]
 
@@ -1018,22 +1101,28 @@ class TabWidgetApp(QMainWindow):
         # Perform segmentation
         cache_key = (t, p, c)
         if cache_key in self.image_data.segmentation_cache:
-            print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+            print(
+                f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
             segmented_image = self.image_data.segmentation_cache[cache_key]
         else:
             print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-            segmented_image = SegmentationModels().segment_images([frame], self.model_dropdown.currentText())[0]
+            segmented_image = SegmentationModels().segment_images(
+                [frame], self.model_dropdown.currentText())[0]
             self.image_data.segmentation_cache[cache_key] = segmented_image
 
         # Extract cell metrics and bounding boxes
         cell_mapping = extract_cells_and_metrics(frame, segmented_image)
 
         if not cell_mapping:
-            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
+            QMessageBox.warning(
+                self,
+                "No Cells",
+                "No cells detected in the current frame.")
             return
 
         # Annotate the binary segmented image
-        annotated_binary_mask = annotate_binary_mask(segmented_image, cell_mapping)
+        annotated_binary_mask = annotate_binary_mask(
+            segmented_image, cell_mapping)
 
         # Set the annotated image for saving
         self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
@@ -1048,11 +1137,12 @@ class TabWidgetApp(QMainWindow):
             QImage.Format_RGB888,
         )
         pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
+            self.image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
         self.update_annotation_scatter()
-    
+
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
@@ -1062,21 +1152,22 @@ class TabWidgetApp(QMainWindow):
         context_menu.exec_(self.image_label.mapToGlobal(position))
 
     def save_annotated_image(self):
-        if not hasattr(self, "annotated_image") or self.annotated_image is None:
+        if not hasattr(
+                self,
+                "annotated_image") or self.annotated_image is None:
             QMessageBox.warning(self, "Error", "No annotated image to save.")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Annotated Image", "", "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)"
-        )
+            self, "Save Annotated Image", "", "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)")
 
         if file_path:
             cv2.imwrite(file_path, self.annotated_image)
-            QMessageBox.information(self, "Success", f"Annotated image saved to {file_path}")
+            QMessageBox.information(
+                self, "Success", f"Annotated image saved to {file_path}")
         else:
             QMessageBox.warning(self, "Error", "No file selected.")
-    
-    
+
     def export_images(self):
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save As", "", "TIFF Files (*.tif);;All Files (*)"
@@ -1094,7 +1185,7 @@ class TabWidgetApp(QMainWindow):
         max_p_value = self.slider_p.value()
 
         for t in range(max_t_value + 1):
-            for p in range(max_p_value + 1): 
+            for p in range(max_p_value + 1):
                 # Retrieve the specific frame for time t and position p
                 if self.image_data.is_nd2:
                     export_image = (
@@ -1110,9 +1201,10 @@ class TabWidgetApp(QMainWindow):
                 # Construct the export path with the custom name and dimensions
                 file_path = folder_path / f"{custom_base_name}_P{p}_T{t}.tif"
                 cv2.imwrite(str(file_path), img_to_save)
-        
-        QMessageBox.information(self, "Export", f"Images exported successfully to {folder_path}")
-    
+
+        QMessageBox.information(
+            self, "Export", f"Images exported successfully to {folder_path}")
+
     # Initialize the Export tab with the export button
     def initExportTab(self):
         layout = QVBoxLayout(self.exportTab)
@@ -1123,12 +1215,14 @@ class TabWidgetApp(QMainWindow):
         layout.addWidget(label)
 
     def save_video(self, file_path):
-        # Assuming self.image_data is a 4D numpy array with shape (frames, height, width, channels)
+        # Assuming self.image_data is a 4D numpy array with shape (frames,
+        # height, width, channels)
         if hasattr(self, "image_data"):
             print(self.image_data.data.shape)
 
             with iio.imopen(file_path, "w", plugin="pyav") as writer:
-                writer.init_video_stream("libx264", fps=30, pixel_format="yuv444p")
+                writer.init_video_stream(
+                    "libx264", fps=30, pixel_format="yuv444p")
 
                 writer._video_stream.options = {
                     "preset": "veryslow",
@@ -1162,7 +1256,9 @@ class TabWidgetApp(QMainWindow):
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
-        self.tab_widget.addTab(self.morphologyVisualizationTab, "Morphology Visualization")
+        self.tab_widget.addTab(
+            self.morphologyVisualizationTab,
+            "Morphology Visualization")
 
         # Initialize tab layouts and content
         self.initImportTab()
@@ -1189,8 +1285,10 @@ class TabWidgetApp(QMainWindow):
         scatter_layout = QVBoxLayout(self.scatter_tab)
 
         # Annotated image display (adjusted size)
-        self.annotated_image_label = QLabel("Annotated image will be displayed here.")
-        self.annotated_image_label.setFixedSize(300, 300)  # Adjust size as needed
+        self.annotated_image_label = QLabel(
+            "Annotated image will be displayed here.")
+        self.annotated_image_label.setFixedSize(
+            300, 300)  # Adjust size as needed
         self.annotated_image_label.setAlignment(Qt.AlignCenter)
         self.annotated_image_label.setScaledContents(True)
         scatter_layout.addWidget(self.annotated_image_label)
@@ -1221,18 +1319,21 @@ class TabWidgetApp(QMainWindow):
         scatter_layout.addWidget(self.canvas_annot_scatter)
 
         # Connect dropdown change to PCA plot update
-        self.color_dropdown_annot.currentTextChanged.connect(self.update_annotation_scatter)
+        self.color_dropdown_annot.currentTextChanged.connect(
+            self.update_annotation_scatter)
 
         # Table tab layout (Metrics Table)
         table_layout = QVBoxLayout(self.table_tab)
         # Add the Export Button at the top of the table layout
         self.export_button = QPushButton("Export to CSV")
-        self.export_button.setStyleSheet("background-color: white; color: black; font-size: 14px;")
+        self.export_button.setStyleSheet(
+            "background-color: white; color: black; font-size: 14px;")
         table_layout.addWidget(self.export_button)
 
-        # Connect the button to the export function (use annotation or define it here)
+        # Connect the button to the export function (use annotation or define
+        # it here)
         self.export_button.clicked.connect(self.export_metrics_to_csv)
-        
+
         self.metrics_table = QTableWidget()  # Create the table widget
         # Connect the table item click signal to the handler
         self.metrics_table.itemClicked.connect(self.on_table_item_click)
@@ -1241,8 +1342,6 @@ class TabWidgetApp(QMainWindow):
         # Add the inner tab widget to the annotated tab layout
         layout.addWidget(inner_tab_widget)
 
-
-
     def initMorphologyVisualizationTab(self):
         layout = QVBoxLayout(self.morphologyVisualizationTab)
 
@@ -1250,7 +1349,7 @@ class TabWidgetApp(QMainWindow):
         self.x_metric_dropdown = QComboBox()
         self.y_metric_dropdown = QComboBox()
         metrics_list = [
-            "area", "perimeter", "aspect_ratio", "circularity", "solidity", 
+            "area", "perimeter", "aspect_ratio", "circularity", "solidity",
             "equivalent_diameter", "orientation"
         ]
         self.x_metric_dropdown.addItems(metrics_list)
@@ -1272,12 +1371,9 @@ class TabWidgetApp(QMainWindow):
 
         # Matplotlib canvas for plotting
         self.figure_morphology_metrics = plt.figure()
-        self.canvas_morphology_metrics = FigureCanvas(self.figure_morphology_metrics)
+        self.canvas_morphology_metrics = FigureCanvas(
+            self.figure_morphology_metrics)
         layout.addWidget(self.canvas_morphology_metrics)
-
-    
-    
-        
 
     def export_metrics_to_csv(self):
         """
@@ -1295,12 +1391,12 @@ class TabWidgetApp(QMainWindow):
             metrics_df = pd.DataFrame(metrics_data)
 
             if metrics_df.empty:
-                QMessageBox.warning(self, "Error", "No data available to export.")
+                QMessageBox.warning(
+                    self, "Error", "No data available to export.")
                 return
 
             save_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Metrics Data", "", "CSV Files (*.csv);;All Files (*)"
-            )
+                self, "Save Metrics Data", "", "CSV Files (*.csv);;All Files (*)")
             if save_path:
                 metrics_df.to_csv(save_path, index=False)
                 QMessageBox.information(
@@ -1310,9 +1406,7 @@ class TabWidgetApp(QMainWindow):
                 QMessageBox.warning(self, "Cancelled", "Export cancelled.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
-   
-   
-   
+
     def update_annotation_scatter(self):
         try:
             # Extract current frame and segmentation
@@ -1330,11 +1424,12 @@ class TabWidgetApp(QMainWindow):
                 segmented_image = self.image_data.segmentation_cache[cache_key]
 
             # Extract cell metrics
-            self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
-            
+            self.cell_mapping = extract_cells_and_metrics(
+                frame, segmented_image)
+
             # Populate the metrics table
             self.populate_metrics_table()
-            
+
             # Prepare DataFrame
             metrics_data = [
                 {**{"ID": cell_id}, **data["metrics"], **{"Class": data["metrics"]["morphology_class"]}}
@@ -1343,39 +1438,45 @@ class TabWidgetApp(QMainWindow):
             morphology_df = pd.DataFrame(metrics_data)
 
             # Select numeric features for PCA
-            numeric_features = ['area', 'perimeter', 'equivalent_diameter', 'orientation', 
-                            'aspect_ratio', 'circularity', 'solidity']
+            numeric_features = [
+                'area',
+                'perimeter',
+                'equivalent_diameter',
+                'orientation',
+                'aspect_ratio',
+                'circularity',
+                'solidity']
             X = morphology_df[numeric_features].values
-            
+
             # Scale the features
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(X)
-            
+
             # Perform PCA
             pca = PCA(n_components=2)
             principal_components = pca.fit_transform(X_scaled)
-            
+
             # Calculate loadings
             loadings = pd.DataFrame(
                 pca.components_.T,
                 columns=['PC1', 'PC2'],
                 index=numeric_features
             )
-            
+
             # Calculate explained variance
             explained_variance = pca.explained_variance_ratio_
             print("Explained variance ratio:", explained_variance)
             print("\nFeature contributions to principal components:")
             print(loadings)
-            
+
             # Create PCA scatter plot with updated title showing variance
             self.figure_annot_scatter.clear()
             ax = self.figure_annot_scatter.add_subplot(111)
-            
+
             # Create DataFrame for plotting
             pca_df = pd.DataFrame(principal_components, columns=['PC1', 'PC2'])
             pca_df['Class'] = morphology_df['Class']
-            
+
             # Plot scatter with explained variance in title
             sns.scatterplot(
                 x='PC1',
@@ -1387,46 +1488,52 @@ class TabWidgetApp(QMainWindow):
                 ax=ax,
                 edgecolor='w',
             )
-            
+
             # Update title to show explained variance
-            ax.set_title(f'PCA: PC1 ({explained_variance[0]:.1%}) vs PC2 ({explained_variance[1]:.1%})')
+            ax.set_title(
+                f'PCA: PC1 ({explained_variance[0]:.1%}) vs PC2 ({explained_variance[1]:.1%})')
             ax.set_xlabel('PC1')
             ax.set_ylabel('PC2')
-            
+
             # Add loadings plot
             # Create a new figure for loadings
             self.figure_loadings = plt.figure(figsize=(10, 6))
             ax_loadings = self.figure_loadings.add_subplot(111)
-            
+
             # Plot loadings as a heatmap
-            sns.heatmap(loadings, 
-                    annot=True, 
-                    cmap='RdBu', 
-                    center=0,
-                    ax=ax_loadings)
-            ax_loadings.set_title('Feature Contributions to Principal Components')
-            
+            sns.heatmap(loadings,
+                        annot=True,
+                        cmap='RdBu',
+                        center=0,
+                        ax=ax_loadings)
+            ax_loadings.set_title(
+                'Feature Contributions to Principal Components')
+
             # Update both canvases
             self.canvas_annot_scatter.draw()
             if hasattr(self, 'canvas_loadings'):
                 self.canvas_loadings.draw()
-                
+
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
-    
     def plot_morphology_metrics(self):
         x_metric = self.x_metric_dropdown.currentText()
         y_metric = self.y_metric_dropdown.currentText()
 
         # Check if segmentation and metrics are available
         if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-            QMessageBox.warning(self, "Error", "No cell data available for plotting. Please classify cells first.")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No cell data available for plotting. Please classify cells first.")
             return
 
         # Extract data for selected metrics directly from cell_mapping
-        x_data = [data["metrics"].get(x_metric, np.nan) for data in self.cell_mapping.values()]
-        y_data = [data["metrics"].get(y_metric, np.nan) for data in self.cell_mapping.values()]
+        x_data = [data["metrics"].get(x_metric, np.nan)
+                  for data in self.cell_mapping.values()]
+        y_data = [data["metrics"].get(y_metric, np.nan)
+                  for data in self.cell_mapping.values()]
 
         # Convert data to numeric and handle non-numeric values
         x_data = pd.to_numeric(x_data, errors='coerce')
@@ -1447,9 +1554,17 @@ class TabWidgetApp(QMainWindow):
             self.figure_morphology_metrics.clear()
             ax = self.figure_morphology_metrics.add_subplot(111)
 
-            scatter = ax.scatter(x_data, y_data, c=clusters, cmap='viridis', s=50, edgecolor='w')
-            ax.scatter(centroids[:, 0], centroids[:, 1], c='red', marker='X', s=200, label='Centroids')
-            ax.set_title(f"{x_metric.capitalize()} vs {y_metric.capitalize()} with Clustering")
+            scatter = ax.scatter(
+                x_data,
+                y_data,
+                c=clusters,
+                cmap='viridis',
+                s=50,
+                edgecolor='w')
+            ax.scatter(centroids[:, 0], centroids[:, 1],
+                       c='red', marker='X', s=200, label='Centroids')
+            ax.set_title(
+                f"{x_metric.capitalize()} vs {y_metric.capitalize()} with Clustering")
             ax.set_xlabel(x_metric.capitalize())
             ax.set_ylabel(y_metric.capitalize())
             ax.legend()
@@ -1458,13 +1573,13 @@ class TabWidgetApp(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "No valid data to plot.")
 
-    
     def segment_this_p(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
         # Get total number of time points
-        total_frames = min(10, self.image_data.data.shape[0])  # Only process first 10 frames
+        # Only process first 10 frames
+        total_frames = min(10, self.image_data.data.shape[0])
         print(f"Processing first {total_frames} frames")
 
         # Create list to store segmented results
@@ -1475,7 +1590,8 @@ class TabWidgetApp(QMainWindow):
 
             # Use cached segmentation if available
             if cache_key in self.image_data.segmentation_cache:
-                print(f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+                print(
+                    f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
                 segmented = self.image_data.segmentation_cache[cache_key]
             else:
                 print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
@@ -1485,23 +1601,23 @@ class TabWidgetApp(QMainWindow):
                 # Determine model type ONLY if Cellpose is selected
                 model_type = None
                 if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-                    model_type = 'bact_phase_cp3' if c in (0, None) else 'bact_fluor_cp3'
+                    model_type = 'bact_phase_cp3' if c in (
+                        0, None) else 'bact_fluor_cp3'
 
                 # Perform segmentation
-                segmented = SegmentationModels().segment_images(
-                    np.array([frame]), self.model_dropdown.currentText(), model_type=model_type
-                )[0]
+                segmented = SegmentationModels().segment_images(np.array(
+                    [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
 
                 # Store result in cache
                 self.image_data.segmentation_cache[cache_key] = segmented
-
 
             # Label segmented objects (Assign unique label to each object)
             labeled_cells = label(segmented)
 
             # Visualize labeled segmentation
             plt.figure(figsize=(5, 5))
-            plt.imshow(labeled_cells, cmap='nipy_spectral')  # Color-coded labels
+            # Color-coded labels
+            plt.imshow(labeled_cells, cmap='nipy_spectral')
             plt.title(f'Labeled Segmentation - Frame {t}')
             plt.axis('off')
             # plt.show()
@@ -1510,15 +1626,14 @@ class TabWidgetApp(QMainWindow):
 
         # Convert list to numpy array
         self.segmented_time_series = np.array(segmented_results)
-        self.is_time_series_segmented = True  # Set to false when new segmentation is needed
+        # Set to false when new segmentation is needed
+        self.is_time_series_segmented = True
 
         QMessageBox.information(
             self, "Segmentation Complete",
             f"Segmentation for all time points is complete. Shape: {self.segmented_time_series.shape}"
         )
-    
-    
-    
+
     def get_current_frame(self, t, p, c=None):
         """
         Retrieve the current frame based on slider values for time, position, and channel.
@@ -1533,10 +1648,7 @@ class TabWidgetApp(QMainWindow):
 
         # Convert to NumPy array if needed
         return np.array(frame)
-    
-    
-    
-    
+
     def annotate_scatter_points(self, ax, scatter, ids, pca_df):
         """
         Add interactive annotations and highlight functionality to scatter points.
@@ -1608,9 +1720,7 @@ class TabWidgetApp(QMainWindow):
             title="Morphology Class",
             loc='best',
         )
-     
-     
-    
+
     def on_table_item_click(self, item):
         row = item.row()
 
@@ -1618,15 +1728,11 @@ class TabWidgetApp(QMainWindow):
 
         print(f"Row {row} clicked, Cell ID: {cell_id}")
 
-       
         self.highlight_cell_in_image(cell_id)
 
-        
-    
     def highlight_cell_in_image(self, cell_id):
-        print(f"Highlighting cell with ID: {cell_id}")    
-        
-     
+        print(f"Highlighting cell with ID: {cell_id}")
+
     def highlight_selected_cell(self, cell_id, cache_key):
         """
         Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
@@ -1653,7 +1759,8 @@ class TabWidgetApp(QMainWindow):
 
         # Create a copy of the annotated image to avoid overwriting
         highlighted_image = self.annotated_image.copy()
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # Highlight with red box
+        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2),
+                      (255, 0, 0), 2)  # Highlight with red box
 
         # Display the highlighted image in the scatter plot tab
         height, width = highlighted_image.shape[:2]
@@ -1669,10 +1776,7 @@ class TabWidgetApp(QMainWindow):
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         )
-        self.annotated_image_label.setPixmap(pixmap)   
-        
-   
-
+        self.annotated_image_label.setPixmap(pixmap)
 
     def generate_morphology_data(self):
         # Generate morphological data for the annotated tab
@@ -1711,7 +1815,8 @@ class TabWidgetApp(QMainWindow):
         segmented_image = segment_this_image(image_data)
 
         # Extract cells and their metrics
-        self.cell_mapping = extract_cells_and_metrics(image_data, segmented_image)
+        self.cell_mapping = extract_cells_and_metrics(
+            image_data, segmented_image)
 
         if not self.cell_mapping:
             QMessageBox.warning(
@@ -1748,10 +1853,11 @@ class TabWidgetApp(QMainWindow):
 
         # Generate scatter plot
         self.generate_scatter_plot()
-    
+
     def populate_metrics_table(self):
         if not self.cell_mapping:
-            QMessageBox.warning(self, "Error", "No cell data available for metrics table.")
+            QMessageBox.warning(
+                self, "Error", "No cell data available for metrics table.")
             return
 
         # Convert cell mapping to a DataFrame
@@ -1762,8 +1868,14 @@ class TabWidgetApp(QMainWindow):
         metrics_df = pd.DataFrame(metrics_data)
 
         # Round numerical columns to 2 decimal places
-        numeric_columns = ['area', 'perimeter', 'equivalent_diameter', 'orientation', 
-                        'aspect_ratio', 'circularity', 'solidity']  # Adjust based on actual column names
+        numeric_columns = [
+            'area',
+            'perimeter',
+            'equivalent_diameter',
+            'orientation',
+            'aspect_ratio',
+            'circularity',
+            'solidity']  # Adjust based on actual column names
         metrics_df[numeric_columns] = metrics_df[numeric_columns].round(2)
 
         # Update QTableWidget
@@ -1773,10 +1885,12 @@ class TabWidgetApp(QMainWindow):
 
         for row in range(metrics_df.shape[0]):
             for col, value in enumerate(metrics_df.iloc[row]):
-                self.metrics_table.setItem(row, col, QTableWidgetItem(str(value)))
-    
+                self.metrics_table.setItem(
+                    row, col, QTableWidgetItem(str(value)))
+
     def generate_scatter_plot(self):
-        areas = [data["metrics"]["area"] for data in self.cell_mapping.values()]
+        areas = [data["metrics"]["area"]
+                 for data in self.cell_mapping.values()]
         perimeters = [
             data["metrics"]["perimeter"] for data in self.cell_mapping.values()
         ]
@@ -1786,7 +1900,12 @@ class TabWidgetApp(QMainWindow):
         ax = self.figure_scatter_plot.add_subplot(111)
 
         # Create scatter plot with interactivity
-        scatter = ax.scatter(areas, perimeters, c=areas, cmap="viridis", picker=True)
+        scatter = ax.scatter(
+            areas,
+            perimeters,
+            c=areas,
+            cmap="viridis",
+            picker=True)
         ax.set_title("Area vs Perimeter")
         ax.set_xlabel("Area")
         ax.set_ylabel("Perimeter")
@@ -1801,12 +1920,7 @@ class TabWidgetApp(QMainWindow):
         )
 
         self.canvas_scatter_plot.draw()
-        
-        
-        
-        
-        
-        
+
     def on_scatter_click(self, event):
         # Get the index of the clicked point
         ind = event.ind[0]  # Index of the clicked point
@@ -1875,7 +1989,8 @@ class TabWidgetApp(QMainWindow):
         p_label = QLabel("P: 0")
         p_layout.addWidget(p_label)
 
-        # Set slider range based on loaded dimensions, or default to 0 if not loaded
+        # Set slider range based on loaded dimensions, or default to 0 if not
+        # loaded
         max_p = (
             self.dimensions.get("P", 1) - 1
             if hasattr(self, "dimensions") and "P" in self.dimensions
@@ -1883,9 +1998,10 @@ class TabWidgetApp(QMainWindow):
         )
         self.slider_p_5 = QSlider(Qt.Horizontal)
         self.slider_p_5.setMinimum(0)
-        self.slider_p_5.setMaximum(max_p) 
-        self.slider_p_5.setValue(0) 
-        self.slider_p_5.valueChanged.connect(lambda value: p_label.setText(f'P: {value}'))  
+        self.slider_p_5.setMaximum(max_p)
+        self.slider_p_5.setValue(0)
+        self.slider_p_5.valueChanged.connect(
+            lambda value: p_label.setText(f'P: {value}'))
 
         p_layout.addWidget(self.slider_p_5)
 
@@ -1932,13 +2048,15 @@ class TabWidgetApp(QMainWindow):
         if not hasattr(self, 'image_data'):
             return
 
-        # Get the current position from the position slider in the population tab
+        # Get the current position from the position slider in the population
+        # tab
         p = self.slider_p_5.value()
         c = int(self.channel_combo.currentText())
         rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
-        t_s, t_e = self.time_min_box.value(), self.time_max_box.value() # Time range
+        t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
 
-        fluo, timestamp = analyze_fluorescence_singlecell(self.segmented_time_series[t_s:t_e], self.image_data.data[t_s:t_e, p, c], rpu)
+        fluo, timestamp = analyze_fluorescence_singlecell(
+            self.segmented_time_series[t_s:t_e], self.image_data.data[t_s:t_e, p, c], rpu)
 
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)
@@ -1954,7 +2072,7 @@ class TabWidgetApp(QMainWindow):
         # fluo = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
         # 1 2 3
         #           1    2    3
-        #                     1    2   3     
+        #                     1    2   3
 
         # Copy timestamp for each fluorescence observation
         for t, fluo_data in zip(timestamp, fluo):
@@ -1963,19 +2081,33 @@ class TabWidgetApp(QMainWindow):
             for f in fluo_data:
                 plot_timestamp.append(t)
                 plot_fluo.append(f)
-        
+
         fluo_mean = np.array(fluo_mean)
         fluo_std = np.array(fluo_std)
 
         # Randomly select up to 30 timepoints from plot_fluo and plot_timestamp
         points = np.array(list(zip(plot_timestamp, plot_fluo)))
         if len(points) > 30 * len(timestamp):
-            points = points[np.random.choice(points.shape[0], 200, replace=False)]
+            points = points[np.random.choice(
+                points.shape[0], 200, replace=False)]
         plot_timestamp, plot_fluo = zip(*points)
 
-        ax.scatter(plot_timestamp, plot_fluo, color='blue', alpha=0.5, marker='+')
+        ax.scatter(
+            plot_timestamp,
+            plot_fluo,
+            color='blue',
+            alpha=0.5,
+            marker='+')
         ax.plot(timestamp, fluo_mean, color='red', label='Mean')
-        ax.fill_between(timestamp, fluo_mean - fluo_std, fluo_mean + fluo_std, color='red', alpha=0.2, label='Std Dev')
+        ax.fill_between(
+            timestamp,
+            fluo_mean -
+            fluo_std,
+            fluo_mean +
+            fluo_std,
+            color='red',
+            alpha=0.2,
+            label='Std Dev')
         ax.set_title(f'Fluorescence signal for Position P={p}')
         ax.set_xlabel('T')
         ax.set_ylabel('Cell activity in RPUs')

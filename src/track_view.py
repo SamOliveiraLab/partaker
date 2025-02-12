@@ -4,6 +4,7 @@ import imageio.v2 as iio
 import cv2
 import random
 
+
 def save_tracks(segmentation, tracks):
 
     cmap = matplotlib.colormaps['gist_rainbow']
@@ -22,8 +23,8 @@ def save_tracks(segmentation, tracks):
 
             # Adds new frames as needed
             while len(tracking_views) < _t + 1:
-                tracking_views.append(np.zeros(segmentation.shape[1:]+ (3, )))
-            
+                tracking_views.append(np.zeros(segmentation.shape[1:] + (3, )))
+
             view = tracking_views[_t]
 
             x = round(max(0, min(segmentation.shape[2] - 1, _track.x[i])))
@@ -33,12 +34,13 @@ def save_tracks(segmentation, tracks):
             # view[y, x] = track_color
             cv2.circle(view, (x, y), 4, track_color, -1)
 
-    temp = np.zeros(segmentation.shape[1:]+ (3, ))
+    temp = np.zeros(segmentation.shape[1:] + (3, ))
     for i in range(len(tracking_views)):
         tracking_views[i] += temp
         temp = tracking_views[i].copy()
 
-    tracking_views = [(np.clip(tv, 0, 1) * 255).astype('uint8') for tv in tracking_views]
+    tracking_views = [(np.clip(tv, 0, 1) * 255).astype('uint8')
+                      for tv in tracking_views]
 
     tracking_views = np.array(tracking_views)
 

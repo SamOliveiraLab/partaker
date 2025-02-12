@@ -16,13 +16,13 @@ Cherry_output_path = './aligned_data/XY8_Long_Cherry/'
 
 if sys.argv[1] == 'align':
     stage_MAE_scores = remove_stage_jitter_MAE(
-        output_path, 
+        output_path,
         source_path,
         YFP_path,
-        YFP_output_path, 
+        YFP_output_path,
         Cherry_path,
-        Cherry_output_path, 
-        10000, 
+        Cherry_output_path,
+        10000,
         -15,
         True,
         False
@@ -73,7 +73,7 @@ class AlignmentApp(App):
         src_sel_layout = BoxLayout(orientation='horizontal')
         self.src_sel_layout = src_sel_layout
         self.main_layout_box.add_widget(src_sel_layout)
-        
+
         src_sel_layout.add_widget(Label(text='Select Paths:'))
 
         source_button = Button(text='Source Path')
@@ -121,7 +121,7 @@ class AlignmentApp(App):
             self.main_layout_box.add_widget(self.out_sel_layout)
         else:
             self.main_layout_box.remove_widget(self.out_sel_layout)
-            
+
         self.auto_create_output_paths = value
 
     def _open_file_chooser_system(self, button):
@@ -218,20 +218,18 @@ if __name__ == '__main__':
 
 # Cherry_path = './sample_data/XY8_Long_Cherry/';
 # Cherry_output_path = './aligned_data/XY8_Long_Cherry/';
-    
+
 # stage_MAE_scores = remove_stage_jitter_MAE(
-#     output_path, 
-#     source_path, 
-#     YFP_path, 
-#     YFP_output_path, 
+#     output_path,
+#     source_path,
+#     YFP_path,
+#     YFP_output_path,
 #     Cherry_path,
-#     Cherry_output_path, 
-#     10000, 
+#     Cherry_output_path,
+#     10000,
 #     -15,
 #     True,
 #     False
 # );
 
 """
-
-

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+
 def extract_individual_cells(image, segmented_image):
     """
     Extracts individual cells from the original image based on the segmented mask.
@@ -24,7 +25,8 @@ def extract_individual_cells(image, segmented_image):
     assert image.shape == segmented_image.shape, "Image and segmented image must have the same dimensions."
 
     # Find connected components in the segmented mask
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(segmented_image, connectivity=8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        segmented_image, connectivity=8)
 
     # Extract individual cells
     extracted_cells = []
@@ -57,7 +59,7 @@ def classify_morphology(metrics):
     aspect_ratio = metrics.get("aspect_ratio", 0)
     circularity = metrics.get("circularity", 0)
 
-    if area < 300:  
+    if area < 300:
         return "Small"
     elif circularity > 0.9 and aspect_ratio < 1.2:
         return "Round"
@@ -67,10 +69,8 @@ def classify_morphology(metrics):
         return "Elongated"
     else:
         return "Deformed"
-    
-    
-    
-    
+
+
 def extract_cells_and_metrics(image, segmented_image):
     """
     Extract individual cells, their bounding boxes, and metrics from a segmented image.
@@ -95,10 +95,16 @@ def extract_cells_and_metrics(image, segmented_image):
         print("Converting multi-channel image to grayscale.")
         image = rgb2gray(image)
 
-    # Check and handle shape mismatches between the intensity image and the segmented image
+    # Check and handle shape mismatches between the intensity image and the
+    # segmented image
     if image.shape != segmented_image.shape:
-        print(f"Resizing intensity image from {image.shape} to {segmented_image.shape}")
-        image = resize(image, segmented_image.shape, preserve_range=True, anti_aliasing=True)
+        print(
+            f"Resizing intensity image from {image.shape} to {segmented_image.shape}")
+        image = resize(
+            image,
+            segmented_image.shape,
+            preserve_range=True,
+            anti_aliasing=True)
 
     # Label connected regions in the segmented image
     labeled_image = label(segmented_image)
@@ -149,13 +155,14 @@ def annotate_image(image, cell_mapping):
         raise ValueError("The input image is not a valid numpy array.")
     print(f"Annotating image of shape: {image.shape}")  # Debugging
 
-    annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)  # Ensure it's in RGB format
+    # Ensure it's in RGB format
+    annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     for cell_id, data in cell_mapping.items():
         x1, y1, x2, y2 = data["bbox"]
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(annotated, str(cell_id), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.putText(annotated, str(cell_id), (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     return annotated
-
 
 
 def annotate_binary_mask(segmented_image, cell_mapping):
@@ -195,7 +202,8 @@ def annotate_binary_mask(segmented_image, cell_mapping):
 
         # Get the morphology class and corresponding color
         morphology_class = data["metrics"].get("morphology_class", "Normal")
-        color = morphology_colors.get(morphology_class, (255, 255, 255))  # Default to white
+        color = morphology_colors.get(
+            morphology_class, (255, 255, 255))  # Default to white
 
         # Draw bounding box with morphology-specific color
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
@@ -226,7 +234,8 @@ def extract_cell_morphologies(binary_image: np.array) -> pd.DataFrame:
     Returns:
     pd.DataFrame: DataFrame containing morphology properties for each cell.
     """
-    contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     morphologies = []
 
@@ -276,12 +285,21 @@ def extract_cell_morphologies(binary_image: np.array) -> pd.DataFrame:
     if morphologies:
         return pd.DataFrame(morphologies)
     else:
-        return pd.DataFrame(columns=["area", "perimeter", "aspect_ratio", "extent", "solidity",
-                                     "equivalent_diameter", "orientation", "morphology_class"])
+        return pd.DataFrame(
+            columns=[
+                "area",
+                "perimeter",
+                "aspect_ratio",
+                "extent",
+                "solidity",
+                "equivalent_diameter",
+                "orientation",
+                "morphology_class"])
 
 
-
-def extract_cell_morphologies_time(segmented_imgs: np.array, **kwargs) -> pd.DataFrame:
+def extract_cell_morphologies_time(
+        segmented_imgs: np.array,
+        **kwargs) -> pd.DataFrame:
     """
     Extracts cell morphologies from a series of segmented images.
 
@@ -309,4 +327,3 @@ def extract_cell_morphologies_time(segmented_imgs: np.array, **kwargs) -> pd.Dat
     else:
         print("No valid metrics to aggregate.")
         return pd.DataFrame()
-    
