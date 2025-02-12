@@ -1437,10 +1437,7 @@ class TabWidgetApp(QMainWindow):
                 segmented_image = self.image_data.segmentation_cache[cache_key]
 
             # Extract cell metrics
-            self.cell_mapping = extract_cells_and_metrics(
-                frame, segmented_image)
-
-            # Populate the metrics table
+            self.cell_mapping = extract_cells_and_metrics(frame, segmented_image)
             self.populate_metrics_table()
 
             # Prepare DataFrame
@@ -1451,14 +1448,8 @@ class TabWidgetApp(QMainWindow):
             morphology_df = pd.DataFrame(metrics_data)
 
             # Select numeric features for PCA
-            numeric_features = [
-                'area',
-                'perimeter',
-                'equivalent_diameter',
-                'orientation',
-                'aspect_ratio',
-                'circularity',
-                'solidity']
+            numeric_features = ['area', 'perimeter', 'equivalent_diameter', 'orientation', 
+                                'aspect_ratio', 'circularity', 'solidity']
             X = morphology_df[numeric_features].values
 
             # Scale the features
@@ -1469,67 +1460,32 @@ class TabWidgetApp(QMainWindow):
             pca = PCA(n_components=2)
             principal_components = pca.fit_transform(X_scaled)
 
-            # Calculate loadings
-            loadings = pd.DataFrame(
-                pca.components_.T,
-                columns=['PC1', 'PC2'],
-                index=numeric_features
-            )
-
-            # Calculate explained variance
-            explained_variance = pca.explained_variance_ratio_
-            print("Explained variance ratio:", explained_variance)
-            print("\nFeature contributions to principal components:")
-            print(loadings)
-
-            # Create PCA scatter plot with updated title showing variance
-            self.figure_annot_scatter.clear()
-            ax = self.figure_annot_scatter.add_subplot(111)
-
-            # Create DataFrame for plotting
+            # Store PCA results
             pca_df = pd.DataFrame(principal_components, columns=['PC1', 'PC2'])
             pca_df['Class'] = morphology_df['Class']
+            pca_df['ID'] = morphology_df['ID']
 
-            # Plot scatter with explained variance in title
-            sns.scatterplot(
-                x='PC1',
-                y='PC2',
-                hue='Class',
-                data=pca_df,
-                palette=self.morphology_colors_rgb,
-                s=50,
-                ax=ax,
-                edgecolor='w',
-            )
+            # Plot PCA scatter
+            self.figure_annot_scatter.clear()
+            ax = self.figure_annot_scatter.add_subplot(111)
+            scatter = ax.scatter(pca_df['PC1'], pca_df['PC2'], c=[self.morphology_colors_rgb[class_] for class_ in pca_df['Class']],
+                                s=50, edgecolor='w', picker=True)
+            
+            ax.set_title("PCA Scatter Plot")
+            ax.set_xlabel("PC1")
+            ax.set_ylabel("PC2")
 
-            # Update title to show explained variance
-            ax.set_title(
-                f'PCA: PC1 ({explained_variance[0]:.1%}) vs PC2 ({explained_variance[1]:.1%})')
-            ax.set_xlabel('PC1')
-            ax.set_ylabel('PC2')
+            # Enable interactive annotations and highlighting
+            self.annotate_scatter_points(ax, scatter, pca_df)
 
-            # Add loadings plot
-            # Create a new figure for loadings
-            self.figure_loadings = plt.figure(figsize=(10, 6))
-            ax_loadings = self.figure_loadings.add_subplot(111)
-
-            # Plot loadings as a heatmap
-            sns.heatmap(loadings,
-                        annot=True,
-                        cmap='RdBu',
-                        center=0,
-                        ax=ax_loadings)
-            ax_loadings.set_title(
-                'Feature Contributions to Principal Components')
-
-            # Update both canvases
             self.canvas_annot_scatter.draw()
-            if hasattr(self, 'canvas_loadings'):
-                self.canvas_loadings.draw()
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
+
+    
+    
     def plot_morphology_metrics(self):
         x_metric = self.x_metric_dropdown.currentText()
         y_metric = self.y_metric_dropdown.currentText()
@@ -1661,23 +1617,21 @@ class TabWidgetApp(QMainWindow):
 
         # Convert to NumPy array if needed
         return np.array(frame)
-
-    def annotate_scatter_points(self, ax, scatter, ids, pca_df):
+    
+    
+    
+    def annotate_scatter_points(self, ax, scatter, pca_df):
         """
-        Add interactive annotations and highlight functionality to scatter points.
+        Adds interactive hover annotations and click event to highlight a selected cell.
 
         Parameters:
-        -----------
         ax : matplotlib.axes.Axes
             The axes object for the scatter plot.
         scatter : matplotlib.collections.PathCollection
             The scatter plot object.
-        ids : list
-            List of cell IDs corresponding to the points.
         pca_df : pd.DataFrame
-            DataFrame containing PCA results and class information.
+            DataFrame containing PCA results with cell IDs and classes.
         """
-        # Annotation setup
         annot = ax.annotate(
             "",
             xy=(0, 0),
@@ -1694,7 +1648,7 @@ class TabWidgetApp(QMainWindow):
             index = ind["ind"][0]
             pos = scatter.get_offsets()[index]
             annot.xy = pos
-            selected_id = ids[index]
+            selected_id = int(pca_df.iloc[index]["ID"])
             cell_class = pca_df.iloc[index]["Class"]
             annot.set_text(f"ID: {selected_id}\nClass: {cell_class}")
             annot.get_bbox_patch().set_alpha(0.8)
@@ -1713,8 +1667,18 @@ class TabWidgetApp(QMainWindow):
                         annot.set_visible(False)
                         self.canvas_annot_scatter.draw_idle()
 
-        # Add hover functionality
+        def on_click(event):
+            """Handle click events to highlight the selected cell in the segmented image."""
+            if event.inaxes == ax:
+                cont, ind = scatter.contains(event)
+                if cont:
+                    index = ind["ind"][0]
+                    selected_id = int(pca_df.iloc[index]["ID"])
+                    cell_class = pca_df.iloc[index]["Class"]
+                    self.highlight_cell_in_image(selected_id, cell_class)
+
         self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
+        self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
 
         # Add legend using self.morphology_colors_rgb
         handles = [
@@ -1733,7 +1697,10 @@ class TabWidgetApp(QMainWindow):
             title="Morphology Class",
             loc='best',
         )
-
+    
+    
+     
+    
     def on_table_item_click(self, item):
         row = item.row()
 
