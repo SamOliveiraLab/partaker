@@ -1,54 +1,82 @@
 import btrack
-from btrack import datasets
 import numpy as np
+import os
 
-from cachier import cachier
-import datetime
+def track_cells(segmented_images):
+    """
+    Tracks segmented cells over time using BayesianTracker (btrack).
 
-@cachier(stale_after=datetime.timedelta(days=3))
-def track_cells(segmentation):
-    FEATURES = [
-        "area", 
-        "major_axis_length",
-        "minor_axis_length", 
-        "orientation", 
-        "solidity"
-    ]
+    Parameters:
+    -----------
+    segmented_images : np.ndarray
+        3D array (time, height, width) of labeled segmented images (each cell has a unique label).
 
-    objects = btrack.utils.segmentation_to_objects(
-        segmentation, 
-        properties=tuple(FEATURES), 
-        num_workers=4,  # parallelise this
-    )
+    Returns:
+    --------
+    list
+        A list of tracked cell objects.
+    """
+    FEATURES = ["area", "major_axis_length", "minor_axis_length", "orientation", "solidity"]
 
-    # initialise a tracker session using a context manager
-    with btrack.BayesianTracker() as tracker:
+    # Validate input
+    if segmented_images is None or not isinstance(segmented_images, np.ndarray) or segmented_images.ndim != 3:
+        raise ValueError("Segmented images must be a 3D NumPy array (time, height, width).")
 
-        # configure the tracker using a config file
-        tracker.configure('btrack_config.json')
-        tracker.max_search_radius = 50
-        tracker.tracking_updates = ["MOTION", "VISUAL"]
-        tracker.features = FEATURES
+    if np.isnan(segmented_images).any() or np.isinf(segmented_images).any():
+        raise ValueError("Segmented images contain NaN or Inf values.")
+
+    # Convert segmented images to btrack objects
+    try:
+        print("Converting segmented images to objects...")
+        objects = btrack.utils.segmentation_to_objects(
+            segmented_images,
+            properties=tuple(FEATURES),
+            num_workers=4,
+        )
+        print(f"Number of objects detected: {len(objects)}")
+    
+        # Debugging the first few objects to check structure
+        if len(objects) > 0:
+            print("Sample object structure:", objects[0])
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to convert segmentation to objects: {e}")
+
+    if not objects:
+        raise ValueError("No objects detected in the segmentation. Ensure your segmentation produces labeled regions.")
+
+    # Define config file path
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'btrack_config.json')
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file not found at: {config_path}")
+
+    # Initialize and run the tracker
+    try:
+        with btrack.BayesianTracker() as tracker:
+            print("Configuring tracker...")
+            tracker.configure(config_path)
+            tracker.max_search_radius = 50  # Adjust based on cell movement
+            tracker.tracking_updates = ["MOTION", "VISUAL"]
+            tracker.features = FEATURES
+
+            print("Appending objects to tracker...")
+            tracker.append(objects)
             
-        # append the objects to be tracked
-        tracker.append(objects)
+            # Debug volume dimensions
+            print(f"Tracker volume dimensions: ((0, {segmented_images.shape[2]}), (0, {segmented_images.shape[1]}), (0, 1))")
+            tracker.volume = ((0, segmented_images.shape[2]), (0, segmented_images.shape[1]), (0, 1))
 
-        # set the volume (Z axis volume limits default to [-1e5, 1e5] for 2D data)
-        tracker.volume = ((0, 512), (0, 512))
+            print("Starting tracking process...")
+            tracker.track()  # Use track() instead of deprecated track_interactive()
 
-        # track them (in interactive mode)
-        tracker.track_interactive(step_size=100)
+            tracks = tracker.tracks
+            print(f"Tracking complete. Total tracks found: {len(tracks)}")
 
-        # generate hypotheses and run the global optimizer
-        # tracker.optimize()
+    except Exception as e:
+        raise RuntimeError(f"Failed to track cells: {e}")
+    
+    
+    print("Tracks returned from track_cells:", tracks)
+    print("Type of returned tracks:", type(tracks))
+    return tracks  # Make sure it’s returning exactly what you expect
 
-        # store the data in an HDF5 file
-        # tracker.export('tracks.h5', obj_type='obj_type_1')
-
-        # get the tracks as a python list
-        tracks = tracker.tracks
-
-        # optional: get the data in a format for napari
-        # data, properties, graph = tracker.to_napari()
-
-    return tracks

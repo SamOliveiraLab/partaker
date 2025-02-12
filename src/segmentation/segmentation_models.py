@@ -1,3 +1,4 @@
+from asyncio import tasks
 from pathlib import Path
 import matplotlib.pyplot as plt
 import math
@@ -9,9 +10,13 @@ import cv2
 from cachier import cachier
 import datetime
 
-from cellpose import models, io
+from cellpose import models, io, utils
 
 from .unet import unet_segmentation
+from scipy.ndimage import gaussian_filter
+from skimage import exposure
+from skimage.restoration import richardson_lucy
+from skimage.measure import label
 
 from cellSAM import segment_cellular_image, get_model
 
@@ -61,6 +66,8 @@ class SegmentationModels:
             cls._instance = super(SegmentationModels, cls).__new__(cls, *args, **kwargs)
             cls._instance.models = {}
         return cls._instance
+    
+
     
     """
     Segments a single image using cellsam
@@ -149,25 +156,51 @@ class SegmentationModels:
         return bw_images
 
     def segment_cellpose(self, images, progress):
+        """
+        Segment cells using Cellpose and return binary masks with borders.
+
+        Parameters:
+        -----------
+        images : list of numpy.ndarray
+            The input images to segment.
+        progress : callable or Signal
+            A callback or signal to update progress.
+
+        Returns:
+        --------
+        binary_mask_display : numpy.ndarray
+            The binary masks with borders for each segmented cell.
+        """
         cellpose_inst = self.models[SegmentationModels.CELLPOSE]
 
         # Ensure images are in the correct format
         images = [img.squeeze() if img.ndim > 2 else img for img in images]
 
-        # Run segmentation
         try:
+            # Run segmentation with Cellpose
             masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
             masks = np.array(masks)  # Ensure masks are a NumPy array
-        except Exception as e:
-            print(f"Error during segmentation: {e}")
-            return None
 
-        # Create binary black-and-white masks
-        try:
-            bw_images = np.zeros_like(masks, dtype=np.uint8)
-            bw_images[masks > 0] = 255  # Convert labeled masks to binary
+            # Label the segmented regions uniquely
+            labeled_masks = np.zeros_like(masks, dtype=np.int32)
+            for i in range(len(masks)):
+                labeled_masks[i] = label(masks[i])  # Proper labeling of segmented regions
+
+            # Create binary masks for visualization (convert labeled regions to 255)
+            bw_images = np.where(labeled_masks > 0, 255, 0).astype(np.uint8)
+
+            # Add outlines to the binary masks
+            for i in range(len(masks)):
+                outlines = utils.masks_to_outlines(masks[i])  # Corrected from tasks[i] to masks[i]
+                bw_images[i][outlines] = 0  # Set outline pixels to black (0)
+
+            # Optionally, pad the binary masks for visualization
+            binary_mask_display = np.pad(
+                bw_images, pad_width=((0, 0), (5, 5), (5, 5)), mode='constant', constant_values=0
+            )
+
         except Exception as e:
-            print(f"Error converting masks to binary: {e}")
+            print(f"Error during segmentation or mask processing: {e}")
             return None
 
         # Update progress if a callback is provided
@@ -176,18 +209,26 @@ class SegmentationModels:
                 progress(len(images))
             else:  # Assume it's a PyQt signal
                 progress.emit(len(images))
+                
+        return binary_mask_display     
 
-        return bw_images
-
-    def segment_images(self, images, mode, progress=None):
+    def segment_images(self, images, mode, model_type=None, progress=None, preprocess=True):
         print(f"Segmenting images using {mode} model")
+        
+    
+        # Preprocess images if the flag is enabled
+        if preprocess:
+            images = [preprocess_image(img) for img in images]
 
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
                 if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type='deepbacs_cp3')
+                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=True, model_type=model_type)
                 else:
-                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type='deepbacs_cp3')
+                    self.models[self.CELLPOSE] = models.CellposeModel(gpu=False, model_type=model_type)
+            
+            # Ensure the selected model type is applied dynamically
+            self.models[self.CELLPOSE].model_type = model_type
             
             return self.segment_cellpose(images, progress)
         
@@ -206,3 +247,29 @@ class SegmentationModels:
 
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
+        
+
+
+
+def preprocess_image(image):
+        """
+        Preprocess an image by applying Gaussian blur, CLAHE, and Richardson-Lucy deblurring.
+
+        Parameters:
+            image (np.ndarray): Input image.
+
+        Returns:
+            np.ndarray: Preprocessed image.
+        """
+        normalized_frame = (image - np.min(image)) / (np.max(image) - np.min(image))
+        
+        denoised_frame = gaussian_filter(normalized_frame, sigma=1)
+
+        # Apply CLAHE to improve contrast
+        clahe = exposure.equalize_adapthist(denoised_frame, clip_limit=0.03)
+
+        # Step 3: Deblur the image
+        psf = np.ones((5, 5)) / 25  # Example PSF
+        deblurred_frame = richardson_lucy(denoised_frame, psf, num_iter=30)
+
+        return deblurred_frame

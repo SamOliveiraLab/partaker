@@ -70,7 +70,7 @@ def classify_morphology(metrics):
     
     
     
-
+    
 def extract_cells_and_metrics(image, segmented_image):
     """
     Extract individual cells, their bounding boxes, and metrics from a segmented image.
@@ -83,9 +83,28 @@ def extract_cells_and_metrics(image, segmented_image):
     - cell_mapping: dict, a dictionary with cell IDs as keys and a dictionary of metrics and bounding boxes as values.
     """
     from skimage.measure import regionprops, label
+    from skimage.color import rgb2gray
+    from skimage.transform import resize
+
+    # Debugging: print input shapes
+    print(f"Original image shape: {image.shape}")
+    print(f"Segmented image shape: {segmented_image.shape}")
+
+    # Ensure the intensity image is single-channel (convert if multi-channel)
+    if image.ndim == 3 and image.shape[-1] in [3, 4]:  # RGB or RGBA
+        print("Converting multi-channel image to grayscale.")
+        image = rgb2gray(image)
+
+    # Check and handle shape mismatches between the intensity image and the segmented image
+    if image.shape != segmented_image.shape:
+        print(f"Resizing intensity image from {image.shape} to {segmented_image.shape}")
+        image = resize(image, segmented_image.shape, preserve_range=True, anti_aliasing=True)
 
     # Label connected regions in the segmented image
     labeled_image = label(segmented_image)
+
+    # Debugging: print labeled image shape
+    print(f"Labeled image shape: {labeled_image.shape}")
 
     # Extract properties for each labeled region
     cell_mapping = {}
@@ -136,6 +155,8 @@ def annotate_image(image, cell_mapping):
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
         cv2.putText(annotated, str(cell_id), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     return annotated
+
+
 
 def annotate_binary_mask(segmented_image, cell_mapping):
     """
@@ -193,6 +214,7 @@ def annotate_binary_mask(segmented_image, cell_mapping):
         )
 
     return annotated
+
 
 def extract_cell_morphologies(binary_image: np.array) -> pd.DataFrame:
     """
