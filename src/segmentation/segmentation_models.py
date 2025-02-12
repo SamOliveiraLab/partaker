@@ -209,7 +209,7 @@ class SegmentationModels:
                 progress(len(images))
             else:  # Assume it's a PyQt signal
                 progress.emit(len(images))
-
+                
         return binary_mask_display     
 
     def segment_images(self, images, mode, model_type=None, progress=None, preprocess=True):

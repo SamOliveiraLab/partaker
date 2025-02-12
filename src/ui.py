@@ -1492,6 +1492,7 @@ class TabWidgetApp(QMainWindow):
                 # Store result in cache
                 self.image_data.segmentation_cache[cache_key] = segmented
 
+
             # Label segmented objects (Assign unique label to each object)
             labeled_cells = label(segmented)
 
