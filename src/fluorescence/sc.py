@@ -16,7 +16,12 @@ Returns:
 sc_fluo: list of lists of fluorescence values for each connected component
 timestamps: timestamp of each valid fluorescence image
 """
-def analyze_fluorescence_singlecell(binary_images, fluorescence_images, rpu: RPUParams = None):
+
+
+def analyze_fluorescence_singlecell(
+        binary_images,
+        fluorescence_images,
+        rpu: RPUParams = None):
     results = []
     timestamps = []
 
@@ -26,18 +31,23 @@ def analyze_fluorescence_singlecell(binary_images, fluorescence_images, rpu: RPU
 
         # Extract baselline fluorescence from the background
         background_mask = labeled_array == 0
-        background_fluo = np.array(fluorescence_images[i][background_mask].flatten()).mean()
+        background_fluo = np.array(
+            fluorescence_images[i][background_mask].flatten()).mean()
 
         print(num_features)
         for component in range(1, num_features + 1):
             mask = labeled_array == component
-            fluorescence_avg = np.array(fluorescence_images[i][mask].flatten()).mean()
-            # Only adds if the fluorescence is some signal, and if this signal is larger than 110% of the background
-            if fluorescence_avg <= FLUO_EPSILON or fluorescence_avg < (background_fluo * 1.1):
+            fluorescence_avg = np.array(
+                fluorescence_images[i][mask].flatten()).mean()
+            # Only adds if the fluorescence is some signal, and if this signal
+            # is larger than 110% of the background
+            if fluorescence_avg <= FLUO_EPSILON or fluorescence_avg < (
+                    background_fluo * 1.1):
                 continue
 
-            result.append(rpu.compute(fluorescence_avg) if rpu else fluorescence_avg)
-        
+            result.append(rpu.compute(fluorescence_avg)
+                          if rpu else fluorescence_avg)
+
         if len(result) == 0:
             continue
         timestamps.append(i)
@@ -47,17 +57,19 @@ def analyze_fluorescence_singlecell(binary_images, fluorescence_images, rpu: RPU
 
     return results, timestamps
 
+
 def analyze_fluorescence_total(fluorescence_images, rpu: RPUParams = None):
     results = []
     timestamps = []
 
     for i, fluorescence_image in enumerate(fluorescence_images):
         fluorescence_avg = fluorescence_image.flatten().mean()
-        
+
         if fluorescence_avg <= FLUO_EPSILON:
             continue
-        
-        results.append(rpu.compute(fluorescence_avg) if rpu else fluorescence_avg)
+
+        results.append(rpu.compute(fluorescence_avg)
+                       if rpu else fluorescence_avg)
         timestamps.append(i)
 
     return results, timestamps

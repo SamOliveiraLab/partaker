@@ -4,7 +4,7 @@ import tensorflow as tf
 # import keras.api._v2.keras as keras
 from keras import backend as K
 from tensorflow.python.ops import array_ops, math_ops
-from keras.optimizers import Adam 
+from keras.optimizers import Adam
 from keras.models import Model
 from keras.layers import (
     Input,
@@ -39,9 +39,11 @@ from keras.layers import (
 # # model.summary()
 
 # Segmentation imports
-from typing import Union, List, Tuple, Callable, Dict # Python types
+from typing import Union, List, Tuple, Callable, Dict  # Python types
 
 #### Entropy and Loss functions ####
+
+
 def pixelwise_weighted_binary_crossentropy_seg(
     y_true: tf.Tensor, y_pred: tf.Tensor
 ) -> tf.Tensor:
@@ -69,8 +71,8 @@ def pixelwise_weighted_binary_crossentropy_seg(
 
         seg = tf.expand_dims(seg, -1)
         weight = tf.expand_dims(weight, -1)
-    except:
-        print("Gone through an exception!");
+    except BaseException:
+        print("Gone through an exception!")
         pass
 
     # Make background weights be equal to the model's prediction
@@ -94,10 +96,15 @@ def pixelwise_weighted_binary_crossentropy_seg(
     loss = K.mean(math_ops.multiply(weight, entropy), axis=-1)
 
     loss = tf.scalar_mul(
-        10 ** 6, tf.scalar_mul(1 / tf.math.sqrt(tf.math.reduce_sum(weight)), loss)
-    )
+        10 ** 6,
+        tf.scalar_mul(
+            1 /
+            tf.math.sqrt(
+                tf.math.reduce_sum(weight)),
+            loss))
 
     return loss
+
 
 ############## U-NETS MODEL ##############
 """
@@ -135,24 +142,35 @@ def contracting_block(
     dropout: float = 0,
     name: str = "Contracting",
 ) -> tf.Tensor:
-    
+
     # Pooling layer: (sample 'images' down by factor 2)
-    pool = MaxPooling2D(pool_size=(2, 2), name=name + "_MaxPooling2D")(input_layer)
-    
+    pool = MaxPooling2D(pool_size=(2, 2), name=name +
+                        "_MaxPooling2D")(input_layer)
+
     # First Convolution layer
-    conv1 = Conv2D(filters, 3, **conv2d_parameters, name=name + "_Conv2D_1")(pool)
-    
+    conv1 = Conv2D(
+        filters,
+        3,
+        **conv2d_parameters,
+        name=name +
+        "_Conv2D_1")(pool)
+
     # Second Convolution layer
-    conv2 = Conv2D(filters, 3, **conv2d_parameters, name=name + "_Conv2D_2")(conv1)
-    
+    conv2 = Conv2D(
+        filters,
+        3,
+        **conv2d_parameters,
+        name=name +
+        "_Conv2D_2")(conv1)
+
     # If a dropout is necessary, otherwise just return
     if (dropout == 0):
-        return conv2;
+        return conv2
     else:
         drop = Dropout(dropout, name=name + "_Dropout")(conv2)
-        return drop;
+        return drop
 
-    
+
 """
 A block of layers for 1 expanding level of the U-Net
 
@@ -183,6 +201,8 @@ conv3 : tf.Tensor
 """
 
 # Expanding Block for the U-Net
+
+
 def expanding_block(
     input_layer: tf.Tensor,
     skip_layer: tf.Tensor,
@@ -191,25 +211,42 @@ def expanding_block(
     dropout: float = 0,
     name: str = "Expanding",
 ) -> tf.Tensor:
-    
+
     # Up-Sampling
     up = UpSampling2D(size=(2, 2), name=name + "_UpSampling2D")(input_layer)
-    conv1 = Conv2D(filters, 2, **conv2d_parameters, name=name + "_Conv2D_1")(up)
-    
+    conv1 = Conv2D(
+        filters,
+        2,
+        **conv2d_parameters,
+        name=name +
+        "_Conv2D_1")(up)
+
     # Merge with skip connection layer
-    merge = Concatenate(axis=3, name=name + "_Concatenate")([skip_layer, conv1])
-    
+    merge = Concatenate(axis=3, name=name +
+                        "_Concatenate")([skip_layer, conv1])
+
     # Convolution Layers
-    conv2 = Conv2D(filters, 3, **conv2d_parameters, name=name + "_Conv2D_2")(merge)
-    conv3 = Conv2D(filters, 3, **conv2d_parameters, name=name + "_Conv2D_3")(conv2)
-    
+    conv2 = Conv2D(
+        filters,
+        3,
+        **conv2d_parameters,
+        name=name +
+        "_Conv2D_2")(merge)
+    conv3 = Conv2D(
+        filters,
+        3,
+        **conv2d_parameters,
+        name=name +
+        "_Conv2D_3")(conv2)
+
     # If there needs dropout, otherwise, lets return
     if (dropout == 0):
-        return conv3;
+        return conv3
     else:
         drop = Dropout(dropout, name=name + "_Dropout")(conv3)
-        return drop;
-    
+        return drop
+
+
 """
 Unstacks the mask from the weights in the output tensor for
 segmentation and computes binary accuracy
@@ -227,6 +264,8 @@ Tensor
 Binary prediction accuracy.
 
 """
+
+
 def unstack_acc(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
     try:
         print(y_true)
@@ -235,11 +274,10 @@ def unstack_acc(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
 
         seg = tf.expand_dims(seg, -1)
         weight = tf.expand_dims(weight, -1)
-    except:
+    except BaseException:
         pass
 
     return keras.metrics.binary_accuracy(seg, y_pred)
-    
 
 
 # Actual U-net
@@ -274,33 +312,35 @@ model : Model
     Defined U-Net model (not compiled yet).
 
 """
+
+
 def unet(
     input_size: Tuple[int, int, int] = (256, 32, 1),
-    final_activation = "sigmoid",
-    output_classes = 1,
+    final_activation="sigmoid",
+    output_classes=1,
     dropout: float = 0,
     levels: int = 5
 ) -> Model:
-    
+
     # Default parameters for convolution
     conv2d_params = {
-        "activation" : "relu",
-        "padding" : "same",
+        "activation": "relu",
+        "padding": "same",
         "kernel_initializer": "he_normal",
     }
-    
+
     # Inputs Layer
     inputs = Input(input_size, name="true_input")
-    
+
     # First level input convolutional layers:
     # We pass through 2 3x3 Convolution layers...
     filters = 64
     conv = Conv2D(filters, 3, **conv2d_params, name="Level0_Conv2D_1")(inputs)
     conv = Conv2D(filters, 3, **conv2d_params, name="Level0_Conv2D_2")(conv)
-    
+
     # Generating Contracting Path (that is moving down the encoder block)
-    level = 0;
-    contracting_outputs = [conv];
+    level = 0
+    contracting_outputs = [conv]
     for level in range(1, levels):
         filters *= 2
         contracting_outputs.append(
@@ -308,11 +348,11 @@ def unet(
                 contracting_outputs[-1],
                 filters,
                 conv2d_params,
-                dropout = dropout,
+                dropout=dropout,
                 name=f"Level{level}_Contracting",
             )
         )
-    
+
     # Generating Expanding Path (that is moving up the decoder block)
     expanding_output = contracting_outputs.pop()
     while level > 0:
@@ -323,41 +363,47 @@ def unet(
             contracting_outputs.pop(),
             filters,
             conv2d_params,
-            dropout = dropout,
+            dropout=dropout,
             name=f"Level{level}_Expanding",
         )
-    
+
     # Next we have the final output layer
-    output = Conv2D(output_classes, 1, activation=final_activation, name="true_output")(expanding_output)
+    output = Conv2D(
+        output_classes,
+        1,
+        activation=final_activation,
+        name="true_output")(expanding_output)
     model = Model(inputs=inputs, outputs=output)
-    
+
     return model
-    
+
 # Unets Physical Model for Segmentation, think of it as a wrapper function...
+
+
 def unet_segmentation(
-    pretrained_weights = None,
+    pretrained_weights=None,
     input_size: Tuple[int, int, int] = (256, 32, 1),
     levels: int = 5,
-) -> Model: # Force a Model Class to come 
-    
+) -> Model:  # Force a Model Class to come
+
     # Run the following inputs into the unet algorithm defined above...
     model = unet(
-        input_size = input_size,
-        final_activation = "sigmoid",
-        output_classes = 1,
-        levels = levels,
-    );
-    
+        input_size=input_size,
+        final_activation="sigmoid",
+        output_classes=1,
+        levels=levels,
+    )
+
     # Learning rate 1e-4
     # loss = pixelwise_weighted_binary_crossentropy_seg,
     model.compile(
-        optimizer = Adam(learning_rate = 1e-4),
-        loss = pixelwise_weighted_binary_crossentropy_seg,
-        metrics = [unstack_acc]
+        optimizer=Adam(learning_rate=1e-4),
+        loss=pixelwise_weighted_binary_crossentropy_seg,
+        metrics=[unstack_acc]
     )
-    
+
     # If we have any pre-trained weights...
     if pretrained_weights:
-        model.load_weights(pretrained_weights);
-    
+        model.load_weights(pretrained_weights)
+
     return model
