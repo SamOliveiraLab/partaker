@@ -62,6 +62,8 @@ class SegmentationModels:
     UNET = 'unet'
     CELLSAM = 'cellsam'
     CELLPOSE_FT_0 = 'cellpose_finetuned'
+    CELLPOSE_BACT_PHASE = 'bact_phase_cp3'
+    CELLPOSE_BACT_FLUOR = 'bact_fluor_cp3'
 
     _instance = None
 
@@ -159,14 +161,14 @@ class SegmentationModels:
         try:
             bw_images = np.zeros_like(segmented_images, dtype=np.uint8)
             # Convert labeled masks to binary
-            bw_images[segmented_images > 0] = 255
+            bw_images[segmented_images > 0.5] = 255
         except Exception as e:
             print(f"Error converting masks to binary: {e}")
             return None
 
         return bw_images
 
-    def segment_cellpose(self, images, progress):
+    def segment_cellpose(self, images, progress, cellpose_inst):
         """
         Segment cells using Cellpose and return binary masks with borders.
 
@@ -182,7 +184,6 @@ class SegmentationModels:
         binary_mask_display : numpy.ndarray
             The binary masks with borders for each segmented cell.
         """
-        cellpose_inst = self.models[SegmentationModels.CELLPOSE]
 
         # Ensure images are in the correct format
         images = [img.squeeze() if img.ndim > 2 else img for img in images]
@@ -241,17 +242,24 @@ class SegmentationModels:
 
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
-                if "PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1":
-                    self.models[self.CELLPOSE] = models.CellposeModel(
-                        gpu=True, model_type=model_type)
-                else:
-                    self.models[self.CELLPOSE] = models.CellposeModel(
-                        gpu=False, model_type=model_type)
+                self.models[self.CELLPOSE] = models.CellposeModel(
+                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='deepbacs_cp3')
 
-            # Ensure the selected model type is applied dynamically
-            self.models[self.CELLPOSE].model_type = model_type
+            return self.segment_cellpose(images, progress, self.models[mode])
 
-            return self.segment_cellpose(images, progress)
+        elif mode == SegmentationModels.CELLPOSE_BACT_PHASE:
+            if SegmentationModels.CELLPOSE_BACT_PHASE not in self.models:
+                self.models[self.CELLPOSE_BACT_PHASE] = models.CellposeModel(
+                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_phase_cp3')
+
+            return self.segment_cellpose(images, progress, self.models[mode])
+
+        elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
+            if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
+                self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
+                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
+
+            return self.segment_cellpose(images, progress, self.models[mode])
 
         elif mode == SegmentationModels.UNET:
             if SegmentationModels.UNET not in self.models:
@@ -270,7 +278,6 @@ class SegmentationModels:
 
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
-
 
 def preprocess_image(image):
     """

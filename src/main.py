@@ -1,18 +1,18 @@
-from ui import TabWidgetApp
 from PySide6.QtWidgets import QApplication
 import os
 import sys
 
-base_path = getattr(
-    sys, '_MEIPASS', os.path.dirname(
-        os.path.abspath(__file__)))
-ui_file_path = os.path.join(base_path, "ui.py")
+from ui import App
 
-print("Looking for ui.py:", os.path.exists(ui_file_path))
+# base_path = getattr(
+#     sys, '_MEIPASS', os.path.dirname(
+#         os.path.abspath(__file__)))
+# ui_file_path = os.path.join(base_path, "ui.py")
 
+# print("Looking for ui.py:", os.path.exists(ui_file_path))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    tabWidgetApp = TabWidgetApp()
+    tabWidgetApp = App()
     tabWidgetApp.show()
     sys.exit(app.exec())

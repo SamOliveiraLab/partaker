@@ -17,7 +17,6 @@ sc_fluo: list of lists of fluorescence values for each connected component
 timestamps: timestamp of each valid fluorescence image
 """
 
-
 def analyze_fluorescence_singlecell(
         binary_images,
         fluorescence_images,
