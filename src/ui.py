@@ -1,5 +1,6 @@
 import sys
 import os
+from types import new_class
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -1758,10 +1759,8 @@ class TabWidgetApp(QMainWindow):
 
 
 
-        
-    
+
     def highlight_cell_in_image(self, cell_id, cell_class):
-        print(f"Highlighting cell with ID: {cell_id}") 
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
@@ -1780,28 +1779,36 @@ class TabWidgetApp(QMainWindow):
             self.image_data.segmentation_cache[cache_key] = segmented_image
 
         print(f"Unique IDs in Segmented Image: {np.unique(segmented_image)}")
-        print(f"Cell ID from PCA: {cell_id}")
+        print(f"Cell ID from Table: {cell_id}")
 
-        # Ensure cell_id is integer for comparison
         cell_id = int(cell_id)
 
+        # Create an RGB version of the segmented image where all cells are grayscale
+        base_image = np.zeros((segmented_image.shape[0], segmented_image.shape[1], 3), dtype=np.uint8)
+
+        # Map all cells to grayscale
+        unique_labels = np.unique(segmented_image)
+        for label_id in unique_labels:
+            if label_id == 0:  # Background
+                continue
+            base_image[segmented_image == label_id] = (label_id % 255, label_id % 255, label_id % 255)  # Grayscale mapping
+
+        # Highlight the selected cell with its corresponding class color
         mask = segmented_image == cell_id
+        highlight_color = tuple(int(x * 255) for x in self.morphology_colors_rgb.get(cell_class, (1, 1, 1)))
+        base_image[mask] = highlight_color
 
-        if mask.any():
-            color = tuple(int(x * 255) for x in self.morphology_colors_rgb.get(cell_class, (1, 1, 1)))
-            highlighted_image = np.stack([segmented_image * 0] * 3, axis=-1)
-            highlighted_image[mask] = color
+        # Display the image
+        height, width, _ = base_image.shape
+        qimage = QImage(base_image.data, width, height, 3 * width, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        self.image_label.setPixmap(pixmap)
 
-            height, width, _ = highlighted_image.shape
-            qimage = QImage(highlighted_image.data, width, height, 3 * width, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qimage).scaled(
-                self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            self.image_label.setPixmap(pixmap)
-        else:
-            print(f"No mask found for Cell ID: {cell_id}")
-            QMessageBox.warning(self, "Error", f"No mask found for Cell ID: {cell_id}")
- 
+        
+    
+    
         
      
     def highlight_selected_cell(self, cell_id, cache_key):
