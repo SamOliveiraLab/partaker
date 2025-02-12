@@ -1746,16 +1746,25 @@ class TabWidgetApp(QMainWindow):
     def on_table_item_click(self, item):
         row = item.row()
 
-        # Extract the cell ID from the first column
-        cell_id = int(self.metrics_table.item(row, 0).text())
+        # Ensure we retrieve the correct **cell ID from the table column**
+        cell_id_item = self.metrics_table.item(row, 0)  # Assuming column 0 is the ID column
+        if cell_id_item is None:
+            print(f"Error: No cell ID found at row {row}.")
+            return
 
-        # Assuming cell class is stored in the last column of the table
-        cell_class = self.metrics_table.item(row, self.metrics_table.columnCount() - 1).text()
+        cell_id = int(cell_id_item.text())  # Convert to int
+        cell_class_item = self.metrics_table.item(row, self.metrics_table.columnCount() - 1)  # Assuming last column has class
+
+        if cell_class_item is None:
+            print(f"Error: No cell class found for Cell ID {cell_id}.")
+            return
+
+        cell_class = cell_class_item.text()  # Extract class name
 
         print(f"Row {row} clicked, Cell ID: {cell_id}, Cell Class: {cell_class}")
 
-        # Pass both cell_id and cell_class to the highlighting function
         self.highlight_cell_in_image(cell_id, cell_class)
+
 
 
 
@@ -1772,10 +1781,10 @@ class TabWidgetApp(QMainWindow):
 
         segmented_image = self.image_data.segmentation_cache[cache_key]
 
-        # Ensure segmented_image is labeled
-        if segmented_image.max() == 255 and len(np.unique(segmented_image)) <= 2:
-            from skimage.measure import label
-            segmented_image = label(segmented_image).astype(np.uint8)
+        # Ensure segmentation labels are correctly formatted
+        if segmented_image.max() <= 255 and segmented_image.dtype == np.uint8:
+            print("⚠️ Detected uint8 segmentation! Converting to uint16 to preserve IDs.")
+            segmented_image = label(segmented_image).astype(np.uint16)
             self.image_data.segmentation_cache[cache_key] = segmented_image
 
         print(f"Unique IDs in Segmented Image: {np.unique(segmented_image)}")
@@ -1786,12 +1795,16 @@ class TabWidgetApp(QMainWindow):
         # Create an RGB version of the segmented image where all cells are grayscale
         base_image = np.zeros((segmented_image.shape[0], segmented_image.shape[1], 3), dtype=np.uint8)
 
-        # Map all cells to grayscale
+        # Normalize grayscale mapping based on total unique IDs
         unique_labels = np.unique(segmented_image)
+        max_label = unique_labels.max()
+        
         for label_id in unique_labels:
             if label_id == 0:  # Background
                 continue
-            base_image[segmented_image == label_id] = (label_id % 255, label_id % 255, label_id % 255)  # Grayscale mapping
+            # Normalize to a grayscale intensity in range 50-200 to make all visible
+            intensity = int(50 + (label_id / max_label) * 150)
+            base_image[segmented_image == label_id] = (intensity, intensity, intensity)
 
         # Highlight the selected cell with its corresponding class color
         mask = segmented_image == cell_id
@@ -1805,6 +1818,7 @@ class TabWidgetApp(QMainWindow):
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
+
 
         
     
