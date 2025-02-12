@@ -485,19 +485,40 @@ class TabWidgetApp(QMainWindow):
                 else:
                     model_type = None
 
-                image_data = SegmentationModels().segment_images(
-                    np.array(
-                        [image_data]),
-                    self.model_dropdown.currentText(),
-                    model_type=model_type)[0]
-                self.image_data.segmentation_cache[cache_key] = image_data
+                frame = self.image_data.data[t, p, c] if self.image_data.is_nd2 else self.image_data.data[t]
+                
+                # Perform segmentation
+                segmented = SegmentationModels().segment_images(
+                    np.array([frame]), self.model_dropdown.currentText(), model_type=model_type
+                )[0]
+                
+                # Check segmentation output
+                print("Unique Segmentation Labels (after segmentation):", np.unique(segmented))
+
+                # Relabel if output is binary mask
+                if segmented.max() == 255 and len(np.unique(segmented)) <= 2:
+                    print("Binary mask detected, relabeling now.")
+                    from skimage.measure import label
+                    segmented = label(segmented).astype(np.uint8)  # Ensure correct type for OpenCV
+                    print("Unique Labels After Relabeling:", np.unique(segmented))
+
+                # Normalize the segmented image for display
+                if segmented.max() > 0:
+                    segmented_display = (segmented / segmented.max() * 255).astype(np.uint8)
+                else:
+                    segmented_display = np.zeros_like(segmented, dtype=np.uint8)
+
+                self.image_data.segmentation_cache[cache_key] = segmented_display
+                image_data = segmented_display
+
             # Extract and cache morphology metrics if not already cached
             metrics_key = cache_key + ('metrics',)
             if metrics_key not in self.image_data.segmentation_cache:
                 print(f"Extracting morphology metrics for T={t}, P={p}, C={c}")
                 metrics = extract_cell_morphologies(image_data)
                 self.image_data.segmentation_cache[metrics_key] = metrics
-
+        
+            
         else:  # Normal view or overlay
             if self.radio_overlay_outlines.isChecked():
                 cache_key = (t, p, c)
@@ -1724,15 +1745,65 @@ class TabWidgetApp(QMainWindow):
     def on_table_item_click(self, item):
         row = item.row()
 
-        cell_id = self.metrics_table.item(row, 0).text()
+        # Extract the cell ID from the first column
+        cell_id = int(self.metrics_table.item(row, 0).text())
 
-        print(f"Row {row} clicked, Cell ID: {cell_id}")
+        # Assuming cell class is stored in the last column of the table
+        cell_class = self.metrics_table.item(row, self.metrics_table.columnCount() - 1).text()
 
-        self.highlight_cell_in_image(cell_id)
+        print(f"Row {row} clicked, Cell ID: {cell_id}, Cell Class: {cell_class}")
 
-    def highlight_cell_in_image(self, cell_id):
-        print(f"Highlighting cell with ID: {cell_id}")
+        # Pass both cell_id and cell_class to the highlighting function
+        self.highlight_cell_in_image(cell_id, cell_class)
 
+
+
+        
+    
+    def highlight_cell_in_image(self, cell_id, cell_class):
+        print(f"Highlighting cell with ID: {cell_id}") 
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+        cache_key = (t, p, c)
+
+        if cache_key not in self.image_data.segmentation_cache:
+            QMessageBox.warning(self, "Error", "Segmented image not found.")
+            return
+
+        segmented_image = self.image_data.segmentation_cache[cache_key]
+
+        # Ensure segmented_image is labeled
+        if segmented_image.max() == 255 and len(np.unique(segmented_image)) <= 2:
+            from skimage.measure import label
+            segmented_image = label(segmented_image).astype(np.uint8)
+            self.image_data.segmentation_cache[cache_key] = segmented_image
+
+        print(f"Unique IDs in Segmented Image: {np.unique(segmented_image)}")
+        print(f"Cell ID from PCA: {cell_id}")
+
+        # Ensure cell_id is integer for comparison
+        cell_id = int(cell_id)
+
+        mask = segmented_image == cell_id
+
+        if mask.any():
+            color = tuple(int(x * 255) for x in self.morphology_colors_rgb.get(cell_class, (1, 1, 1)))
+            highlighted_image = np.stack([segmented_image * 0] * 3, axis=-1)
+            highlighted_image[mask] = color
+
+            height, width, _ = highlighted_image.shape
+            qimage = QImage(highlighted_image.data, width, height, 3 * width, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimage).scaled(
+                self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            self.image_label.setPixmap(pixmap)
+        else:
+            print(f"No mask found for Cell ID: {cell_id}")
+            QMessageBox.warning(self, "Error", f"No mask found for Cell ID: {cell_id}")
+ 
+        
+     
     def highlight_selected_cell(self, cell_id, cache_key):
         """
         Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
