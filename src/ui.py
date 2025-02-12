@@ -64,7 +64,6 @@ from tracking import track_cells
 
 from tqdm import tqdm
 
-from skimage.measure import label
 import matplotlib.pyplot as plt
 
 from skimage.measure import label, regionprops
@@ -493,21 +492,13 @@ class TabWidgetApp(QMainWindow):
                     np.array([frame]), self.model_dropdown.currentText(), model_type=model_type
                 )[0]
                 
-                # Check segmentation output
-                print("Unique Segmentation Labels (after segmentation):", np.unique(segmented))
 
                 # Relabel if output is binary mask
                 if segmented.max() == 255 and len(np.unique(segmented)) <= 2:
-                    print("Binary mask detected, relabeling now.")
-                    from skimage.measure import label
-                    segmented = label(segmented).astype(np.uint8)  # Ensure correct type for OpenCV
-                    print("Unique Labels After Relabeling:", np.unique(segmented))
+                    
+                    segmented = label(segmented).astype(np.uint8)* 255  # Ensure correct type for OpenCV
+                    segmented_display = (segmented > 0).astype(np.uint8) * 255
 
-                # Normalize the segmented image for display
-                if segmented.max() > 0:
-                    segmented_display = (segmented / segmented.max() * 255).astype(np.uint8)
-                else:
-                    segmented_display = np.zeros_like(segmented, dtype=np.uint8)
 
                 self.image_data.segmentation_cache[cache_key] = segmented_display
                 image_data = segmented_display
@@ -1783,12 +1774,8 @@ class TabWidgetApp(QMainWindow):
 
         # Ensure segmentation labels are correctly formatted
         if segmented_image.max() <= 255 and segmented_image.dtype == np.uint8:
-            print("⚠️ Detected uint8 segmentation! Converting to uint16 to preserve IDs.")
             segmented_image = label(segmented_image).astype(np.uint16)
             self.image_data.segmentation_cache[cache_key] = segmented_image
-
-        print(f"Unique IDs in Segmented Image: {np.unique(segmented_image)}")
-        print(f"Cell ID from Table: {cell_id}")
 
         cell_id = int(cell_id)
 
