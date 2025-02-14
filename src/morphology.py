@@ -68,7 +68,7 @@ def classify_morphology(metrics):
 
     # Round Cells
     elif 1500 <= area < 3000 and 0.85 <= solidity <= 0.95 and circularity > 0.6 and 3 <= aspect_ratio < 6:
-        return "Round"
+        return "Small"
 
     # Normal Cells
     elif 0.7 <= circularity <= 0.9 and 1.2 <= aspect_ratio < 3 and 0.9 <= solidity <= 1.0:
@@ -80,9 +80,11 @@ def classify_morphology(metrics):
 
     # Deformed Cells
     else:
-        return "Deformed"
-
-
+        return "Normal"
+    
+    
+    
+    
 def extract_cells_and_metrics(image, segmented_image):
     """
     Extract individual cells, their bounding boxes, and metrics from a segmented image.
