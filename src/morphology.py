@@ -81,10 +81,8 @@ def classify_morphology(metrics):
     # Deformed Cells
     else:
         return "Normal"
-    
-    
-    
-    
+
+
 def extract_cells_and_metrics(image, segmented_image):
     """
     Extract individual cells, their bounding boxes, and metrics from a segmented image.
