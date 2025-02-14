@@ -74,7 +74,6 @@ Can hold either an ND2 file or a series of images
 
 
 
-
 class ImageData:
     def __init__(self, data, is_nd2=False):
         self.data = data
@@ -82,8 +81,6 @@ class ImageData:
         self.is_nd2 = is_nd2
         self.segmentation_cache = {}
         self.seg_cache = SegmentationCache(data)
-        
-
 
 
 
@@ -489,7 +486,7 @@ class TabWidgetApp(QMainWindow):
                     print(f"Using model type: {model_type} for channel {c}")
                 else:
                     model_type = None
-
+                    
                 frame = self.image_data.data[t, p,
                                              c] if self.image_data.is_nd2 else self.image_data.data[t]
 
@@ -1423,6 +1420,7 @@ class TabWidgetApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
+    
     def update_annotation_scatter(self):
         try:
             # Extract current frame and segmentation
@@ -1499,6 +1497,8 @@ class TabWidgetApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
+    
+    
     def plot_morphology_metrics(self):
         x_metric = self.x_metric_dropdown.currentText()
         y_metric = self.y_metric_dropdown.currentText()
@@ -1722,7 +1722,7 @@ class TabWidgetApp(QMainWindow):
         cell_id = int(cell_id_item.text())  # Convert to int
         cell_class_item = self.metrics_table.item(
             row, self.metrics_table.columnCount() - 1)  # Assuming last column has class
-
+        
         if cell_class_item is None:
             print(f"Error: No cell class found for Cell ID {cell_id}.")
             return

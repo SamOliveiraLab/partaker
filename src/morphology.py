@@ -66,7 +66,6 @@ def classify_morphology(metrics):
     if area < 1500 and perimeter < 200 and aspect_ratio < 3:
         return "Small"
 
-    # Round Cells
     elif 1500 <= area < 3000 and 0.85 <= solidity <= 0.95 and circularity > 0.6 and 3 <= aspect_ratio < 6:
         return "Small"
 
