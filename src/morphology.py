@@ -50,7 +50,7 @@ def classify_morphology(metrics):
     Classify cell morphology based on its metrics.
 
     Parameters:
-    - metrics: dict, a dictionary containing cell metrics (area, aspect_ratio, etc.).
+    - metrics: dict, a dictionary containing cell metrics (area, aspect_ratio, circularity, perimeter, solidity, orientation).
 
     Returns:
     - str, the morphology class (e.g., 'Small', 'Round', 'Normal', 'Elongated', 'Deformed').
@@ -58,17 +58,28 @@ def classify_morphology(metrics):
     area = metrics.get("area", 0)
     aspect_ratio = metrics.get("aspect_ratio", 0)
     circularity = metrics.get("circularity", 0)
+    perimeter = metrics.get("perimeter", 0)
+    solidity = metrics.get("solidity", 1)
+    orientation = metrics.get("orientation", 0)
 
-    if area < 300:
+    # Small Cells
+    if area < 1500 and perimeter < 200 and aspect_ratio < 3:
         return "Small"
-    elif circularity > 0.9 and aspect_ratio < 1.2:
-        return "Round"
-    elif 1.2 <= aspect_ratio < 3 and 0.7 < circularity <= 0.9:
+
+    elif 1500 <= area < 3000 and 0.85 <= solidity <= 0.95 and circularity > 0.6 and 3 <= aspect_ratio < 6:
+        return "Small"
+
+    # Normal Cells
+    elif 0.7 <= circularity <= 0.9 and 1.2 <= aspect_ratio < 3 and 0.9 <= solidity <= 1.0:
         return "Normal"
-    elif aspect_ratio >= 3 and circularity < 0.7:
+
+    # Elongated Cells
+    elif area >= 3000 and aspect_ratio >= 6 and circularity < 0.3:
         return "Elongated"
+
+    # Deformed Cells
     else:
-        return "Deformed"
+        return "Normal"
 
 
 def extract_cells_and_metrics(image, segmented_image):

@@ -1,5 +1,6 @@
 import sys
 import os
+from types import new_class
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -63,7 +64,6 @@ from tracking import track_cells
 
 from tqdm import tqdm
 
-from skimage.measure import label
 import matplotlib.pyplot as plt
 
 from skimage.measure import label, regionprops
@@ -73,6 +73,7 @@ Can hold either an ND2 file or a series of images
 """
 
 
+
 class ImageData:
     def __init__(self, data, is_nd2=False):
         self.data = data
@@ -80,6 +81,7 @@ class ImageData:
         self.is_nd2 = is_nd2
         self.segmentation_cache = {}
         self.seg_cache = SegmentationCache(data)
+
 
 
 class MorphologyWorker(QObject):
@@ -484,13 +486,24 @@ class TabWidgetApp(QMainWindow):
                     print(f"Using model type: {model_type} for channel {c}")
                 else:
                     model_type = None
+                    
+                frame = self.image_data.data[t, p,
+                                             c] if self.image_data.is_nd2 else self.image_data.data[t]
 
-                image_data = SegmentationModels().segment_images(
-                    np.array(
-                        [image_data]),
-                    self.model_dropdown.currentText(),
-                    model_type=model_type)[0]
-                self.image_data.segmentation_cache[cache_key] = image_data
+                # Perform segmentation
+                segmented = SegmentationModels().segment_images(np.array(
+                    [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
+
+                # Relabel if output is binary mask
+                if segmented.max() == 255 and len(np.unique(segmented)) <= 2:
+
+                    segmented = label(segmented).astype(
+                        np.uint8) * 255  # Ensure correct type for OpenCV
+                    segmented_display = (segmented > 0).astype(np.uint8) * 255
+
+                self.image_data.segmentation_cache[cache_key] = segmented_display
+                image_data = segmented_display
+
             # Extract and cache morphology metrics if not already cached
             metrics_key = cache_key + ('metrics',)
             if metrics_key not in self.image_data.segmentation_cache:
@@ -1407,6 +1420,7 @@ class TabWidgetApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
+    
     def update_annotation_scatter(self):
         try:
             # Extract current frame and segmentation
@@ -1426,8 +1440,6 @@ class TabWidgetApp(QMainWindow):
             # Extract cell metrics
             self.cell_mapping = extract_cells_and_metrics(
                 frame, segmented_image)
-
-            # Populate the metrics table
             self.populate_metrics_table()
 
             # Prepare DataFrame
@@ -1456,67 +1468,37 @@ class TabWidgetApp(QMainWindow):
             pca = PCA(n_components=2)
             principal_components = pca.fit_transform(X_scaled)
 
-            # Calculate loadings
-            loadings = pd.DataFrame(
-                pca.components_.T,
-                columns=['PC1', 'PC2'],
-                index=numeric_features
-            )
-
-            # Calculate explained variance
-            explained_variance = pca.explained_variance_ratio_
-            print("Explained variance ratio:", explained_variance)
-            print("\nFeature contributions to principal components:")
-            print(loadings)
-
-            # Create PCA scatter plot with updated title showing variance
-            self.figure_annot_scatter.clear()
-            ax = self.figure_annot_scatter.add_subplot(111)
-
-            # Create DataFrame for plotting
+            # Store PCA results
             pca_df = pd.DataFrame(principal_components, columns=['PC1', 'PC2'])
             pca_df['Class'] = morphology_df['Class']
+            pca_df['ID'] = morphology_df['ID']
 
-            # Plot scatter with explained variance in title
-            sns.scatterplot(
-                x='PC1',
-                y='PC2',
-                hue='Class',
-                data=pca_df,
-                palette=self.morphology_colors_rgb,
+            # Plot PCA scatter
+            self.figure_annot_scatter.clear()
+            ax = self.figure_annot_scatter.add_subplot(111)
+            scatter = ax.scatter(
+                pca_df['PC1'],
+                pca_df['PC2'],
+                c=[
+                    self.morphology_colors_rgb[class_] for class_ in pca_df['Class']],
                 s=50,
-                ax=ax,
                 edgecolor='w',
-            )
+                picker=True)
 
-            # Update title to show explained variance
-            ax.set_title(
-                f'PCA: PC1 ({explained_variance[0]:.1%}) vs PC2 ({explained_variance[1]:.1%})')
-            ax.set_xlabel('PC1')
-            ax.set_ylabel('PC2')
+            ax.set_title("PCA Scatter Plot")
+            ax.set_xlabel("PC1")
+            ax.set_ylabel("PC2")
 
-            # Add loadings plot
-            # Create a new figure for loadings
-            self.figure_loadings = plt.figure(figsize=(10, 6))
-            ax_loadings = self.figure_loadings.add_subplot(111)
+            # Enable interactive annotations and highlighting
+            self.annotate_scatter_points(ax, scatter, pca_df)
 
-            # Plot loadings as a heatmap
-            sns.heatmap(loadings,
-                        annot=True,
-                        cmap='RdBu',
-                        center=0,
-                        ax=ax_loadings)
-            ax_loadings.set_title(
-                'Feature Contributions to Principal Components')
-
-            # Update both canvases
             self.canvas_annot_scatter.draw()
-            if hasattr(self, 'canvas_loadings'):
-                self.canvas_loadings.draw()
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
+    
+    
     def plot_morphology_metrics(self):
         x_metric = self.x_metric_dropdown.currentText()
         y_metric = self.y_metric_dropdown.currentText()
@@ -1649,22 +1631,18 @@ class TabWidgetApp(QMainWindow):
         # Convert to NumPy array if needed
         return np.array(frame)
 
-    def annotate_scatter_points(self, ax, scatter, ids, pca_df):
+    def annotate_scatter_points(self, ax, scatter, pca_df):
         """
-        Add interactive annotations and highlight functionality to scatter points.
+        Adds interactive hover annotations and click event to highlight a selected cell.
 
         Parameters:
-        -----------
         ax : matplotlib.axes.Axes
             The axes object for the scatter plot.
         scatter : matplotlib.collections.PathCollection
             The scatter plot object.
-        ids : list
-            List of cell IDs corresponding to the points.
         pca_df : pd.DataFrame
-            DataFrame containing PCA results and class information.
+            DataFrame containing PCA results with cell IDs and classes.
         """
-        # Annotation setup
         annot = ax.annotate(
             "",
             xy=(0, 0),
@@ -1681,7 +1659,7 @@ class TabWidgetApp(QMainWindow):
             index = ind["ind"][0]
             pos = scatter.get_offsets()[index]
             annot.xy = pos
-            selected_id = ids[index]
+            selected_id = int(pca_df.iloc[index]["ID"])
             cell_class = pca_df.iloc[index]["Class"]
             annot.set_text(f"ID: {selected_id}\nClass: {cell_class}")
             annot.get_bbox_patch().set_alpha(0.8)
@@ -1700,8 +1678,18 @@ class TabWidgetApp(QMainWindow):
                         annot.set_visible(False)
                         self.canvas_annot_scatter.draw_idle()
 
-        # Add hover functionality
+        def on_click(event):
+            """Handle click events to highlight the selected cell in the segmented image."""
+            if event.inaxes == ax:
+                cont, ind = scatter.contains(event)
+                if cont:
+                    index = ind["ind"][0]
+                    selected_id = int(pca_df.iloc[index]["ID"])
+                    cell_class = pca_df.iloc[index]["Class"]
+                    self.highlight_cell_in_image(selected_id, cell_class)
+
         self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
+        self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
 
         # Add legend using self.morphology_colors_rgb
         handles = [
@@ -1724,14 +1712,86 @@ class TabWidgetApp(QMainWindow):
     def on_table_item_click(self, item):
         row = item.row()
 
-        cell_id = self.metrics_table.item(row, 0).text()
+        # Ensure we retrieve the correct **cell ID from the table column**
+        cell_id_item = self.metrics_table.item(
+            row, 0)  # Assuming column 0 is the ID column
+        if cell_id_item is None:
+            print(f"Error: No cell ID found at row {row}.")
+            return
 
-        print(f"Row {row} clicked, Cell ID: {cell_id}")
+        cell_id = int(cell_id_item.text())  # Convert to int
+        cell_class_item = self.metrics_table.item(
+            row, self.metrics_table.columnCount() - 1)  # Assuming last column has class
+        
+        if cell_class_item is None:
+            print(f"Error: No cell class found for Cell ID {cell_id}.")
+            return
 
-        self.highlight_cell_in_image(cell_id)
+        cell_class = cell_class_item.text()  # Extract class name
 
-    def highlight_cell_in_image(self, cell_id):
-        print(f"Highlighting cell with ID: {cell_id}")
+        print(f"Row {row} clicked, Cell ID: {cell_id}, Cell Class: {cell_class}")
+
+        self.highlight_cell_in_image(cell_id, cell_class)
+
+    def highlight_cell_in_image(self, cell_id, cell_class):
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+        cache_key = (t, p, c)
+
+        if cache_key not in self.image_data.segmentation_cache:
+            QMessageBox.warning(self, "Error", "Segmented image not found.")
+            return
+
+        segmented_image = self.image_data.segmentation_cache[cache_key]
+
+        # Ensure segmentation labels are correctly formatted
+        if segmented_image.max() <= 255 and segmented_image.dtype == np.uint8:
+            segmented_image = label(segmented_image).astype(np.uint16)
+            self.image_data.segmentation_cache[cache_key] = segmented_image
+
+        cell_id = int(cell_id)
+
+        # Create an RGB version of the segmented image where all cells are
+        # grayscale
+        base_image = np.zeros(
+            (segmented_image.shape[0],
+             segmented_image.shape[1],
+             3),
+            dtype=np.uint8)
+
+        # Normalize grayscale mapping based on total unique IDs
+        unique_labels = np.unique(segmented_image)
+        max_label = unique_labels.max()
+
+        for label_id in unique_labels:
+            if label_id == 0:  # Background
+                continue
+            # Normalize to a grayscale intensity in range 50-200 to make all
+            # visible
+            intensity = int(50 + (label_id / max_label) * 150)
+            base_image[segmented_image == label_id] = (
+                intensity, intensity, intensity)
+
+        # Highlight the selected cell with its corresponding class color
+        mask = segmented_image == cell_id
+        highlight_color = tuple(
+            int(x * 255) for x in self.morphology_colors_rgb.get(cell_class, (1, 1, 1)))
+        base_image[mask] = highlight_color
+
+        # Display the image
+        height, width, _ = base_image.shape
+        qimage = QImage(
+            base_image.data,
+            width,
+            height,
+            3 * width,
+            QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation)
+        self.image_label.setPixmap(pixmap)
 
     def highlight_selected_cell(self, cell_id, cache_key):
         """
@@ -2087,7 +2147,7 @@ class TabWidgetApp(QMainWindow):
 
         # Randomly select up to 30 timepoints from plot_fluo and plot_timestamp
         points = np.array(list(zip(plot_timestamp, plot_fluo)))
-        if len(points) > 30 * len(timestamp):
+        if len(points) > 200:
             points = points[np.random.choice(
                 points.shape[0], 200, replace=False)]
         plot_timestamp, plot_fluo = zip(*points)
