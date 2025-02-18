@@ -1374,14 +1374,8 @@ class App(QMainWindow):
             p = self.slider_p.value()
             c = self.slider_c.value() if self.has_channels else None
             frame = self.get_current_frame(t, p, c)
-            cache_key = (t, p, c)
 
-            # Perform segmentation if not cached
-            if cache_key not in self.image_data.segmentation_cache:
-                segmented_image = segment_this_image(frame)
-                self.image_data.segmentation_cache[cache_key] = segmented_image
-            else:
-                segmented_image = self.image_data.segmentation_cache[cache_key]
+            segmented_image = self.image_data.seg_cache[t, p, c]
 
             # Extract cell metrics
             self.cell_mapping = extract_cells_and_metrics(
@@ -1472,7 +1466,7 @@ class App(QMainWindow):
 
         # Apply KMeans clustering
         if len(x_data) > 0 and len(y_data) > 0:
-            kmeans = KMeans(n_clusters=3, random_state=42)
+            kmeans = KMeans(n_clusters=5, random_state=42, n_init=10)
             clusters = kmeans.fit_predict(np.column_stack((x_data, y_data)))
             centroids = kmeans.cluster_centers_
 
@@ -1691,19 +1685,9 @@ class App(QMainWindow):
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
-        cache_key = (t, p, c)
-
-        if cache_key not in self.image_data.segmentation_cache:
-            QMessageBox.warning(self, "Error", "Segmented image not found.")
-            return
-
-        segmented_image = self.image_data.segmentation_cache[cache_key]
-
-        # Ensure segmentation labels are correctly formatted
-        if segmented_image.max() <= 255 and segmented_image.dtype == np.uint8:
-            segmented_image = label(segmented_image).astype(np.uint16)
-            self.image_data.segmentation_cache[cache_key] = segmented_image
-
+        
+        segmented_image = self.image_data.seg_cache[t, p, c]
+        segmented_image = label(segmented_image).astype(np.uint16)
         cell_id = int(cell_id)
 
         # Create an RGB version of the segmented image where all cells are
@@ -1807,6 +1791,7 @@ class App(QMainWindow):
         # Automatically plot default metrics
         self.update_annotation_scatter()
 
+    # TODO: remove
     def generate_annotations_and_scatter(self):
         t = self.slider_t.value()
         p = self.slider_p.value()

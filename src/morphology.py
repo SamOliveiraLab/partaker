@@ -96,6 +96,8 @@ def extract_cells_and_metrics(image, segmented_image):
     from skimage.measure import regionprops, label
     from skimage.color import rgb2gray
     from skimage.transform import resize
+    from sklearn.decomposition import PCA
+    from sklearn.cluster import KMeans
 
     # Debugging: print input shapes
     print(f"Original image shape: {image.shape}")
@@ -146,7 +148,7 @@ def extract_cells_and_metrics(image, segmented_image):
         }
 
         # Classify the cell's morphology
-        metrics["morphology_class"] = classify_morphology(metrics)
+        # metrics["morphology_class"] = classify_morphology(metrics)
 
         # Add cell information to the mapping
         cell_id = len(cell_mapping) + 1
@@ -154,6 +156,32 @@ def extract_cells_and_metrics(image, segmented_image):
             "bbox": (x1, y1, x2, y2),
             "metrics": metrics,
         }
+
+    # For the table of cell metrics, run a PCA followed by a KMeans clustering
+    # to identify the different cell types
+    # Convert cell metrics to a DataFrame
+    metrics_df = pd.DataFrame([data["metrics"] for data in cell_mapping.values()])
+
+    # Perform PCA to reduce dimensionality
+    pca = PCA(n_components=2)
+    pca_result = pca.fit_transform(metrics_df)
+
+    # Perform KMeans clustering
+    kmeans = KMeans(n_clusters=5, random_state=42)
+    clusters = kmeans.fit_predict(pca_result)
+
+    # Define a mapping from cluster labels to morphology class names
+    cluster_to_class = {
+        0: "Small",
+        1: "Round",
+        2: "Normal",
+        3: "Elongated",
+        4: "Deformed"
+    }
+
+    # Add cluster labels as morphology class names to the cell mapping
+    for cell_id, cluster_label in zip(cell_mapping.keys(), clusters):
+        cell_mapping[cell_id]["metrics"]["morphology_class"] = cluster_to_class.get(cluster_label, "Unknown")
 
     return cell_mapping
 
