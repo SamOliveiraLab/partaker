@@ -231,10 +231,11 @@ class SegmentationModels:
             self,
             images,
             mode,
-            model_type=None,
             progress=None,
             preprocess=True):
         print(f"Segmenting images using {mode} model")
+
+        original_shape = images[0].shape
 
         # Preprocess images if the flag is enabled
         if preprocess:
@@ -245,21 +246,24 @@ class SegmentationModels:
                 self.models[self.CELLPOSE] = models.CellposeModel(
                     gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='deepbacs_cp3')
 
-            return self.segment_cellpose(images, progress, self.models[mode])
+            segmented_images = self.segment_cellpose(
+                images, progress, self.models[mode])
 
         elif mode == SegmentationModels.CELLPOSE_BACT_PHASE:
             if SegmentationModels.CELLPOSE_BACT_PHASE not in self.models:
                 self.models[self.CELLPOSE_BACT_PHASE] = models.CellposeModel(
                     gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_phase_cp3')
 
-            return self.segment_cellpose(images, progress, self.models[mode])
+            segmented_images = self.segment_cellpose(
+                images, progress, self.models[mode])
 
         elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
             if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
                 self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
                     gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
 
-            return self.segment_cellpose(images, progress, self.models[mode])
+            segmented_images = self.segment_cellpose(
+                images, progress, self.models[mode])
 
         elif mode == SegmentationModels.UNET:
             if SegmentationModels.UNET not in self.models:
@@ -271,13 +275,23 @@ class SegmentationModels:
                 self.models[SegmentationModels.UNET] = unet_segmentation(
                     input_size=target_size_seg + (1,), pretrained_weights=os.environ["UNET_WEIGHTS"])
 
-            return self.segment_unet(images)
+            segmented_images = self.segment_unet(images)
 
         elif mode == SegmentationModels.CELLSAM:
-            return self.segment_cellsam(images)
+            segmented_images = self.segment_cellsam(images)
 
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
+
+        resized_images = [
+            cv2.resize(
+                segmented_image,
+                (original_shape[1],
+                 original_shape[0]),
+                interpolation=cv2.INTER_NEAREST) for segmented_image in segmented_images]
+
+        return resized_images
+
 
 def preprocess_image(image):
     """

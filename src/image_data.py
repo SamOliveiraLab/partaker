@@ -3,6 +3,8 @@ from segmentation.segmentation_cache import SegmentationCache
 """
 Can hold either an ND2 file or a series of images
 """
+
+
 class ImageData:
     def __init__(self, data, is_nd2=False):
         self.data = data

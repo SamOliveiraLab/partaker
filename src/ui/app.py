@@ -69,6 +69,7 @@ import matplotlib.pyplot as plt
 from skimage.measure import label, regionprops
 from image_data import ImageData
 
+
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
     finished = Signal(object)  # Finished with results
@@ -427,34 +428,38 @@ class App(QMainWindow):
 
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
-            if cache_key in self.image_data.segmentation_cache:
-                print(
-                    f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-                image_data = self.image_data.segmentation_cache[cache_key]
-            else:
-                if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-                    model_type = 'bact_phase_cp3' if c in (
-                        0, None) else 'bact_fluor_cp3'
-                    print(f"Using model type: {model_type} for channel {c}")
-                else:
-                    model_type = None
-                    
-                frame = self.image_data.data[t, p,
-                                             c] if self.image_data.is_nd2 else self.image_data.data[t]
+            # if cache_key in self.image_data.segmentation_cache:
+            #     print(
+            #         f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+            #     image_data = self.image_data.segmentation_cache[cache_key]
+            # else:
+            #     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
+            #         model_type = 'bact_phase_cp3' if c in (
+            #             0, None) else 'bact_fluor_cp3'
+            #         print(f"Using model type: {model_type} for channel {c}")
+            #     else:
+            #         model_type = None
 
-                # Perform segmentation
-                segmented = SegmentationModels().segment_images(np.array(
-                    [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
+            #     frame = self.image_data.data[t, p,
+            # c] if self.image_data.is_nd2 else self.image_data.data[t]
 
-                # Relabel if output is binary mask
-                if segmented.max() == 255 and len(np.unique(segmented)) <= 2:
+            #     # Perform segmentation
+            #     segmented = SegmentationModels().segment_images(np.array(
+            #         [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
 
-                    segmented = label(segmented).astype(
-                        np.uint8) * 255  # Ensure correct type for OpenCV
-                    segmented_display = (segmented > 0).astype(np.uint8) * 255
+            #     # Relabel if output is binary mask
+            #     if segmented.max() == 255 and len(np.unique(segmented)) <= 2:
 
-                self.image_data.segmentation_cache[cache_key] = segmented_display
-                image_data = segmented_display
+            #         segmented = label(segmented).astype(
+            #             np.uint8) * 255  # Ensure correct type for OpenCV
+            #         segmented_display = (segmented > 0).astype(np.uint8) * 255
+
+            #     self.image_data.segmentation_cache[cache_key] = segmented_display
+            #     image_data = segmented_display
+
+            self.image_data.seg_cache.with_model(
+                self.model_dropdown.currentText())  # Setting the model we want
+            image_data = self.image_data.seg_cache[t, p, c]
 
             # Extract and cache morphology metrics if not already cached
             metrics_key = cache_key + ('metrics',)
@@ -475,14 +480,6 @@ class App(QMainWindow):
                         model_type=model_type
                     )[0]
                     self.image_data.segmentation_cache[cache_key] = segmented_image
-
-                # Ensure segmented image has same dimensions as input image
-                if segmented_image.shape != image_data.shape:
-                    segmented_image = cv2.resize(
-                        segmented_image,
-                        (image_data.shape[1],
-                         image_data.shape[0]),
-                        interpolation=cv2.INTER_NEAREST)
 
                 outlines = utils.masks_to_outlines(segmented_image)
                 overlay = image_data.copy()
@@ -1069,17 +1066,9 @@ class App(QMainWindow):
 
         frame = np.array(frame)  # Ensure it's a NumPy array
 
-        # Perform segmentation
-        cache_key = (t, p, c)
-        if cache_key in self.image_data.segmentation_cache:
-            print(
-                f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-            segmented_image = self.image_data.segmentation_cache[cache_key]
-        else:
-            print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-            segmented_image = SegmentationModels().segment_images(
-                [frame], self.model_dropdown.currentText())[0]
-            self.image_data.segmentation_cache[cache_key] = segmented_image
+        self.image_data.seg_cache.with_model(
+                self.model_dropdown.currentText())  # Setting the model we want
+        segmented_image = self.image_data.seg_cache[t, p, c]
 
         # Extract cell metrics and bounding boxes
         cell_mapping = extract_cells_and_metrics(frame, segmented_image)
@@ -1378,7 +1367,6 @@ class App(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
-    
     def update_annotation_scatter(self):
         try:
             # Extract current frame and segmentation
@@ -1455,8 +1443,6 @@ class App(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
-    
-    
     def plot_morphology_metrics(self):
         x_metric = self.x_metric_dropdown.currentText()
         y_metric = self.y_metric_dropdown.currentText()
@@ -1522,36 +1508,44 @@ class App(QMainWindow):
         total_frames = self.image_data.data.shape[0]
 
         for t in tqdm(range(total_frames), desc="Segmenting frames"):
-            cache_key = (t, p, c)
+            # cache_key = (t, p, c)
 
-            # Use cached segmentation if available
-            if cache_key in self.image_data.segmentation_cache:
-                print(
-                    f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-                segmented = self.image_data.segmentation_cache[cache_key]
-            else:
-                print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+            # # Use cached segmentation if available
+            # if cache_key in self.image_data.segmentation_cache:
+            #     print(
+            #         f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+            #     segmented = self.image_data.segmentation_cache[cache_key]
+            # else:
+            #     print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
 
-                frame = self.image_data.data[t, p, c]
+            #     frame = self.image_data.data[t, p, c]
 
-                # Determine model type ONLY if Cellpose is selected
-                model_type = None
-                if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-                    model_type = 'bact_phase_cp3' if c in (
-                        0, None) else 'bact_fluor_cp3'
+            #     # Determine model type ONLY if Cellpose is selected
+            #     model_type = None
+            #     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
+            #         model_type = 'bact_phase_cp3' if c in (
+            #             0, None) else 'bact_fluor_cp3'
 
-                # Perform segmentation
-                segmented = SegmentationModels().segment_images(np.array(
-                    [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
+            #     # Perform segmentation
+            #     segmented = SegmentationModels().segment_images(np.array(
+            #         [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
 
-                # Rescale the image to the base resolution. Reverse because it's opencv
-                base_resolution = (self.image_data.data.shape[4], self.image_data.data.shape[3])
-                segmented = cv2.resize(segmented, base_resolution, interpolation=cv2.INTER_NEAREST)
+            #     # Rescale the image to the base resolution. Reverse because
+            #     # it's opencv
+            #     base_resolution = (
+            #         self.image_data.data.shape[4],
+            #         self.image_data.data.shape[3])
+            #     segmented = cv2.resize(
+            #         segmented,
+            #         base_resolution,
+            #         interpolation=cv2.INTER_NEAREST)
 
-                # Store result in cache
-                self.image_data.segmentation_cache[cache_key] = segmented
+            #     # Store result in cache
+            #     self.image_data.segmentation_cache[cache_key] = segmented
 
-            # segmented = self.image_data.seg_cache[t, p, c]
+            self.image_data.seg_cache.with_model(
+                self.model_dropdown.currentText())  # Setting the model we want
+            segmented = self.image_data.seg_cache[t, p, c]
 
             # Label segmented objects (Assign unique label to each object)
             labeled_cells = label(segmented)
@@ -1682,7 +1676,7 @@ class App(QMainWindow):
         cell_id = int(cell_id_item.text())  # Convert to int
         cell_class_item = self.metrics_table.item(
             row, self.metrics_table.columnCount() - 1)  # Assuming last column has class
-        
+
         if cell_class_item is None:
             print(f"Error: No cell class found for Cell ID {cell_id}.")
             return
