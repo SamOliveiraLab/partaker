@@ -357,61 +357,42 @@ class App(QMainWindow):
                 image_data = image_data.compute()
 
         elif self.radio_labeled_segmentation.isChecked():
-            cache_key = (t, p, c, "labeled")
+            # Ensure segmentation model is set correctly in seg_cache
+            selected_model = self.model_dropdown.currentText()
+            self.image_data.seg_cache.with_model(selected_model)
 
-            # Check if labeled segmentation is cached
-            if cache_key in self.image_data.segmentation_cache:
-                print(
-                    f"[CACHE HIT] Using cached labeled segmentation for T={t}, P={p}, C={c}")
-                labeled_image = self.image_data.segmentation_cache[cache_key]
-            else:
-                print(
-                    f"[CACHE MISS] Generating labeled segmentation for T={t}, P={p}, C={c}")
+            # Retrieve segmentation from seg_cache
+            segmented = self.image_data.seg_cache[t, p, c]
 
-                seg_cache_key = (t, p, c)
+            if segmented is None:
+                print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
+                QMessageBox.warning(
+                    self, "Segmentation Error", "Segmentation failed.")
+                return
 
-                # Check if raw segmentation is cached
-                if seg_cache_key in self.image_data.segmentation_cache:
-                    print(
-                        f"[CACHE HIT] Using cached raw segmentation for T={t}, P={p}, C={c}")
-                    segmented = self.image_data.segmentation_cache[seg_cache_key]
-                else:
-                    print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+            # Relabel the segmented regions
+            labeled_cells = label(segmented)
 
-                    frame = self.image_data.data[t, p, c]
+            # Ensure relabeling created valid labels
+            max_label = labeled_cells.max()
+            if max_label == 0:
+                print("[ERROR] No valid labeled regions found.")
+                QMessageBox.warning(
+                    self, "Labeled Segmentation Error", "No valid labeled regions found.")
+                return
 
-                    model_type = None
-                    if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-                        model_type = 'bact_phase_cp3' if c in (
-                            0, None) else 'bact_fluor_cp3'
-                        print(
-                            f"Using model type: {model_type} for channel {c}")
+            # Convert labels to color image
+            labeled_image = plt.cm.nipy_spectral(
+                labeled_cells.astype(float) / max_label)
+            labeled_image = (labeled_image[:, :, :3] * 255).astype(np.uint8)
 
-                    # Perform segmentation
-                    segmented = SegmentationModels().segment_images(np.array(
-                        [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
-
-                    self.image_data.segmentation_cache[seg_cache_key] = segmented
-
-                # Label the segmented regions
-                labeled_cells = label(segmented)
-
-                # Convert labels to color image
-                labeled_image = plt.cm.nipy_spectral(
-                    labeled_cells.astype(float) / labeled_cells.max())
-                labeled_image = (
-                    labeled_image[:, :, :3] * 255).astype(np.uint8)
-
-                # Overlay Cell IDs
-                props = regionprops(labeled_cells)
-                for prop in props:
-                    y, x = prop.centroid  # Get centroid coordinates
-                    cell_id = prop.label  # Get cell ID
-                    cv2.putText(labeled_image, str(cell_id), (int(x), int(
-                        y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
-
-                # Cache the labeled image
-                self.image_data.segmentation_cache[cache_key] = labeled_image
+            # Overlay Cell IDs
+            props = regionprops(labeled_cells)
+            for prop in props:
+                y, x = prop.centroid  # Get centroid coordinates
+                cell_id = prop.label  # Get cell ID
+                cv2.putText(labeled_image, str(cell_id), (int(x), int(y)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
             # Display the labeled image
             height, width, _ = labeled_image.shape
@@ -424,7 +405,8 @@ class App(QMainWindow):
             pixmap = QPixmap.fromImage(qimage).scaled(
                 self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.image_label.setPixmap(pixmap)
-            return  # Prevent further processing for labeled segmentation
+
+            return
 
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
@@ -470,17 +452,24 @@ class App(QMainWindow):
 
         else:  # Normal view or overlay
             if self.radio_overlay_outlines.isChecked():
-                cache_key = (t, p, c)
-                if cache_key in self.image_data.segmentation_cache:
-                    segmented_image = self.image_data.segmentation_cache[cache_key]
-                else:
-                    segmented_image = SegmentationModels().segment_images(
-                        [image_data],
-                        SegmentationModels.CELLPOSE,
-                        model_type=model_type
-                    )[0]
-                    self.image_data.segmentation_cache[cache_key] = segmented_image
+                # Ensure segmentation model is set correctly in seg_cache
+                selected_model = self.model_dropdown.currentText()
+                self.image_data.seg_cache.with_model(selected_model)
 
+                # Retrieve segmentation from seg_cache
+                segmented_image = self.image_data.seg_cache[t, p, c]
+
+                if segmented_image is None:
+                    print(
+                        f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
+                    QMessageBox.warning(
+                        self, "Segmentation Error", "Segmentation failed.")
+                    return
+
+                print(
+                    f"[SUCCESS] Retrieved segmentation for overlay - T={t}, P={p}, C={c}")
+
+                # Extract outlines
                 outlines = utils.masks_to_outlines(segmented_image)
                 overlay = image_data.copy()
 
@@ -491,10 +480,8 @@ class App(QMainWindow):
                     print(
                         f"Dimension mismatch - Outline shape: {outlines.shape}, Image shape: {overlay.shape}")
                     outlines = cv2.resize(
-                        outlines.astype(
-                            np.uint8),
-                        (overlay.shape[1],
-                         overlay.shape[0]),
+                        outlines.astype(np.uint8),
+                        (overlay.shape[1], overlay.shape[0]),
                         interpolation=cv2.INTER_NEAREST).astype(bool)
                     overlay[outlines] = overlay.max()
 
@@ -506,8 +493,7 @@ class App(QMainWindow):
                 None,
                 0,
                 255,
-                cv2.NORM_MINMAX).astype(
-                np.uint8)
+                cv2.NORM_MINMAX).astype(np.uint8)
 
             # Apply color based on channel for non-binary images
             if self.has_channels:
@@ -520,8 +506,8 @@ class App(QMainWindow):
                     colored_image[:, :, 2] = image_data  # Red channel
                 elif c == 2:  # YFP - yellow/green
                     colored_image[:, :, 1] = image_data  # Green channel
-                    # Add some red to make it more yellow
-                    colored_image[:, :, 2] = image_data * 0.5
+                    colored_image[:, :, 2] = image_data * \
+                        0.5  # Add red to make it yellow
                 image_data = colored_image
                 image_format = QImage.Format_RGB888
             else:
@@ -1051,43 +1037,39 @@ class App(QMainWindow):
                 self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)
 
+    
+    
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
-        # Extract the current frame
-        image_data = self.image_data.data
-        if self.image_data.is_nd2:
-            frame = image_data[t, p,
-                               c] if self.has_channels else image_data[t, p]
-        else:
-            frame = image_data[t]
-
-        frame = np.array(frame)  # Ensure it's a NumPy array
-
-        self.image_data.seg_cache.with_model(
-                self.model_dropdown.currentText())  # Setting the model we want
+        # Extract current segmentation
+        self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
         segmented_image = self.image_data.seg_cache[t, p, c]
 
-        # Extract cell metrics and bounding boxes
-        cell_mapping = extract_cells_and_metrics(frame, segmented_image)
+        # Print unique IDs before annotation
+        unique_ids_before = np.unique(segmented_image)
+        print(f"[DEBUG] Unique IDs in segmented image before annotation: {unique_ids_before}")
+
+        # Extract cell metrics
+        cell_mapping = extract_cells_and_metrics(self.image_data.data[t, p, c], segmented_image)
 
         if not cell_mapping:
-            QMessageBox.warning(
-                self,
-                "No Cells",
-                "No cells detected in the current frame.")
+            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
             return
 
-        # Annotate the binary segmented image
-        annotated_binary_mask = annotate_binary_mask(
-            segmented_image, cell_mapping)
+        # Annotate the segmented image
+        annotated_binary_mask = annotate_binary_mask(segmented_image, cell_mapping)
 
-        # Set the annotated image for saving
-        self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
+        # Print unique IDs after annotation
+        unique_ids_after = np.unique(annotated_binary_mask)
+        print(f"[DEBUG] Unique IDs in annotated image: {unique_ids_after}")
 
-        # **Display the annotated image on the main image display**
+        # Ensure the annotated image is stored
+        self.annotated_image = annotated_binary_mask  
+
+        # Display the annotated image
         height, width = annotated_binary_mask.shape[:2]
         qimage = QImage(
             annotated_binary_mask.data,
@@ -1099,10 +1081,13 @@ class App(QMainWindow):
         pixmap = QPixmap.fromImage(qimage).scaled(
             self.image_label.size(),
             Qt.KeepAspectRatio,
-            Qt.SmoothTransformation)
+            Qt.SmoothTransformation
+        )
         self.image_label.setPixmap(pixmap)
         self.update_annotation_scatter()
 
+    
+    
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
@@ -1384,7 +1369,8 @@ class App(QMainWindow):
 
             # Prepare DataFrame
             metrics_data = [
-                {**{"ID": cell_id}, **data["metrics"], **{"Class": data["metrics"]["morphology_class"]}}
+                {**{"ID": cell_id}, **data["metrics"], **
+                    {"Class": data["metrics"]["morphology_class"]}}
                 for cell_id, data in self.cell_mapping.items()
             ]
             morphology_df = pd.DataFrame(metrics_data)
@@ -1685,7 +1671,7 @@ class App(QMainWindow):
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
-        
+
         segmented_image = self.image_data.seg_cache[t, p, c]
         segmented_image = label(segmented_image).astype(np.uint16)
         cell_id = int(cell_id)
