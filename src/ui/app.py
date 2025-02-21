@@ -1037,8 +1037,6 @@ class App(QMainWindow):
                 self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)
 
-    
-    
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1072,11 +1070,13 @@ class App(QMainWindow):
 
         # Extract cell morphology metrics (ensuring each labeled cell has metrics)
         print(f"[DEBUG] Extracting morphology metrics for T={t}, P={p}, C={c}")
-        cell_mapping = extract_cells_and_metrics(self.image_data.data[t, p, c], labeled_cells)
+        cell_mapping = extract_cells_and_metrics(
+            self.image_data.data[t, p, c], labeled_cells)
 
         if not cell_mapping:
             print("[ERROR] No cells detected.")
-            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
+            QMessageBox.warning(
+                self, "No Cells", "No cells detected in the current frame.")
             return
 
         # Convert labels to color image (ensuring correct ID mapping)
@@ -1132,8 +1132,6 @@ class App(QMainWindow):
 
         return
 
-
-    
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
