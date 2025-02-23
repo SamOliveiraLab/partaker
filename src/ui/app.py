@@ -1037,52 +1037,41 @@ class App(QMainWindow):
                 self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)
 
-    
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
-        # Extract the current frame
-        image_data = self.image_data.data
-        if self.image_data.is_nd2:
-            frame = image_data[t, p,
-                               c] if self.has_channels else image_data[t, p]
-        else:
-            frame = image_data[t]
+        # Ensure segmentation model is set correctly in seg_cache
+        selected_model = self.model_dropdown.currentText()
+        self.image_data.seg_cache.with_model(selected_model)
 
-        frame = np.array(frame)  # Ensure it's a NumPy array
+        # Retrieve segmentation from seg_cache
+        segmented_image = self.image_data.seg_cache[t, p, c]
 
-        # Perform segmentation
-        cache_key = (t, p, c)
-        if cache_key in self.image_data.segmentation_cache:
-            print(
-                f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-            segmented_image = self.image_data.segmentation_cache[cache_key]
-        else:
-            print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-            segmented_image = SegmentationModels().segment_images(
-                [frame], self.model_dropdown.currentText())[0]
-            self.image_data.segmentation_cache[cache_key] = segmented_image
+        if segmented_image is None:
+            print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
+            QMessageBox.warning(self, "Segmentation Error",
+                                "Segmentation failed.")
+            return
 
         # Extract cell metrics and bounding boxes
-        cell_mapping = extract_cells_and_metrics(frame, segmented_image)
+        cell_mapping = extract_cells_and_metrics(
+            self.image_data.data[t, p, c], segmented_image)
 
         if not cell_mapping:
             QMessageBox.warning(
-                self,
-                "No Cells",
-                "No cells detected in the current frame.")
+                self, "No Cells", "No cells detected in the current frame.")
             return
 
         # Annotate the binary segmented image
         annotated_binary_mask = annotate_binary_mask(
             segmented_image, cell_mapping)
 
-        # Set the annotated image for saving
-        self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
+        # Store the annotated image for saving
+        self.annotated_image = annotated_binary_mask
 
-        # **Display the annotated image on the main image display**
+        # Display the annotated image on the main image display
         height, width = annotated_binary_mask.shape[:2]
         qimage = QImage(
             annotated_binary_mask.data,
@@ -1094,12 +1083,13 @@ class App(QMainWindow):
         pixmap = QPixmap.fromImage(qimage).scaled(
             self.image_label.size(),
             Qt.KeepAspectRatio,
-            Qt.SmoothTransformation)
+            Qt.SmoothTransformation
+        )
         self.image_label.setPixmap(pixmap)
         self.update_annotation_scatter()
 
-    
-    
+        print(f"[SUCCESS] Annotated image displayed for T={t}, P={p}, C={c}")
+
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
@@ -1662,14 +1652,11 @@ class App(QMainWindow):
 
         print(f"Row {row} clicked, Cell ID: {cell_id}")
 
-       
         self.highlight_cell_in_image(cell_id)
 
-    
     def highlight_cell_in_image(self, cell_id):
-        print(f"Highlighting cell with ID: {cell_id}") 
-    
-    
+        print(f"Highlighting cell with ID: {cell_id}")
+
     def highlight_selected_cell(self, cell_id, cache_key):
         """
         Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
