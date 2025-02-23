@@ -1364,8 +1364,6 @@ class App(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
-    
-    
     def update_annotation_scatter(self):
         try:
             # Extract current frame and segmentation
@@ -1373,14 +1371,8 @@ class App(QMainWindow):
             p = self.slider_p.value()
             c = self.slider_c.value() if self.has_channels else None
             frame = self.get_current_frame(t, p, c)
-            cache_key = (t, p, c)
 
-            # Perform segmentation if not cached
-            if cache_key not in self.image_data.segmentation_cache:
-                segmented_image = segment_this_image(frame)
-                self.image_data.segmentation_cache[cache_key] = segmented_image
-            else:
-                segmented_image = self.image_data.segmentation_cache[cache_key]
+            segmented_image = self.image_data.seg_cache[t, p, c]
 
             # Extract cell metrics
             self.cell_mapping = extract_cells_and_metrics(
@@ -1389,7 +1381,8 @@ class App(QMainWindow):
 
             # Prepare DataFrame
             metrics_data = [
-                {**{"ID": cell_id}, **data["metrics"], **{"Class": data["metrics"]["morphology_class"]}}
+                {**{"ID": cell_id}, **data["metrics"], **
+                    {"Class": data["metrics"]["morphology_class"]}}
                 for cell_id, data in self.cell_mapping.items()
             ]
             morphology_df = pd.DataFrame(metrics_data)
@@ -1442,8 +1435,6 @@ class App(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
 
-    
-    
     def plot_morphology_metrics(self):
         x_metric = self.x_metric_dropdown.currentText()
         y_metric = self.y_metric_dropdown.currentText()
