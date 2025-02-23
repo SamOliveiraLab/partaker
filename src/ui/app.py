@@ -1037,101 +1037,69 @@ class App(QMainWindow):
                 self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)
 
+    
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
-        # Ensure segmentation model is set correctly
-        selected_model = self.model_dropdown.currentText()
-        self.image_data.seg_cache.with_model(selected_model)
+        # Extract the current frame
+        image_data = self.image_data.data
+        if self.image_data.is_nd2:
+            frame = image_data[t, p,
+                               c] if self.has_channels else image_data[t, p]
+        else:
+            frame = image_data[t]
 
-        # Retrieve segmentation from seg_cache
-        segmented = self.image_data.seg_cache[t, p, c]
+        frame = np.array(frame)  # Ensure it's a NumPy array
 
-        if segmented is None:
-            print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
-            QMessageBox.warning(
-                self, "Segmentation Error", "Segmentation failed."
-            )
-            return
+        # Perform segmentation
+        cache_key = (t, p, c)
+        if cache_key in self.image_data.segmentation_cache:
+            print(
+                f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
+            segmented_image = self.image_data.segmentation_cache[cache_key]
+        else:
+            print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
+            segmented_image = SegmentationModels().segment_images(
+                [frame], self.model_dropdown.currentText())[0]
+            self.image_data.segmentation_cache[cache_key] = segmented_image
 
-        # Relabel the segmented regions exactly as done in labeled segmentation
-        labeled_cells = label(segmented)
-
-        # Ensure relabeling created valid labels
-        max_label = labeled_cells.max()
-        if max_label == 0:
-            print("[ERROR] No valid labeled regions found.")
-            QMessageBox.warning(
-                self, "Labeled Segmentation Error", "No valid labeled regions found."
-            )
-            return
-
-        # Extract cell morphology metrics (ensuring each labeled cell has metrics)
-        print(f"[DEBUG] Extracting morphology metrics for T={t}, P={p}, C={c}")
-        cell_mapping = extract_cells_and_metrics(
-            self.image_data.data[t, p, c], labeled_cells)
+        # Extract cell metrics and bounding boxes
+        cell_mapping = extract_cells_and_metrics(frame, segmented_image)
 
         if not cell_mapping:
-            print("[ERROR] No cells detected.")
             QMessageBox.warning(
-                self, "No Cells", "No cells detected in the current frame.")
+                self,
+                "No Cells",
+                "No cells detected in the current frame.")
             return
 
-        # Convert labels to color image (ensuring correct ID mapping)
-        labeled_image = plt.cm.nipy_spectral(
-            labeled_cells.astype(float) / max_label
-        )
-        labeled_image = (labeled_image[:, :, :3] * 255).astype(np.uint8)
+        # Annotate the binary segmented image
+        annotated_binary_mask = annotate_binary_mask(
+            segmented_image, cell_mapping)
 
-        # Overlay Cell IDs and extract metrics
-        props = regionprops(labeled_cells)
-        for prop in props:
-            y, x = prop.centroid  # Get centroid coordinates
-            cell_id = prop.label  # Get cell ID
+        # Set the annotated image for saving
+        self.annotated_image = annotated_binary_mask  # <-- Ensure this is set
 
-            # Ensure the cell has a metric in cell_mapping
-            if cell_id in cell_mapping:
-                morphology_class = cell_mapping[cell_id]["metrics"]["morphology_class"]
-                cv2.putText(
-                    labeled_image,
-                    f"{cell_id}: {morphology_class}",
-                    (int(x), int(y)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.4,
-                    (255, 255, 255),
-                    1,
-                    cv2.LINE_AA,
-                )
-            else:
-                print(f"[WARNING] Cell {cell_id} missing metrics!")
-
-        # Store extracted metrics (for the table and clustering)
-        metrics_key = (t, p, c, 'metrics')
-        self.image_data.segmentation_cache[metrics_key] = cell_mapping
-
-        # Display the labeled image
-        height, width, _ = labeled_image.shape
+        # **Display the annotated image on the main image display**
+        height, width = annotated_binary_mask.shape[:2]
         qimage = QImage(
-            labeled_image.data,
+            annotated_binary_mask.data,
             width,
             height,
-            3 * width,
+            annotated_binary_mask.strides[0],
             QImage.Format_RGB888,
         )
         pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
+            self.image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
-
-        # Update the metrics table (ensuring extracted data is displayed)
         self.update_annotation_scatter()
 
-        print(f"[SUCCESS] Annotated image displayed with extracted metrics.")
-
-        return
-
+    
+    
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
