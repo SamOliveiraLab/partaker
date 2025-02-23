@@ -1690,77 +1690,18 @@ class App(QMainWindow):
     def on_table_item_click(self, item):
         row = item.row()
 
-        # Ensure we retrieve the correct **cell ID from the table column**
-        cell_id_item = self.metrics_table.item(
-            row, 0)  # Assuming column 0 is the ID column
-        if cell_id_item is None:
-            print(f"Error: No cell ID found at row {row}.")
-            return
+        cell_id = self.metrics_table.item(row, 0).text()
 
-        cell_id = int(cell_id_item.text())  # Convert to int
-        cell_class_item = self.metrics_table.item(
-            row, self.metrics_table.columnCount() - 1)  # Assuming last column has class
+        print(f"Row {row} clicked, Cell ID: {cell_id}")
 
-        if cell_class_item is None:
-            print(f"Error: No cell class found for Cell ID {cell_id}.")
-            return
+       
+        self.highlight_cell_in_image(cell_id)
 
-        cell_class = cell_class_item.text()  # Extract class name
-
-        print(f"Row {row} clicked, Cell ID: {cell_id}, Cell Class: {cell_class}")
-
-        self.highlight_cell_in_image(cell_id, cell_class)
-
-    def highlight_cell_in_image(self, cell_id, cell_class):
-        t = self.slider_t.value()
-        p = self.slider_p.value()
-        c = self.slider_c.value() if self.has_channels else None
-
-        segmented_image = self.image_data.seg_cache[t, p, c]
-        segmented_image = label(segmented_image).astype(np.uint16)
-        cell_id = int(cell_id)
-
-        # Create an RGB version of the segmented image where all cells are
-        # grayscale
-        base_image = np.zeros(
-            (segmented_image.shape[0],
-             segmented_image.shape[1],
-             3),
-            dtype=np.uint8)
-
-        # Normalize grayscale mapping based on total unique IDs
-        unique_labels = np.unique(segmented_image)
-        max_label = unique_labels.max()
-
-        for label_id in unique_labels:
-            if label_id == 0:  # Background
-                continue
-            # Normalize to a grayscale intensity in range 50-200 to make all
-            # visible
-            intensity = int(50 + (label_id / max_label) * 150)
-            base_image[segmented_image == label_id] = (
-                intensity, intensity, intensity)
-
-        # Highlight the selected cell with its corresponding class color
-        mask = segmented_image == cell_id
-        highlight_color = tuple(
-            int(x * 255) for x in self.morphology_colors_rgb.get(cell_class, (1, 1, 1)))
-        base_image[mask] = highlight_color
-
-        # Display the image
-        height, width, _ = base_image.shape
-        qimage = QImage(
-            base_image.data,
-            width,
-            height,
-            3 * width,
-            QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation)
-        self.image_label.setPixmap(pixmap)
-
+    
+    def highlight_cell_in_image(self, cell_id):
+        print(f"Highlighting cell with ID: {cell_id}") 
+    
+    
     def highlight_selected_cell(self, cell_id, cache_key):
         """
         Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
