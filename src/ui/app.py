@@ -1039,8 +1039,6 @@ class App(QMainWindow):
                 self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)
 
-    
-    
     def annotate_cells(self):
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1055,20 +1053,25 @@ class App(QMainWindow):
 
         if segmented_image is None:
             print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
-            QMessageBox.warning(self, "Segmentation Error", "Segmentation failed.")
+            QMessageBox.warning(self, "Segmentation Error",
+                                "Segmentation failed.")
             return
 
         # Extract cell metrics and bounding boxes
-        self.cell_mapping = extract_cells_and_metrics(self.image_data.data[t, p, c], segmented_image)
+        self.cell_mapping = extract_cells_and_metrics(
+            self.image_data.data[t, p, c], segmented_image)
 
         if not self.cell_mapping:
-            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
+            QMessageBox.warning(
+                self, "No Cells", "No cells detected in the current frame.")
             return
 
-        print(f"✅ Stored Cell Mapping: {list(self.cell_mapping.keys())}")  # Debugging
+        # Debugging
+        print(f"✅ Stored Cell Mapping: {list(self.cell_mapping.keys())}")
 
         # Annotate the binary segmented image
-        self.annotated_image = annotate_binary_mask(segmented_image, self.cell_mapping)
+        self.annotated_image = annotate_binary_mask(
+            segmented_image, self.cell_mapping)
 
         # Display the annotated image on the main image display
         # Convert annotated image to QImage
@@ -1087,14 +1090,10 @@ class App(QMainWindow):
         )
         self.image_label.setPixmap(pixmap)
 
-
         self.update_annotation_scatter()
 
         print(f"[SUCCESS] Annotated image displayed for T={t}, P={p}, C={c}")
 
-    
-    
-    
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
@@ -1658,8 +1657,6 @@ class App(QMainWindow):
         print(f"Row {row} clicked, Cell ID: {cell_id}")
 
         self.highlight_cell_in_image(cell_id)
-        
-
 
     def highlight_cell_in_image(self, cell_id):
         print(f"🔍 Highlighting cell with ID: {cell_id}")
@@ -1670,31 +1667,38 @@ class App(QMainWindow):
 
         segmented_image = self.image_data.seg_cache[t, p, c]
         if segmented_image is None:
-            QMessageBox.warning(self, "Segmentation Error", "No segmented image available.")
+            QMessageBox.warning(self, "Segmentation Error",
+                                "No segmented image available.")
             return
 
         # Convert segmentation to color image for visualization
-        highlighted_image = cv2.cvtColor((segmented_image > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
+        highlighted_image = cv2.cvtColor(
+            (segmented_image > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
 
         # Ensure the cell ID is an integer
         cell_id = int(cell_id)
 
         # Ensure stored cell mappings exist
         if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-            QMessageBox.warning(self, "Error", "No stored cell mappings found. Did you classify cells first?")
+            QMessageBox.warning(
+                self, "Error", "No stored cell mappings found. Did you classify cells first?")
             return
 
-        available_ids = list(map(int, self.cell_mapping.keys()))  # Ensure all keys are integers
+        # Ensure all keys are integers
+        available_ids = list(map(int, self.cell_mapping.keys()))
         print(f"📝 Available Segmentation Cell IDs: {available_ids}")
 
         if cell_id not in available_ids:
-            QMessageBox.warning(self, "Error", f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
+            QMessageBox.warning(
+                self, "Error", f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
             return
 
         # Draw bounding box only for the selected cell
         y1, x1, y2, x2 = self.cell_mapping[cell_id]["bbox"]
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box
-        cv2.putText(highlighted_image, str(cell_id), (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        cv2.rectangle(highlighted_image, (x1, y1),
+                      (x2, y2), (0, 0, 255), 2)  # Red box
+        cv2.putText(highlighted_image, str(cell_id), (x1, y1 - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
         # Convert image to QPixmap and display
         height, width = highlighted_image.shape[:2]
@@ -1712,8 +1716,6 @@ class App(QMainWindow):
         self.image_label.setPixmap(pixmap)
 
         print(f"✅ Highlighted cell {cell_id} at {y1, x1, y2, x2}")
-
-   
 
     def highlight_selected_cell(self, cell_id, cache_key):
         """
