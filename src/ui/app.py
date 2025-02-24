@@ -88,6 +88,8 @@ class MorphologyWorker(QObject):
         self.num_frames = num_frames
         self.position = position
         self.channel = channel
+        self.metrics_table.itemClicked.connect(self.on_table_item_click)
+        self.cell_mapping = {}
 
     def run(self):
         results = {}
@@ -1042,95 +1044,55 @@ class App(QMainWindow):
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
-        # Ensure segmentation model is set correctly
+        # Ensure segmentation model is set correctly in seg_cache
         selected_model = self.model_dropdown.currentText()
         self.image_data.seg_cache.with_model(selected_model)
 
         # Retrieve segmentation from seg_cache
-        segmented = self.image_data.seg_cache[t, p, c]
+        segmented_image = self.image_data.seg_cache[t, p, c]
 
-        if segmented is None:
+        if segmented_image is None:
             print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
-            QMessageBox.warning(
-                self, "Segmentation Error", "Segmentation failed."
-            )
+            QMessageBox.warning(self, "Segmentation Error",
+                                "Segmentation failed.")
             return
 
-        # Relabel the segmented regions exactly as done in labeled segmentation
-        labeled_cells = label(segmented)
+        # Extract cell metrics and bounding boxes
+        self.cell_mapping = extract_cells_and_metrics(
+            self.image_data.data[t, p, c], segmented_image)
 
-        # Ensure relabeling created valid labels
-        max_label = labeled_cells.max()
-        if max_label == 0:
-            print("[ERROR] No valid labeled regions found.")
-            QMessageBox.warning(
-                self, "Labeled Segmentation Error", "No valid labeled regions found."
-            )
-            return
-
-        # Extract cell morphology metrics (ensuring each labeled cell has metrics)
-        print(f"[DEBUG] Extracting morphology metrics for T={t}, P={p}, C={c}")
-        cell_mapping = extract_cells_and_metrics(
-            self.image_data.data[t, p, c], labeled_cells)
-
-        if not cell_mapping:
-            print("[ERROR] No cells detected.")
+        if not self.cell_mapping:
             QMessageBox.warning(
                 self, "No Cells", "No cells detected in the current frame.")
             return
 
-        # Convert labels to color image (ensuring correct ID mapping)
-        labeled_image = plt.cm.nipy_spectral(
-            labeled_cells.astype(float) / max_label
-        )
-        labeled_image = (labeled_image[:, :, :3] * 255).astype(np.uint8)
+        # Debugging
+        print(f"✅ Stored Cell Mapping: {list(self.cell_mapping.keys())}")
 
-        # Overlay Cell IDs and extract metrics
-        props = regionprops(labeled_cells)
-        for prop in props:
-            y, x = prop.centroid  # Get centroid coordinates
-            cell_id = prop.label  # Get cell ID
+        # Annotate the binary segmented image
+        self.annotated_image = annotate_binary_mask(
+            segmented_image, self.cell_mapping)
 
-            # Ensure the cell has a metric in cell_mapping
-            if cell_id in cell_mapping:
-                morphology_class = cell_mapping[cell_id]["metrics"]["morphology_class"]
-                cv2.putText(
-                    labeled_image,
-                    f"{cell_id}: {morphology_class}",
-                    (int(x), int(y)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.4,
-                    (255, 255, 255),
-                    1,
-                    cv2.LINE_AA,
-                )
-            else:
-                print(f"[WARNING] Cell {cell_id} missing metrics!")
-
-        # Store extracted metrics (for the table and clustering)
-        metrics_key = (t, p, c, 'metrics')
-        self.image_data.segmentation_cache[metrics_key] = cell_mapping
-
-        # Display the labeled image
-        height, width, _ = labeled_image.shape
+        # Display the annotated image on the main image display
+        # Convert annotated image to QImage
+        height, width = self.annotated_image.shape[:2]
         qimage = QImage(
-            labeled_image.data,
+            self.annotated_image.data,
             width,
             height,
-            3 * width,
+            self.annotated_image.strides[0],
             QImage.Format_RGB888,
         )
+
+        # Convert to QPixmap and set to QLabel
         pixmap = QPixmap.fromImage(qimage).scaled(
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
 
-        # Update the metrics table (ensuring extracted data is displayed)
         self.update_annotation_scatter()
 
-        print(f"[SUCCESS] Annotated image displayed with extracted metrics.")
-
-        return
+        print(f"[SUCCESS] Annotated image displayed for T={t}, P={p}, C={c}")
 
     def show_context_menu(self, position):
         context_menu = QMenu(self)
@@ -1690,76 +1652,70 @@ class App(QMainWindow):
     def on_table_item_click(self, item):
         row = item.row()
 
-        # Ensure we retrieve the correct **cell ID from the table column**
-        cell_id_item = self.metrics_table.item(
-            row, 0)  # Assuming column 0 is the ID column
-        if cell_id_item is None:
-            print(f"Error: No cell ID found at row {row}.")
-            return
+        cell_id = self.metrics_table.item(row, 0).text()
 
-        cell_id = int(cell_id_item.text())  # Convert to int
-        cell_class_item = self.metrics_table.item(
-            row, self.metrics_table.columnCount() - 1)  # Assuming last column has class
+        print(f"Row {row} clicked, Cell ID: {cell_id}")
 
-        if cell_class_item is None:
-            print(f"Error: No cell class found for Cell ID {cell_id}.")
-            return
+        self.highlight_cell_in_image(cell_id)
 
-        cell_class = cell_class_item.text()  # Extract class name
+    def highlight_cell_in_image(self, cell_id):
+        print(f"🔍 Highlighting cell with ID: {cell_id}")
 
-        print(f"Row {row} clicked, Cell ID: {cell_id}, Cell Class: {cell_class}")
-
-        self.highlight_cell_in_image(cell_id, cell_class)
-
-    def highlight_cell_in_image(self, cell_id, cell_class):
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
         segmented_image = self.image_data.seg_cache[t, p, c]
-        segmented_image = label(segmented_image).astype(np.uint16)
+        if segmented_image is None:
+            QMessageBox.warning(self, "Segmentation Error",
+                                "No segmented image available.")
+            return
+
+        # Convert segmentation to color image for visualization
+        highlighted_image = cv2.cvtColor(
+            (segmented_image > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
+
+        # Ensure the cell ID is an integer
         cell_id = int(cell_id)
 
-        # Create an RGB version of the segmented image where all cells are
-        # grayscale
-        base_image = np.zeros(
-            (segmented_image.shape[0],
-             segmented_image.shape[1],
-             3),
-            dtype=np.uint8)
+        # Ensure stored cell mappings exist
+        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+            QMessageBox.warning(
+                self, "Error", "No stored cell mappings found. Did you classify cells first?")
+            return
 
-        # Normalize grayscale mapping based on total unique IDs
-        unique_labels = np.unique(segmented_image)
-        max_label = unique_labels.max()
+        # Ensure all keys are integers
+        available_ids = list(map(int, self.cell_mapping.keys()))
+        print(f"📝 Available Segmentation Cell IDs: {available_ids}")
 
-        for label_id in unique_labels:
-            if label_id == 0:  # Background
-                continue
-            # Normalize to a grayscale intensity in range 50-200 to make all
-            # visible
-            intensity = int(50 + (label_id / max_label) * 150)
-            base_image[segmented_image == label_id] = (
-                intensity, intensity, intensity)
+        if cell_id not in available_ids:
+            QMessageBox.warning(
+                self, "Error", f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
+            return
 
-        # Highlight the selected cell with its corresponding class color
-        mask = segmented_image == cell_id
-        highlight_color = tuple(
-            int(x * 255) for x in self.morphology_colors_rgb.get(cell_class, (1, 1, 1)))
-        base_image[mask] = highlight_color
+        # Draw bounding box only for the selected cell
+        y1, x1, y2, x2 = self.cell_mapping[cell_id]["bbox"]
+        cv2.rectangle(highlighted_image, (x1, y1),
+                      (x2, y2), (0, 0, 255), 2)  # Red box
+        cv2.putText(highlighted_image, str(cell_id), (x1, y1 - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
-        # Display the image
-        height, width, _ = base_image.shape
+        # Convert image to QPixmap and display
+        height, width = highlighted_image.shape[:2]
         qimage = QImage(
-            base_image.data,
+            highlighted_image.data,
             width,
             height,
-            3 * width,
-            QImage.Format_RGB888)
+            highlighted_image.strides[0],
+            QImage.Format_RGB888,
+        )
+
         pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation)
+            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
         self.image_label.setPixmap(pixmap)
+
+        print(f"✅ Highlighted cell {cell_id} at {y1, x1, y2, x2}")
 
     def highlight_selected_cell(self, cell_id, cache_key):
         """
