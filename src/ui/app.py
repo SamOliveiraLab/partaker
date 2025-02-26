@@ -22,11 +22,14 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QSpinBox,
+    QFormLayout,
+    QDialog,
 )
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
 from PySide6.QtWidgets import QSizePolicy, QComboBox, QLabel, QProgressBar
 import PySide6.QtAsyncio as QtAsyncio
+from PySide6.QtWidgets import QProgressDialog
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
@@ -42,7 +45,7 @@ import numpy as np
 import cv2
 import imageio.v3 as iio
 import tifffile
-from morphology import annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_cell_morphologies, extract_cell_morphologies_time
+from morphology import annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_cell_morphologies, extract_cell_morphologies_time, classify_morphology
 
 from segmentation.segmentation_models import SegmentationModels
 from segmentation.segmentation_cache import SegmentationCache
@@ -1315,16 +1318,836 @@ class App(QMainWindow):
 
         layout.addLayout(dropdown_layout)
 
+        # Button layout for actions
+        button_layout = QHBoxLayout()
+
         # Button to trigger plotting
         plot_button = QPushButton("Plot Metrics")
         plot_button.clicked.connect(self.plot_morphology_metrics)
-        layout.addWidget(plot_button)
+        button_layout.addWidget(plot_button)
+
+        # Add the ideal examples button
+        ideal_button = QPushButton("Select Ideal Cell Examples")
+        ideal_button.clicked.connect(self.select_ideal_examples)
+        button_layout.addWidget(ideal_button)
+
+        # Add similarity analysis button
+        similarity_button = QPushButton("Analyze Similarity to Ideals")
+        similarity_button.clicked.connect(self.calculate_similarity_to_ideals)
+        button_layout.addWidget(similarity_button)
+
+        # Add optimization button
+        optimize_button = QPushButton("Optimize Classification")
+        optimize_button.clicked.connect(
+            self.optimize_classification_parameters)
+        button_layout.addWidget(optimize_button)
+
+        layout.addLayout(button_layout)
 
         # Matplotlib canvas for plotting
         self.figure_morphology_metrics = plt.figure()
         self.canvas_morphology_metrics = FigureCanvas(
             self.figure_morphology_metrics)
         layout.addWidget(self.canvas_morphology_metrics)
+
+    def select_ideal_examples(self):
+        """
+        Allow the user to select ideal examples of each morphology class.
+        """
+        # Initialize a dictionary to store ideal examples
+        if not hasattr(self, "ideal_examples"):
+            self.ideal_examples = {
+                "Small": None,
+                "Round": None,
+                "Normal": None,
+                "Elongated": None,
+                "Deformed": None
+            }
+
+        # Create a dialog to select ideal cells
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Ideal Cell Examples")
+        dialog.setMinimumWidth(600)
+
+        layout = QVBoxLayout(dialog)
+
+        # Instructions
+        instructions = QLabel(
+            "Select one ideal example for each morphology class.")
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        # Create a split layout
+        main_layout = QHBoxLayout()
+
+        # Form layout for selection
+        form_layout = QFormLayout()
+        selection_widget = QWidget()
+        selection_widget.setLayout(form_layout)
+
+        # Preview area
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_label = QLabel("Cell Preview")
+        preview_layout.addWidget(preview_label)
+        self.preview_image = QLabel()
+        self.preview_image.setMinimumSize(200, 200)
+        self.preview_image.setAlignment(Qt.AlignCenter)
+        self.preview_image.setScaledContents(True)
+        preview_layout.addWidget(self.preview_image)
+
+        main_layout.addWidget(selection_widget)
+        main_layout.addWidget(preview_widget)
+        layout.addLayout(main_layout)
+
+        # Create dropdown selectors for each class
+        self.ideal_selectors = {}
+
+        # Get all cell IDs and their classifications
+        cell_ids = []
+        if hasattr(self, "cell_mapping") and self.cell_mapping:
+            for cell_id, data in self.cell_mapping.items():
+                if "metrics" in data and "morphology_class" in data["metrics"]:
+                    cell_class = data["metrics"]["morphology_class"]
+                    cell_ids.append((cell_id, cell_class))
+
+        # Sort by class and ID
+        cell_ids.sort(key=lambda x: (x[1], x[0]))
+
+        # Create dropdowns for each class
+        for class_name in self.ideal_examples.keys():
+            combo = QComboBox()
+            # Add all cells of this class
+            class_cells = [str(cell_id) for cell_id,
+                           cell_class in cell_ids if cell_class == class_name]
+
+            if class_cells:
+                combo.addItems(class_cells)
+
+                # Set current selection if already defined
+                if self.ideal_examples[class_name] is not None:
+                    idx = combo.findText(str(self.ideal_examples[class_name]))
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+
+                # Connect the currentIndexChanged signal
+                combo.currentIndexChanged.connect(
+                    lambda idx, cn=class_name: self.update_preview(cn))
+            else:
+                combo.addItem("No cells of this class")
+                combo.setEnabled(False)
+
+            self.ideal_selectors[class_name] = combo
+            form_layout.addRow(f"Ideal {class_name}:", combo)
+
+        # Buttons
+        button_box = QHBoxLayout()
+        save_button = QPushButton("Save Ideal Examples")
+        save_button.clicked.connect(lambda: self.save_ideal_examples(dialog))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(dialog.reject)
+
+        button_box.addWidget(save_button)
+        button_box.addWidget(cancel_button)
+        layout.addLayout(button_box)
+
+        # Initially update the preview for the first class with cells
+        for class_name in self.ideal_examples.keys():
+            if self.ideal_selectors[class_name].isEnabled():
+                self.update_preview(class_name)
+                break
+
+        # Show the dialog
+        dialog.exec_()
+
+    def update_preview(self, class_name):
+        """
+        Update the preview image for the selected cell.
+        """
+        combo = self.ideal_selectors[class_name]
+        if combo.isEnabled() and combo.currentText() != "No cells of this class":
+            try:
+                cell_id = int(combo.currentText())
+                # Get the bounding box for this cell
+                y1, x1, y2, x2 = self.cell_mapping[cell_id]["bbox"]
+
+                # Get the current frame
+                t = self.slider_t.value()
+                p = self.slider_p.value()
+                c = self.slider_c.value() if self.has_channels else None
+
+                # Extract the cell region from the segmented image
+                segmented_image = self.image_data.seg_cache[t, p, c]
+
+                # Create a visualization focusing on just this cell
+                # Make a local crop of the segmented image around the cell
+                padding = 10  # Extra pixels around the bounding box
+                y_min = max(0, y1 - padding)
+                y_max = min(segmented_image.shape[0], y2 + padding)
+                x_min = max(0, x1 - padding)
+                x_max = min(segmented_image.shape[1], x2 + padding)
+
+                # Crop the segmented region
+                cropped_seg = segmented_image[y_min:y_max, x_min:x_max]
+
+                # Convert to RGB and highlight the cell
+                cropped_rgb = cv2.cvtColor((cropped_seg > 0).astype(
+                    np.uint8) * 255, cv2.COLOR_GRAY2BGR)
+
+                # Create a mask for the target cell
+                cell_mask = np.zeros_like(cropped_seg)
+                # Adjust bounding box coordinates for the crop
+                local_y1, local_x1 = y1 - y_min, x1 - x_min
+                local_y2, local_x2 = y2 - y_min, x2 - x_min
+
+                # Use connected components to find the cell within the bounding box
+                roi = cropped_seg[max(0, local_y1):min(cropped_seg.shape[0], local_y2),
+                                  max(0, local_x1):min(cropped_seg.shape[1], local_x2)]
+
+                if roi.max() > 0:
+                    # Use connected components
+                    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+                        roi, connectivity=8)
+
+                    # Find largest component
+                    largest_label = 1
+                    largest_area = 0
+                    for label in range(1, num_labels):
+                        area = stats[label, cv2.CC_STAT_AREA]
+                        if area > largest_area:
+                            largest_area = area
+                            largest_label = label
+
+                    # Create mask for largest component
+                    component_mask = (labels == largest_label).astype(
+                        np.uint8) * 255
+
+                    # Place it in the full mask at the right position
+                    cell_mask[max(0, local_y1):min(cropped_seg.shape[0], local_y2),
+                              max(0, local_x1):min(cropped_seg.shape[1], local_x2)] = component_mask
+
+                # Highlight the cell in the appropriate morphology color
+                # Default to red if color not found
+                color = self.morphology_colors.get(class_name, (0, 0, 255))
+                cropped_rgb[cell_mask > 0] = color
+
+                # Draw bounding box
+                cv2.rectangle(cropped_rgb,
+                              (max(0, local_x1), max(0, local_y1)),
+                              (min(cropped_seg.shape[1]-1, local_x2),
+                               min(cropped_seg.shape[0]-1, local_y2)),
+                              (255, 0, 0), 1)
+
+                # Add text
+                cv2.putText(cropped_rgb, f"ID: {cell_id}", (5, 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+                # Convert to QImage and display in preview
+                height, width = cropped_rgb.shape[:2]
+                bytes_per_line = 3 * width
+                qimage = QImage(cropped_rgb.data, width, height,
+                                bytes_per_line, QImage.Format_RGB888)
+                pixmap = QPixmap.fromImage(qimage)
+                self.preview_image.setPixmap(pixmap)
+
+            except Exception as e:
+                print(f"Error updating preview: {e}")
+                self.preview_image.clear()
+                self.preview_image.setText("Preview not available")
+
+    def save_ideal_examples(self, dialog):
+        """
+        Save the selected ideal examples.
+        """
+        # Update the ideal examples dictionary
+        for class_name, combo in self.ideal_selectors.items():
+            if combo.isEnabled() and combo.currentText() != "No cells of this class":
+                self.ideal_examples[class_name] = int(combo.currentText())
+
+        # Store the metrics for each ideal example
+        self.ideal_metrics = {}
+        for class_name, cell_id in self.ideal_examples.items():
+            if cell_id is not None:
+                self.ideal_metrics[class_name] = self.cell_mapping[cell_id]["metrics"]
+
+        # Print the ideal metrics for debugging
+        print("Ideal Metrics:")
+        for class_name, metrics in self.ideal_metrics.items():
+            print(f"{class_name}: {metrics}")
+
+        # Close the dialog
+        QMessageBox.information(
+            dialog, "Success", "Ideal examples saved successfully.")
+        dialog.accept()
+
+    def calculate_similarity_to_ideals(self):
+        """
+        Calculate how similar each cell is to the ideal examples of each class.
+        """
+        if not hasattr(self, "ideal_metrics") or not self.ideal_metrics:
+            QMessageBox.warning(
+                self, "Error", "No ideal metrics defined. Please select ideal examples first.")
+            return
+
+        # Get all cells from current frame
+        t = self.slider_t.value()
+        p = self.slider_p.value()
+        c = self.slider_c.value() if self.has_channels else None
+
+        # Make sure cell mapping exists
+        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+            QMessageBox.warning(
+                self, "Error", "No cell data available. Please classify cells first.")
+            return
+
+        # Metrics to compare (exclude morphology_class)
+        metrics_to_compare = ["area", "perimeter", "equivalent_diameter",
+                              "orientation", "aspect_ratio", "circularity", "solidity"]
+
+        # Store results
+        similarity_results = []
+
+        # For each cell, calculate similarity to each ideal
+        for cell_id, cell_data in self.cell_mapping.items():
+            cell_metrics = cell_data["metrics"]
+            current_class = cell_metrics.get("morphology_class", "Unknown")
+
+            cell_result = {
+                "cell_id": cell_id,
+                "current_class": current_class
+            }
+
+            # Calculate similarity to each ideal
+            best_similarity = 0
+            best_class = None
+
+            for class_name, ideal in self.ideal_metrics.items():
+                if not ideal:  # Skip if no ideal defined for this class
+                    continue
+
+                # Calculate Euclidean distance in feature space
+                # First normalize each feature to prevent any single feature from dominating
+                squared_diff_sum = 0
+                valid_metrics = 0
+
+                for metric in metrics_to_compare:
+                    if metric in cell_metrics and metric in ideal:
+                        # Retrieve values
+                        cell_value = cell_metrics[metric]
+                        ideal_value = ideal[metric]
+
+                        # Skip if either value is None
+                        if cell_value is None or ideal_value is None:
+                            continue
+
+                        # Normalize based on ideal value to get relative difference
+                        if ideal_value != 0:
+                            normalized_diff = (
+                                cell_value - ideal_value) / ideal_value
+                            squared_diff_sum += normalized_diff ** 2
+                            valid_metrics += 1
+
+                # Calculate similarity (invert distance to get similarity)
+                if valid_metrics > 0:
+                    distance = (squared_diff_sum / valid_metrics) ** 0.5
+                    # Convert to similarity (0-1 scale)
+                    similarity = 1 / (1 + distance)
+
+                    cell_result[f"similarity_{class_name}"] = similarity
+
+                    # Keep track of best match
+                    if similarity > best_similarity:
+                        best_similarity = similarity
+                        best_class = class_name
+
+            # Record best match
+            cell_result["best_match_class"] = best_class
+            cell_result["best_match_similarity"] = best_similarity
+
+            # Calculate if classification matches best similarity
+            cell_result["matches_best"] = (current_class == best_class)
+
+            similarity_results.append(cell_result)
+
+        # Convert to DataFrame for easier analysis
+        import pandas as pd
+        self.similarity_df = pd.DataFrame(similarity_results)
+
+        # Calculate overall statistics
+        total_cells = len(similarity_results)
+        matching_cells = sum(
+            1 for result in similarity_results if result["matches_best"])
+        match_percentage = (matching_cells / total_cells *
+                            100) if total_cells > 0 else 0
+
+        # Display results
+        self.display_similarity_results(match_percentage)
+
+        return similarity_results
+
+    def display_similarity_results(self, match_percentage):
+        """
+        Display the similarity analysis results.
+        """
+        # Clear the existing figure
+        self.figure_morphology_metrics.clear()
+
+        # Create a figure with subplots
+        gridspec = self.figure_morphology_metrics.add_gridspec(2, 2)
+
+        # 1. Pie chart of current classifications
+        ax1 = self.figure_morphology_metrics.add_subplot(gridspec[0, 0])
+        class_counts = self.similarity_df["current_class"].value_counts()
+        ax1.pie(class_counts, labels=class_counts.index, autopct='%1.1f%%')
+        ax1.set_title("Current Classification Distribution")
+
+        # 2. Pie chart of best match classifications
+        ax2 = self.figure_morphology_metrics.add_subplot(gridspec[0, 1])
+        best_counts = self.similarity_df["best_match_class"].value_counts()
+        ax2.pie(best_counts, labels=best_counts.index, autopct='%1.1f%%')
+        ax2.set_title("Best Match Classification Distribution")
+
+        # 3. Bar chart of match percentage by class
+        ax3 = self.figure_morphology_metrics.add_subplot(gridspec[1, 0])
+        match_by_class = self.similarity_df.groupby(
+            "current_class")["matches_best"].mean() * 100
+        match_by_class.plot(kind='bar', ax=ax3)
+        ax3.set_title("Match Percentage by Class")
+        ax3.set_ylabel("Match Percentage (%)")
+        ax3.set_ylim(0, 100)
+
+        # 4. Text summary
+        ax4 = self.figure_morphology_metrics.add_subplot(gridspec[1, 1])
+        ax4.axis('off')
+        summary_text = f"""
+        Classification Analysis Summary:
+        
+        Total Cells: {len(self.similarity_df)}
+        Matching Current to Best: {match_percentage:.1f}%
+        
+        Ideal Examples Used:
+        """
+
+        for class_name, cell_id in self.ideal_examples.items():
+            if cell_id is not None:
+                summary_text += f"\n{class_name}: Cell #{cell_id}"
+
+        ax4.text(0, 0.5, summary_text, va='center')
+
+        # Adjust layout and draw
+        self.figure_morphology_metrics.tight_layout()
+        self.canvas_morphology_metrics.draw()
+
+        # Show result in a message box
+        QMessageBox.information(
+            self,
+            "Similarity Analysis",
+            f"Classification to Ideal Similarity Analysis Complete\n\n"
+            f"Overall match percentage: {match_percentage:.1f}%\n\n"
+            f"This indicates how well your current classification matches the 'ideal' examples."
+        )
+
+    def optimize_classification_parameters(self):
+        """
+        Optimize classification thresholds to maximize similarity to ideal examples.
+        """
+        if not hasattr(self, "ideal_metrics") or not self.ideal_metrics:
+            QMessageBox.warning(
+                self, "Error", "No ideal metrics defined. Please select ideal examples first.")
+            return
+
+        # Debug: Print original parameters
+        print("\n=== ORIGINAL DEFAULT PARAMETERS ===")
+        default_params = {
+            # Small cell parameters
+            "small_max_area": 1000,
+            "small_max_perimeter": 150,
+            "small_max_aspect_ratio": 3.0,
+
+            # Round cell parameters
+            "round_min_circularity": 0.8,
+            "round_max_aspect_ratio": 1.5,
+            "round_min_solidity": 0.9,
+
+            # Normal cell parameters
+            "normal_min_circularity": 0.6,
+            "normal_max_circularity": 0.8,
+            "normal_min_aspect_ratio": 1.5,
+            "normal_max_aspect_ratio": 3.0,
+            "normal_min_solidity": 0.85,
+
+            # Elongated cell parameters
+            "elongated_min_area": 3000,
+            "elongated_min_aspect_ratio": 5.0,
+            "elongated_max_circularity": 0.4,
+
+            # Deformed cell parameters (these are inverse of normal)
+            "deformed_max_circularity": 0.602,
+            "deformed_max_solidity": 0.731
+        }
+
+        for key, value in default_params.items():
+            print(f"{key}: {value}")
+
+        # Get current classification distribution
+        self.original_classification = {}
+        for cell_id, cell_data in self.cell_mapping.items():
+            if "metrics" in cell_data and "morphology_class" in cell_data["metrics"]:
+                self.original_classification[cell_id] = cell_data["metrics"]["morphology_class"]
+
+        # Debug: Print current classification distribution
+        class_counts = {}
+        for cls in self.original_classification.values():
+            class_counts[cls] = class_counts.get(cls, 0) + 1
+        print("\n=== CURRENT CLASSIFICATION DISTRIBUTION ===")
+        for cls, count in class_counts.items():
+            print(f"{cls}: {count} cells")
+
+        # Make sure cell mapping exists
+        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+            QMessageBox.warning(
+                self, "Error", "No cell data available. Please classify cells first.")
+            return
+
+        # Create progress dialog
+        progress = QProgressDialog(
+            "Optimizing classification parameters...", "Cancel", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
+
+        # Number of random parameter sets to try
+        num_trials = 100
+
+        # Parameter ranges to search
+        param_ranges = {
+            # Small cell parameters
+            "small_max_area": (500, 2000),
+            "small_max_perimeter": (50, 300),
+            "small_max_aspect_ratio": (2.0, 4.0),
+
+            # Round cell parameters
+            "round_min_circularity": (0.7, 0.9),
+            "round_max_aspect_ratio": (1.1, 2.0),
+            "round_min_solidity": (0.8, 1.0),
+
+            # Normal cell parameters
+            "normal_min_circularity": (0.4, 0.7),
+            "normal_max_circularity": (0.7, 0.9),
+            "normal_min_aspect_ratio": (1.2, 2.0),
+            "normal_max_aspect_ratio": (2.0, 4.0),
+            "normal_min_solidity": (0.8, 0.95),
+
+            # Elongated cell parameters
+            "elongated_min_area": (2000, 4000),
+            "elongated_min_aspect_ratio": (4.0, 7.0),
+            "elongated_max_circularity": (0.2, 0.5),
+
+            # Deformed cell parameters
+            "deformed_max_circularity": (0.4, 0.7),
+            "deformed_max_solidity": (0.7, 0.9)
+        }
+
+        best_match_percentage = 0
+        best_parameters = None
+        best_parameter_trial = -1
+
+        import random
+        import numpy as np
+
+        # Try multiple random parameter sets
+        for trial in range(num_trials):
+            # Update progress
+            progress.setValue(int((trial / num_trials) * 100))
+            if progress.wasCanceled():
+                break
+
+            # Generate random parameters within ranges
+            params = {}
+            for param_name, (min_val, max_val) in param_ranges.items():
+                params[param_name] = random.uniform(min_val, max_val)
+
+            # Make sure max > min for paired parameters
+            if params["normal_min_circularity"] > params["normal_max_circularity"]:
+                params["normal_min_circularity"], params["normal_max_circularity"] = \
+                    params["normal_max_circularity"], params["normal_min_circularity"]
+
+            if params["normal_min_aspect_ratio"] > params["normal_max_aspect_ratio"]:
+                params["normal_min_aspect_ratio"], params["normal_max_aspect_ratio"] = \
+                    params["normal_max_aspect_ratio"], params["normal_min_aspect_ratio"]
+
+            # Debug for first few trials
+            if trial < 3:
+                print(f"\n=== TRIAL {trial+1} PARAMETERS ===")
+                for key, value in params.items():
+                    print(f"{key}: {value:.2f}")
+
+            # Test parameters on all cells
+            matches = 0
+            total_cells = 0
+            classification_counts = {"Small": 0, "Round": 0,
+                                     "Normal": 0, "Elongated": 0, "Deformed": 0}
+
+            for cell_id, cell_data in self.cell_mapping.items():
+                total_cells += 1
+
+                # Get cell metrics
+                cell_metrics = cell_data["metrics"]
+
+                # Find which ideal example this cell is closest to
+                best_match_class = None
+                best_match_similarity = 0
+
+                for class_name, ideal_metrics in self.ideal_metrics.items():
+                    if not ideal_metrics:  # Skip if no ideal for this class
+                        continue
+
+                    # Calculate similarity to this ideal
+                    metrics_to_compare = ["area", "perimeter", "equivalent_diameter",
+                                          "aspect_ratio", "circularity", "solidity"]
+
+                    squared_diff_sum = 0
+                    valid_metrics = 0
+
+                    for metric in metrics_to_compare:
+                        if metric in cell_metrics and metric in ideal_metrics:
+                            cell_value = cell_metrics[metric]
+                            ideal_value = ideal_metrics[metric]
+
+                            if cell_value is not None and ideal_value is not None and ideal_value != 0:
+                                normalized_diff = (
+                                    cell_value - ideal_value) / ideal_value
+                                squared_diff_sum += normalized_diff ** 2
+                                valid_metrics += 1
+
+                    if valid_metrics > 0:
+                        distance = (squared_diff_sum / valid_metrics) ** 0.5
+                        similarity = 1 / (1 + distance)
+
+                        if similarity > best_match_similarity:
+                            best_match_similarity = similarity
+                            best_match_class = class_name
+
+                # Classify using current parameter set
+                classification = classify_morphology(cell_metrics, params)
+                classification_counts[classification] = classification_counts.get(
+                    classification, 0) + 1
+
+                # Check if classification matches best similarity
+                if classification == best_match_class:
+                    matches += 1
+
+            # Calculate match percentage
+            match_percentage = (matches / total_cells *
+                                100) if total_cells > 0 else 0
+
+            # Debug for a few trials
+            if trial < 3 or match_percentage > best_match_percentage:
+                print(f"\nTrial {trial+1} results:")
+                print(f"Match percentage: {match_percentage:.2f}%")
+                print("Classification distribution:")
+                for cls, count in classification_counts.items():
+                    print(f"  {cls}: {count} cells")
+
+            # Update best if this is better
+            if match_percentage > best_match_percentage:
+                best_match_percentage = match_percentage
+                best_parameters = params.copy()
+                best_parameter_trial = trial + 1
+
+        # Close progress dialog
+        progress.setValue(100)
+
+        # Debug: Print the best parameters
+        print("\n=== BEST PARAMETERS (Trial #{}) ===".format(best_parameter_trial))
+        if best_parameters:
+            for key, value in best_parameters.items():
+                print(f"{key}: {value:.3f}")
+
+        # Store best parameters
+        self.best_classification_parameters = best_parameters
+
+        # Simulate reclassification to see differences
+        new_classifications = {}
+        for cell_id, cell_data in self.cell_mapping.items():
+            cell_metrics = cell_data["metrics"]
+            new_class = classify_morphology(cell_metrics, best_parameters)
+            new_classifications[cell_id] = new_class
+
+        # Compare original vs new classifications
+        changes = 0
+        change_matrix = {}  # From -> To counts
+        for cell_id in self.original_classification:
+            original = self.original_classification[cell_id]
+            new = new_classifications[cell_id]
+
+            if original != new:
+                changes += 1
+                key = f"{original} -> {new}"
+                change_matrix[key] = change_matrix.get(key, 0) + 1
+
+        print(f"\n=== CLASSIFICATION CHANGES ===")
+        print(
+            f"Total cells that would change: {changes} out of {len(self.original_classification)}")
+        print("Change details:")
+        for change, count in change_matrix.items():
+            print(f"  {change}: {count} cells")
+
+        # Display results with detailed information
+        result_message = (
+            f"Optimization complete!\n\n"
+            f"Best match percentage: {best_match_percentage:.1f}%\n\n"
+            f"Changes if applied: {changes} of {len(self.original_classification)} cells\n"
+        )
+
+        # Add detail on most significant changes
+        if changes > 0:
+            result_message += "\nSignificant changes:\n"
+            for change, count in sorted(change_matrix.items(), key=lambda x: x[1], reverse=True)[:3]:
+                result_message += f"• {change}: {count} cells\n"
+
+        result_message += "\nWould you like to apply these optimized parameters?"
+
+        reply = QMessageBox.question(self, "Optimization Results", result_message,
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+
+        if reply == QMessageBox.Yes:
+            # Apply the optimized parameters and reclassify cells
+            self.apply_optimized_parameters(new_classifications)
+
+        # Return best parameters
+        return best_parameters, best_match_percentage
+
+    def apply_optimized_parameters(self, predicted_classifications=None):
+        """
+        Apply the optimized classification parameters to all cells.
+
+        Args:
+            predicted_classifications: Pre-calculated new classifications (optional)
+        """
+        if not hasattr(self, "best_classification_parameters"):
+            QMessageBox.warning(
+                self, "Error", "No optimized parameters available.")
+            return
+
+        # For tracking changes
+        change_count = 0
+        old_class_count = {"Small": 0, "Round": 0,
+                           "Normal": 0, "Elongated": 0, "Deformed": 0}
+        new_class_count = {"Small": 0, "Round": 0,
+                           "Normal": 0, "Elongated": 0, "Deformed": 0}
+
+        # Reclassify all cells using optimized parameters
+        for cell_id, cell_data in self.cell_mapping.items():
+            try:
+                # Get current class
+                old_class = cell_data["metrics"].get(
+                    "morphology_class", "Unknown")
+                old_class_count[old_class] = old_class_count.get(
+                    old_class, 0) + 1
+
+                # Get or calculate new class
+                if predicted_classifications and cell_id in predicted_classifications:
+                    new_class = predicted_classifications[cell_id]
+                else:
+                    cell_metrics = cell_data["metrics"]
+                    new_class = classify_morphology(
+                        cell_metrics, self.best_classification_parameters)
+
+                # Count change if different
+                if old_class != new_class:
+                    change_count += 1
+                    print(f"Cell {cell_id}: {old_class} -> {new_class}")
+
+                # Update classification
+                cell_data["metrics"]["morphology_class"] = new_class
+                new_class_count[new_class] = new_class_count.get(
+                    new_class, 0) + 1
+
+            except Exception as e:
+                print(f"Error reclassifying cell {cell_id}: {e}")
+
+        # Print summary of changes
+        print("\n=== CLASSIFICATION CHANGES APPLIED ===")
+        print(
+            f"Changed classification for {change_count} cells out of {len(self.cell_mapping)}")
+        print("\nBefore counts:")
+        for cls, count in old_class_count.items():
+            print(f"  {cls}: {count}")
+        print("\nAfter counts:")
+        for cls, count in new_class_count.items():
+            print(f"  {cls}: {count}")
+
+        # Update the metrics table if it's visible
+        if hasattr(self, "populate_metrics_table"):
+            print("Updating metrics table...")
+            self.populate_metrics_table()
+
+        # Update any visualization
+        if hasattr(self, "update_annotation_scatter"):
+            print("Updating annotation scatter...")
+            self.update_annotation_scatter()
+
+        # Display a detailed before/after comparison
+        self.display_classification_results(old_class_count, new_class_count)
+
+        QMessageBox.information(self, "Reclassification Complete",
+                                f"All cells have been reclassified using optimized parameters.\n\n"
+                                f"Changed classification for {change_count} cells out of {len(self.cell_mapping)}.")
+
+    def display_classification_results(self, before_counts, after_counts):
+        """
+        Display a chart comparing classification before and after optimization.
+
+        Args:
+            before_counts: Dictionary with counts before optimization
+            after_counts: Dictionary with counts after optimization
+        """
+        self.figure_morphology_metrics.clear()
+        ax = self.figure_morphology_metrics.add_subplot(111)
+
+        # Get all class labels
+        all_classes = sorted(
+            set(list(before_counts.keys()) + list(after_counts.keys())))
+
+        # Set up for bar chart
+        x = range(len(all_classes))
+        width = 0.35
+
+        # Create the bars
+        before_values = [before_counts.get(cls, 0) for cls in all_classes]
+        after_values = [after_counts.get(cls, 0) for cls in all_classes]
+
+        # Plot the bars
+        before_bars = ax.bar([i - width/2 for i in x],
+                             before_values, width, label='Before Optimization')
+        after_bars = ax.bar([i + width/2 for i in x],
+                            after_values, width, label='After Optimization')
+
+        # Add labels and titles
+        ax.set_xlabel('Morphology Class')
+        ax.set_ylabel('Cell Count')
+        ax.set_title('Cell Classification Before vs After Optimization')
+        ax.set_xticks(x)
+        ax.set_xticklabels(all_classes)
+        ax.legend()
+
+        # Add value labels on the bars
+        for i, v in enumerate(before_values):
+            ax.text(i - width/2, v + 0.5, str(v), ha='center')
+
+        for i, v in enumerate(after_values):
+            ax.text(i + width/2, v + 0.5, str(v), ha='center')
+
+        # Highlight differences
+        for i, (before, after) in enumerate(zip(before_values, after_values)):
+            if before != after:
+                diff = after - before
+                color = 'green' if diff > 0 else 'red'
+                ax.text(i, max(before, after) + 5, f"{'+' if diff > 0 else ''}{diff}",
+                        ha='center', color=color, fontweight='bold')
+
+        # Draw the plot
+        self.canvas_morphology_metrics.draw()
 
     def export_metrics_to_csv(self):
         """
@@ -1654,12 +2477,12 @@ class App(QMainWindow):
 
         cell_id = self.metrics_table.item(row, 0).text()
 
-        print(f"Row {row} clicked, Cell ID: {cell_id}")
+        # print(f"Row {row} clicked, Cell ID: {cell_id}")
 
         self.highlight_cell_in_image(cell_id)
 
     def highlight_cell_in_image(self, cell_id):
-        print(f"🔍 Highlighting cell with ID: {cell_id}")
+        # print(f"🔍 Highlighting cell with ID: {cell_id}")
 
         t = self.slider_t.value()
         p = self.slider_p.value()
@@ -1750,8 +2573,8 @@ class App(QMainWindow):
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
 
-        print(
-            f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1, y2, x2)}")
+        # print(
+        #     f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1, y2, x2)}")
 
     def highlight_selected_cell(self, cell_id, cache_key):
         """

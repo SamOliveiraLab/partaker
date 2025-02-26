@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from PySide6.QtWidgets import QMessageBox, QProgressDialog
+from PySide6.QtCore import Qt
 
 
 def extract_individual_cells(image, segmented_image):
@@ -45,41 +47,91 @@ def extract_individual_cells(image, segmented_image):
     return extracted_cells
 
 
-def classify_morphology(metrics):
+def classify_morphology(metrics, parameters=None):
     """
     Classify cell morphology based on its metrics.
 
     Parameters:
-    - metrics: dict, a dictionary containing cell metrics (area, aspect_ratio, circularity, perimeter, solidity, orientation).
+    - metrics: dict, a dictionary containing cell metrics
+    - parameters: dict, optional threshold parameters to use (for optimization)
 
     Returns:
-    - str, the morphology class (e.g., 'Small', 'Round', 'Normal', 'Elongated', 'Deformed').
+    - str, the morphology class (Small, Round, Normal, Elongated, Deformed)
     """
+    # Extract metrics
     area = metrics.get("area", 0)
     aspect_ratio = metrics.get("aspect_ratio", 0)
     circularity = metrics.get("circularity", 0)
     perimeter = metrics.get("perimeter", 0)
     solidity = metrics.get("solidity", 1)
-    orientation = metrics.get("orientation", 0)
+    equivalent_diameter = metrics.get("equivalent_diameter", 0)
 
-    # Small Cells
-    if area < 1500 and perimeter < 200 and aspect_ratio < 3:
+    # Default parameters
+    default_params = {
+        # Small cell parameters
+        "small_max_area": 1000,
+        "small_max_perimeter": 150,
+        "small_max_aspect_ratio": 3.0,
+
+        # Round cell parameters
+        "round_min_circularity": 0.8,
+        "round_max_aspect_ratio": 1.5,
+        "round_min_solidity": 0.9,
+
+        # Normal cell parameters
+        "normal_min_circularity": 0.6,
+        "normal_max_circularity": 0.8,
+        "normal_min_aspect_ratio": 1.5,
+        "normal_max_aspect_ratio": 3.0,
+        "normal_min_solidity": 0.85,
+
+        # Elongated cell parameters
+        "elongated_min_area": 3000,
+        "elongated_min_aspect_ratio": 5.0,
+        "elongated_max_circularity": 0.4,
+
+        # Deformed cell parameters (these are inverse of normal)
+        "deformed_max_circularity": 0.602,
+        "deformed_max_solidity": 0.731
+    }
+
+    # Use provided parameters if available, otherwise use defaults
+    params = parameters if parameters else default_params
+
+    # Classify cells based on thresholds
+
+    # Small Cells - small area, limited perimeter
+    if (area < params["small_max_area"] and
+        perimeter < params["small_max_perimeter"] and
+            aspect_ratio < params["small_max_aspect_ratio"]):
         return "Small"
 
-    elif 1500 <= area < 3000 and 0.85 <= solidity <= 0.95 and circularity > 0.6 and 3 <= aspect_ratio < 6:
-        return "Small"
+    # Round Cells - high circularity, low aspect ratio
+    elif (circularity >= params["round_min_circularity"] and
+          aspect_ratio <= params["round_max_aspect_ratio"] and
+          solidity >= params["round_min_solidity"]):
+        return "Round"
 
-    # Normal Cells
-    elif 0.7 <= circularity <= 0.9 and 1.2 <= aspect_ratio < 3 and 0.9 <= solidity <= 1.0:
+    # Normal Cells - balanced circularity, aspect ratio, and solidity
+    elif (params["normal_min_circularity"] <= circularity <= params["normal_max_circularity"] and
+          params["normal_min_aspect_ratio"] <= aspect_ratio <= params["normal_max_aspect_ratio"] and
+          solidity >= params["normal_min_solidity"]):
         return "Normal"
 
-    # Elongated Cells
-    elif area >= 3000 and aspect_ratio >= 6 and circularity < 0.3:
+    # Elongated Cells - large area, high aspect ratio
+    elif (area >= params["elongated_min_area"] and
+          aspect_ratio >= params["elongated_min_aspect_ratio"] and
+          circularity <= params["elongated_max_circularity"]):
         return "Elongated"
 
-    # Deformed Cells
+    # Deformed Cells - low circularity and solidity
+    elif (circularity <= params["deformed_max_circularity"] and
+          solidity <= params["deformed_max_solidity"]):
+        return "Deformed"
+
+    # Default case
     else:
-        return "Normal"
+        return "Normal"  # Default to normal if no other criteria match
 
 
 def extract_cells_and_metrics(image, segmented_image):
