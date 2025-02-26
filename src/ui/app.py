@@ -1299,35 +1299,12 @@ class App(QMainWindow):
     def initMorphologyVisualizationTab(self):
         layout = QVBoxLayout(self.morphologyVisualizationTab)
 
-        # Dropdowns to select X and Y metrics
-        self.x_metric_dropdown = QComboBox()
-        self.y_metric_dropdown = QComboBox()
-        metrics_list = [
-            "area", "perimeter", "aspect_ratio", "circularity", "solidity",
-            "equivalent_diameter", "orientation"
-        ]
-        self.x_metric_dropdown.addItems(metrics_list)
-        self.y_metric_dropdown.addItems(metrics_list)
-
-        # Layout for dropdowns
-        dropdown_layout = QHBoxLayout()
-        dropdown_layout.addWidget(QLabel("X-axis Metric:"))
-        dropdown_layout.addWidget(self.x_metric_dropdown)
-        dropdown_layout.addWidget(QLabel("Y-axis Metric:"))
-        dropdown_layout.addWidget(self.y_metric_dropdown)
-
-        layout.addLayout(dropdown_layout)
-
         # Button layout for actions
         button_layout = QHBoxLayout()
 
-        # Button to trigger plotting
-        plot_button = QPushButton("Plot Metrics")
-        plot_button.clicked.connect(self.plot_morphology_metrics)
-        button_layout.addWidget(plot_button)
 
         # Add the ideal examples button
-        ideal_button = QPushButton("Select Ideal Cell Examples")
+        ideal_button = QPushButton("Select Ideal Cells")
         ideal_button.clicked.connect(self.select_ideal_examples)
         button_layout.addWidget(ideal_button)
 
@@ -2251,62 +2228,6 @@ class App(QMainWindow):
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
-
-    def plot_morphology_metrics(self):
-        x_metric = self.x_metric_dropdown.currentText()
-        y_metric = self.y_metric_dropdown.currentText()
-
-        # Check if segmentation and metrics are available
-        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-            QMessageBox.warning(
-                self,
-                "Error",
-                "No cell data available for plotting. Please classify cells first.")
-            return
-
-        # Extract data for selected metrics directly from cell_mapping
-        x_data = [data["metrics"].get(x_metric, np.nan)
-                  for data in self.cell_mapping.values()]
-        y_data = [data["metrics"].get(y_metric, np.nan)
-                  for data in self.cell_mapping.values()]
-
-        # Convert data to numeric and handle non-numeric values
-        x_data = pd.to_numeric(x_data, errors='coerce')
-        y_data = pd.to_numeric(y_data, errors='coerce')
-
-        # Filter out NaNs
-        valid_indices = ~(pd.isna(x_data) | pd.isna(y_data))
-        x_data = x_data[valid_indices]
-        y_data = y_data[valid_indices]
-
-        # Apply KMeans clustering
-        if len(x_data) > 0 and len(y_data) > 0:
-            kmeans = KMeans(n_clusters=5, random_state=42, n_init=10)
-            clusters = kmeans.fit_predict(np.column_stack((x_data, y_data)))
-            centroids = kmeans.cluster_centers_
-
-            # Plotting the clustered data
-            self.figure_morphology_metrics.clear()
-            ax = self.figure_morphology_metrics.add_subplot(111)
-
-            scatter = ax.scatter(
-                x_data,
-                y_data,
-                c=clusters,
-                cmap='viridis',
-                s=50,
-                edgecolor='w')
-            ax.scatter(centroids[:, 0], centroids[:, 1],
-                       c='red', marker='X', s=200, label='Centroids')
-            ax.set_title(
-                f"{x_metric.capitalize()} vs {y_metric.capitalize()} with Clustering")
-            ax.set_xlabel(x_metric.capitalize())
-            ax.set_ylabel(y_metric.capitalize())
-            ax.legend()
-
-            self.canvas_morphology_metrics.draw()
-        else:
-            QMessageBox.warning(self, "Error", "No valid data to plot.")
 
     def segment_this_p(self):
         p = self.slider_p.value()
