@@ -1067,7 +1067,7 @@ class App(QMainWindow):
             return
 
         # Debugging
-        print(f"✅ Stored Cell Mapping: {list(self.cell_mapping.keys())}")
+        # print(f"✅ Stored Cell Mapping: {list(self.cell_mapping.keys())}")
 
         # Annotate the binary segmented image
         self.annotated_image = annotate_binary_mask(
@@ -1626,7 +1626,7 @@ class App(QMainWindow):
                     index = ind["ind"][0]
                     selected_id = int(pca_df.iloc[index]["ID"])
                     cell_class = pca_df.iloc[index]["Class"]
-                    self.highlight_cell_in_image(selected_id, cell_class)
+                    self.highlight_cell_in_image(selected_id)
 
         self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
         self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
@@ -1658,65 +1658,97 @@ class App(QMainWindow):
 
         self.highlight_cell_in_image(cell_id)
 
+    
+    
     def highlight_cell_in_image(self, cell_id):
         print(f"🔍 Highlighting cell with ID: {cell_id}")
-
+        
         t = self.slider_t.value()
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
-
+        
+        # Get the binary segmentation
         segmented_image = self.image_data.seg_cache[t, p, c]
+        
         if segmented_image is None:
-            QMessageBox.warning(self, "Segmentation Error",
-                                "No segmented image available.")
+            QMessageBox.warning(self, "Error", "Segmented image not found.")
             return
-
-        # Convert segmentation to color image for visualization
-        highlighted_image = cv2.cvtColor(
-            (segmented_image > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
-
-        # Ensure the cell ID is an integer
+        
+        # Debug info
+        unique_labels = np.unique(segmented_image)
+        # print(f"🔍 Unique labels in segmented image: {unique_labels}")
+        
+        # Ensure cell ID is an integer
         cell_id = int(cell_id)
-
+        
         # Ensure stored cell mappings exist
         if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-            QMessageBox.warning(
-                self, "Error", "No stored cell mappings found. Did you classify cells first?")
+            QMessageBox.warning(self, "Error", "No stored cell mappings found. Did you classify cells first?")
             return
-
-        # Ensure all keys are integers
+        
         available_ids = list(map(int, self.cell_mapping.keys()))
-        print(f"📝 Available Segmentation Cell IDs: {available_ids}")
-
+        # print(f"📝 Available Segmentation Cell IDs: {available_ids}")
+        
         if cell_id not in available_ids:
-            QMessageBox.warning(
-                self, "Error", f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
+            QMessageBox.warning(self, "Error", f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
             return
-
-        # Draw bounding box only for the selected cell
+        
+        # Get the bounding box coordinates for the selected cell
         y1, x1, y2, x2 = self.cell_mapping[cell_id]["bbox"]
-        cv2.rectangle(highlighted_image, (x1, y1),
-                      (x2, y2), (0, 0, 255), 2)  # Red box
-        cv2.putText(highlighted_image, str(cell_id), (x1, y1 - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-
-        # Convert image to QPixmap and display
-        height, width = highlighted_image.shape[:2]
-        qimage = QImage(
-            highlighted_image.data,
-            width,
-            height,
-            highlighted_image.strides[0],
-            QImage.Format_RGB888,
-        )
-
-        pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
+        
+        # Create a visualization of the segmented image
+        # Convert binary segmentation to RGB for visualization
+        segmented_rgb = cv2.cvtColor((segmented_image > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
+        
+        # Create a mask for just this cell based on the bounding box
+        cell_mask = np.zeros_like(segmented_image, dtype=np.uint8)
+        
+        # Extract the region of interest from the segmentation
+        roi = segmented_image[y1:y2, x1:x2]
+        
+        # If there are cells in the ROI, isolate the main one
+        if roi.max() > 0:
+            # Use connected components to find distinct objects in the ROI
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(roi, connectivity=8)
+            
+            # Find the largest component (excluding background)
+            largest_label = 1  # Default to first label
+            largest_area = 0
+            
+            for label in range(1, num_labels):  # Skip background (0)
+                area = stats[label, cv2.CC_STAT_AREA]
+                if area > largest_area:
+                    largest_area = area
+                    largest_label = label
+            
+            # Create mask for the largest component
+            roi_mask = (labels == largest_label).astype(np.uint8) * 255
+            
+            # Place the ROI mask back in the full image mask
+            cell_mask[y1:y2, x1:x2] = roi_mask
+        
+        # Highlight the cell in red on the segmented image
+        segmented_rgb[cell_mask > 0] = [0, 0, 255]  # BGR format - Red
+        
+        # Also draw the bounding box in blue
+        cv2.rectangle(segmented_rgb, (x1, y1), (x2, y2), (255, 0, 0), 1)  # Blue rectangle
+        
+        # Add cell ID text
+        cv2.putText(segmented_rgb, str(cell_id), (x1, y1 - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)  # Green text
+        
+        # Convert to QImage and display
+        height, width = segmented_rgb.shape[:2]
+        bytes_per_line = 3 * width
+        
+        qimage = QImage(segmented_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimage).scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
-
-        print(f"✅ Highlighted cell {cell_id} at {y1, x1, y2, x2}")
-
+        
+        print(f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1, y2, x2)}")
+    
+    
+    
     def highlight_selected_cell(self, cell_id, cache_key):
         """
         Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
