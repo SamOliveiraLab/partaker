@@ -655,57 +655,84 @@ class App(QMainWindow):
 
     def track_cells_over_time(self):
         """
-        Tracks segmented cells over time and visualizes trajectories.
+        Tracks cells over time using BayesianTracker (btrack) and visualizes the results.
         """
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
-
+        
         if not self.image_data.is_nd2:
-            QMessageBox.warning(
-                self, "Error", "Tracking requires an ND2 dataset.")
+            QMessageBox.warning(self, "Error", "Tracking requires an ND2 dataset.")
             return
-
+        
         try:
             t = self.dimensions["T"]  # Get total number of frames
-
-            # Extract segmented images for all time points
-            segmented_imgs = np.array([
-                self.image_data.segmentation_cache[(i, p, c)] for i in range(t)
-                if (i, p, c) in self.image_data.segmentation_cache
-            ])
-
-            print(f"Segmented Images Shape: {segmented_imgs.shape}")
-
-            if segmented_imgs.size == 0:
-                QMessageBox.warning(
-                    self, "Error", "No segmented images found for tracking.")
+            
+            # Use seg_cache for consistency with the rest of the application
+            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
+            
+            # Create an array to store labeled images (not binary)
+            labeled_frames = []
+            
+            # Progress dialog
+            progress = QProgressDialog("Processing frames for tracking...", "Cancel", 0, t, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+            
+            # Process each frame to create labeled images
+            for i in range(t):
+                progress.setValue(i)
+                if progress.wasCanceled():
+                    break
+                    
+                # Get segmentation from cache
+                segmented = self.image_data.seg_cache[i, p, c]
+                
+                if segmented is not None:
+                    # Convert binary segmentation to labeled regions
+                    labeled = label(segmented)
+                    labeled_frames.append(labeled)
+                
+                if (i+1) % 10 == 0:
+                    print(f"Processed {i+1}/{t} frames")
+            
+            progress.setValue(t)
+            
+            # Convert to 3D numpy array (time, height, width)
+            labeled_frames = np.array(labeled_frames)
+            
+            if labeled_frames.size == 0:
+                QMessageBox.warning(self, "Error", "No valid segmented frames found.")
                 return
-
-            # Ensure the segmented images are binary
-            segmented_imgs = (segmented_imgs > 0).astype(np.uint8) * 255
-
+                
+            print(f"Labeled frames shape: {labeled_frames.shape}")
+            
             # Run cell tracking
-            self.tracked_cells = track_cells(segmented_imgs)
-
-            # Debug: Check structure of tracked cells
-            for track in self.tracked_cells:
-                print(
-                    f"Track ID: {track['ID']}, X: {track['x']}, Y: {track['y']}")
-
-            QMessageBox.information(
-                self,
-                "Tracking Complete",
-                "Cell tracking completed successfully.")
-
+            self.tracked_cells = track_cells(labeled_frames)
+            
+            # Convert track objects to the expected dictionary format if needed
+            if hasattr(self.tracked_cells[0], 'ID') and not isinstance(self.tracked_cells[0], dict):
+                dict_tracks = []
+                for track in self.tracked_cells:
+                    dict_tracks.append({
+                        'ID': track.ID,
+                        'x': track.x,
+                        'y': track.y,
+                        't': track.t if hasattr(track, 't') else range(len(track.x))
+                    })
+                self.tracked_cells = dict_tracks
+            
+            QMessageBox.information(self, "Tracking Complete", 
+                                f"Successfully tracked {len(self.tracked_cells)} cells.")
+            
             # Plot tracking results
             self.visualize_tracking(self.tracked_cells)
-
+            
         except Exception as e:
-            QMessageBox.warning(
-                self,
-                "Tracking Error",
-                f"Failed to track cells: {e}")
-
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, "Tracking Error", f"Failed to track cells: {str(e)}")
+    
+    
     def visualize_tracking(self, tracks):
         """
         Visualizes the tracked cells as trajectories over time.
