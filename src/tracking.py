@@ -14,12 +14,12 @@ def track_cells(segmented_images):
     Parameters:
     -----------
     segmented_images : np.ndarray
-        3D array (time, height, width) of labeled segmented images (each cell has a unique label).
+        3D array (time, height, width) of labeled segmented images (each cell should have a unique label).
 
     Returns:
     --------
     list
-        A list of tracked cell objects.
+        A list of dictionaries containing track information (ID, x, y, t).
     """
     FEATURES = [
         "area",
@@ -36,6 +36,15 @@ def track_cells(segmented_images):
 
     if np.isnan(segmented_images).any() or np.isinf(segmented_images).any():
         raise ValueError("Segmented images contain NaN or Inf values.")
+    
+    # Check if images are binary and convert to labeled if needed
+    if set(np.unique(segmented_images)).issubset({0, 255}):
+        print("Converting binary masks to labeled images...")
+        from skimage.measure import label
+        labeled_images = np.zeros_like(segmented_images)
+        for i in range(segmented_images.shape[0]):
+            labeled_images[i] = label(segmented_images[i] > 0)
+        segmented_images = labeled_images
 
     # Convert segmented images to btrack objects
     try:
@@ -94,9 +103,21 @@ def track_cells(segmented_images):
     except Exception as e:
         raise RuntimeError(f"Failed to track cells: {e}")
 
-    print("Tracks returned from track_cells:", tracks)
-    print("Type of returned tracks:", type(tracks))
-    return tracks  # Make sure it’s returning exactly what you expect
+    # Convert tracks to dictionary format for compatibility with visualization
+    dict_tracks = []
+    for track in tracks:
+        # Extract track data
+        track_dict = {
+            'ID': track.ID,
+            'x': [pos.x for pos in track.data],
+            'y': [pos.y for pos in track.data],
+            't': [pos.t for pos in track.data]
+        }
+        dict_tracks.append(track_dict)
+
+    print(f"Converted {len(dict_tracks)} tracks to dictionary format")
+    return dict_tracks
+
 
 
 def overlay_tracks_on_images(segmented_images, tracks, save_video=False, output_path="tracked_cells.mp4"):
