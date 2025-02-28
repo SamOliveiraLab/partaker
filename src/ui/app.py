@@ -90,7 +90,7 @@ class MorphologyWorker(QObject):
         self.num_frames = num_frames
         self.position = position
         self.channel = channel
-        self.metrics_table.itemClicked.connect(self.on_table_item_click)
+        # self.metrics_table.itemClicked.connect(self.on_table_item_click)
         self.cell_mapping = {}
 
     def run(self):
@@ -108,10 +108,7 @@ class MorphologyWorker(QObject):
 
                 t, p, c = (t, self.position, self.channel)
 
-                model_type = 'bact_phase_cp3' if self.channel in (
-                    0, None) else 'bact_fluor_cp3'
-                binary_image = self.image_data.seg_cache.with_model(
-                    SegmentationModels.CELLPOSE, model_type)[t, p, c]
+                binary_image = self.image_data.seg_cache[t, p, c]
 
                 # Validate segmentation result
                 if binary_image is None or binary_image.sum() == 0:
@@ -120,18 +117,25 @@ class MorphologyWorker(QObject):
                     continue
 
                 # Extract morphology metrics
-                metrics = extract_cell_morphologies(binary_image)
+                cell_mapping = extract_cells_and_metrics(
+                    self.image_frames[t], binary_image)
+
+                # Then convert the cell_mapping to a metrics dataframe
+                metrics_list = [data["metrics"] for data in cell_mapping.values()]
+                metrics = pd.DataFrame(metrics_list)
 
                 if not metrics.empty:
                     total_cells = len(metrics)
 
                     # Calculate Morphology Fractions
-                    morphology_counts = metrics["morphology_class"].value_counts(
-                        normalize=True)
+                    morphology_counts = metrics["morphology_class"].value_counts(normalize=True)
                     fractions = morphology_counts.to_dict()
 
-                    # Save results for this frame
-                    results[t] = {"fractions": fractions}
+                    # Save results for this frame, including the raw metrics
+                    results[t] = {
+                        "fractions": fractions,
+                        "metrics": metrics  # Include the full metrics dataframe
+                    }
                 else:
                     print(
                         f"Frame {t}: Metrics computation returned no valid data.")
@@ -450,7 +454,7 @@ class App(QMainWindow):
             # Extract and cache morphology metrics if not already cached
             metrics_key = cache_key + ('metrics',)
             if metrics_key not in self.image_data.segmentation_cache:
-                print(f"Extracting morphology metrics for T={t}, P={p}, C={c}")
+                # print(f"Extracting morphology metrics for T={t}, P={p}, C={c}")
                 metrics = extract_cell_morphologies(image_data)
                 self.image_data.segmentation_cache[metrics_key] = metrics
 
@@ -684,76 +688,98 @@ class App(QMainWindow):
         try:
             t = self.dimensions["T"]  # Get total number of frames
             
-            # Use seg_cache for consistency with the rest of the application
-            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
-            
-            # Create an array to store labeled images (not binary)
-            labeled_frames = []
-            
-            # Progress dialog
-            progress = QProgressDialog("Processing frames for tracking...", "Cancel", 0, t, self)
+            # Create a progress dialog
+            progress = QProgressDialog("Preparing frames for tracking...", "Cancel", 0, t, self)
             progress.setWindowModality(Qt.WindowModal)
             progress.show()
             
+            # Use seg_cache for consistency with the rest of the application
+            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
+            
+            # Create an array to store labeled images
+            labeled_frames = []
+            
             # Process each frame to create labeled images
             for i in range(t):
-                progress.setValue(i)
                 if progress.wasCanceled():
-                    break
+                    return
                     
+                progress.setValue(i)
+                
                 # Get segmentation from cache
                 segmented = self.image_data.seg_cache[i, p, c]
                 
                 if segmented is not None:
                     # Convert binary segmentation to labeled regions
+                    from skimage.measure import label
                     labeled = label(segmented)
                     labeled_frames.append(labeled)
-                
-                if (i+1) % 10 == 0:
-                    print(f"Processed {i+1}/{t} frames")
             
             progress.setValue(t)
             
-            # Convert to 3D numpy array (time, height, width)
-            labeled_frames = np.array(labeled_frames)
-            
-            if labeled_frames.size == 0:
-                QMessageBox.warning(self, "Error", "No valid segmented frames found.")
+            if not labeled_frames:
+                QMessageBox.warning(self, "Error", "No segmented frames found for tracking.")
                 return
                 
-            print(f"Labeled frames shape: {labeled_frames.shape}")
+            # Convert to numpy array
+            labeled_frames = np.array(labeled_frames)
+            print(f"Prepared {len(labeled_frames)} frames for tracking")
+            
+            # Update progress dialog
+            progress.setLabelText("Running cell tracking...")
+            progress.setValue(0)
+            progress.setMaximum(100)
             
             # Run cell tracking
-            self.tracked_cells = track_cells(labeled_frames)
+            all_tracks = track_cells(labeled_frames)
             
-            # Convert track objects to the expected dictionary format if needed
-            if hasattr(self.tracked_cells[0], 'ID') and not isinstance(self.tracked_cells[0], dict):
-                dict_tracks = []
-                for track in self.tracked_cells:
-                    dict_tracks.append({
-                        'ID': track.ID,
-                        'x': track.x,
-                        'y': track.y,
-                        't': track.t if hasattr(track, 't') else range(len(track.x))
-                    })
-                self.tracked_cells = dict_tracks
+            # The tracks are already dictionaries, so we don't need to convert them
             
-            QMessageBox.information(self, "Tracking Complete", 
-                                f"Successfully tracked {len(self.tracked_cells)} cells.")
+            # Filter tracks - only keep those spanning a minimum number of frames
+            MIN_TRACK_LENGTH = 5  # Only keep tracks that span at least 5 frames
+            filtered_tracks = [track for track in all_tracks if len(track['x']) >= MIN_TRACK_LENGTH]
             
-            # Plot tracking results
+            # Sort tracks by length (longest first)
+            filtered_tracks.sort(key=lambda track: len(track['x']), reverse=True)
+            
+            # Keep only the top N longest tracks for visualization
+            MAX_TRACKS_TO_DISPLAY = 30
+            display_tracks = filtered_tracks[:MAX_TRACKS_TO_DISPLAY]
+            
+            # Calculate statistics for reporting
+            total_tracks = len(all_tracks)
+            long_tracks = len(filtered_tracks)
+            displayed_tracks = len(display_tracks)
+            
+            # Store the filtered tracks for visualization
+            self.tracked_cells = display_tracks
+            
+            # Show information about the tracking results
+            QMessageBox.information(
+                self, 
+                "Tracking Complete",
+                f"Cell tracking completed successfully.\n\n"
+                f"Total tracks detected: {total_tracks}\n"
+                f"Tracks spanning {MIN_TRACK_LENGTH}+ frames: {long_tracks}\n"
+                f"Tracks displayed: {displayed_tracks}"
+            )
+            
+            # Visualize the tracking results
             self.visualize_tracking(self.tracked_cells)
             
         except Exception as e:
             import traceback
             traceback.print_exc()
-            QMessageBox.warning(self, "Tracking Error", f"Failed to track cells: {str(e)}")
-    
+            QMessageBox.warning(
+                self,
+                "Tracking Error",
+                f"Failed to track cells: {str(e)}"
+            )
     
     def visualize_tracking(self, tracks):
         """
         Visualizes the tracked cells as trajectories over time.
-
+        
         Parameters:
         -----------
         tracks : list
@@ -762,17 +788,17 @@ class App(QMainWindow):
         if not tracks:
             print("No valid tracking data to visualize.")
             return
-
+        
         self.figure_morphology_fractions.clear()
         ax = self.figure_morphology_fractions.add_subplot(111)
-
+        
         # Create a colormap for the tracks
         import matplotlib.cm as cm
         from matplotlib.colors import Normalize
-
+        
         # Use a colormap that's easier to distinguish
         cmap = cm.get_cmap('tab20', min(20, len(tracks)))
-
+        
         # Calculate displacement for each track
         track_displacements = []
         for track in tracks:
@@ -780,64 +806,61 @@ class App(QMainWindow):
                 # Calculate total displacement (Euclidean distance from start to end)
                 start_x, start_y = track['x'][0], track['y'][0]
                 end_x, end_y = track['x'][-1], track['y'][-1]
-                displacement = np.sqrt(
-                    (end_x - start_x)**2 + (end_y - start_y)**2)
+                displacement = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
                 track_displacements.append(displacement)
             else:
                 track_displacements.append(0)
-
+        
         # Sort tracks by displacement (most movement first)
         sorted_indices = np.argsort(track_displacements)[::-1]
         sorted_tracks = [tracks[i] for i in sorted_indices]
-
+        
         # Plot each track with its own color
         for i, track in enumerate(sorted_tracks):
             # Get track data
             x_coords = track['x']
             y_coords = track['y']
             track_id = track['ID']
-
+            
             # Get color from colormap
             color = cmap(i % 20)
-
+            
             # Plot trajectory
-            ax.plot(x_coords, y_coords, marker='.', markersize=3,
+            ax.plot(x_coords, y_coords, marker='.', markersize=3, 
                     linewidth=1, color=color, label=f'Track {track_id}')
-
+            
             # Mark start and end points
-            ax.plot(x_coords[0], y_coords[0], 'o',
-                    color=color, markersize=6)  # Start
-            ax.plot(x_coords[-1], y_coords[-1], 's',
-                    color=color, markersize=6)  # End
-
+            ax.plot(x_coords[0], y_coords[0], 'o', color=color, markersize=6)  # Start
+            ax.plot(x_coords[-1], y_coords[-1], 's', color=color, markersize=6)  # End
+        
         # Add labels and title
         ax.set_title('Cell Trajectories Over Time')
         ax.set_xlabel('X Coordinate')
         ax.set_ylabel('Y Coordinate')
-
+        
         # Add legend with a reasonable number of entries
         if len(tracks) > 10:
             # For lots of tracks, show just a subset in the legend
             ax.legend(ncol=2, fontsize='small', loc='upper right')
         else:
             ax.legend(loc='best')
-
+        
         # Add statistics to the plot
         stats_text = f"Displaying top {len(tracks)} tracks\n"
-
+        
         # Calculate some statistics
         avg_displacement = np.mean(track_displacements[:len(tracks)])
         max_displacement = np.max(track_displacements[:len(tracks)])
-
+        
         stats_text += f"Avg displacement: {avg_displacement:.1f}px\n"
         stats_text += f"Max displacement: {max_displacement:.1f}px"
-
-        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes,
+        
+        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes, 
                 bbox=dict(facecolor='white', alpha=0.7), verticalalignment='bottom')
-
+        
         # Draw the plot
         self.canvas_morphology_fractions.draw()
-
+    
     def overlay_tracks_on_images(self):
         """
         Overlays tracking trajectories on the segmented images and creates a video.
@@ -902,7 +925,7 @@ class App(QMainWindow):
                 save_video=True,
                 output_path=output_path,
                 show_frames=False,  # Don't show frames in matplotlib
-                max_tracks=30,      # Limit to 30 tracks
+                max_tracks=100,      # Limit to 30 tracks
                 progress_callback=update_progress
             )
 
@@ -1432,6 +1455,7 @@ class App(QMainWindow):
         try:
             # Extract image data for all time points
             t = self.dimensions["T"]  # Get the total number of time points
+            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
             if "C" in self.dimensions:
                 image_data = np.array(
                     self.image_data.data[0:t, p, c, :, :].compute()
@@ -1489,6 +1513,7 @@ class App(QMainWindow):
 
         self.thread.start()
 
+    
     def handle_results(self, results):
         if not results:
             QMessageBox.warning(
@@ -1497,56 +1522,105 @@ class App(QMainWindow):
                 "No valid results received. Please check the input data.")
             return
 
-        print("Results received successfully:", results)
-
         # Get all unique morphology classes across all frames
         all_morphologies = set()
         for frame_data in results.values():
             all_morphologies.update(frame_data["fractions"].keys())
 
-        # Initialize the dictionary with all possible morphology classes
-        morphology_fractions = {morphology: []
-                                for morphology in all_morphologies}
+        # Initialize dictionaries for both fractions and counts
+        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        morphology_counts = {morphology: [] for morphology in all_morphologies}
+        total_cells_per_frame = []
 
         # Get the maximum time point
         max_time = max(results.keys())
 
-        # Fill in the fractions for each time point, using 0.0 for missing
-        # classes
+        # Fill in the data for each time point
         for t in range(max_time + 1):
             if t in results:
                 frame_data = results[t]["fractions"]
+                
+                # Get raw counts from the metrics table when available
+                if "metrics" in results[t]:
+                    metrics_df = results[t]["metrics"]
+                    class_counts = metrics_df["morphology_class"].value_counts().to_dict()
+                    total_cells = len(metrics_df)
+                    
+                    # Print diagnostics for this frame
+                    print(f"Frame {t}: Total cells = {total_cells}")
+                    for morph_class, count in class_counts.items():
+                        print(f"  {morph_class}: {count} cells ({count/total_cells*100:.1f}%)")
+                else:
+                    class_counts = {morph: 0 for morph in all_morphologies}
+                    total_cells = 0
+                
+                # Store total cell count for this frame
+                total_cells_per_frame.append(total_cells)
+                
                 for morphology in all_morphologies:
                     # Get the fraction if present, otherwise use 0.0
                     fraction = frame_data.get(morphology, 0.0)
                     morphology_fractions[morphology].append(fraction)
+                    
+                    # Store the raw count
+                    count = class_counts.get(morphology, 0)
+                    morphology_counts[morphology].append(count)
             else:
                 # For frames with no data, append 0.0 for all morphologies
+                total_cells_per_frame.append(0)
                 for morphology in all_morphologies:
                     morphology_fractions[morphology].append(0.0)
+                    morphology_counts[morphology].append(0)
 
+        # Create a figure with two subplots - fractions and counts
         self.figure_morphology_fractions.clear()
-        ax2 = self.figure_morphology_fractions.add_subplot(111)
-
-        # Plot each morphology class with its corresponding color from
-        # self.morphology_colors_rgb
+        fig = self.figure_morphology_fractions
+        
+        # First subplot - fractions (as before)
+        ax1 = fig.add_subplot(2, 1, 1)
         for morphology, fractions in morphology_fractions.items():
             color = self.morphology_colors_rgb.get(
                 morphology, (0.5, 0.5, 0.5))  # Default to gray if color not found
-            ax2.plot(
-                range(
-                    len(fractions)),
+            ax1.plot(
+                range(len(fractions)),
                 fractions,
                 marker="o",
                 label=morphology,
                 color=color)
-
-        ax2.set_title("Morphology Fractions Over Time")
+        ax1.set_title("Morphology Fractions Over Time")
+        ax1.set_ylabel("Fraction")
+        ax1.legend()
+        
+        # Second subplot - raw counts
+        ax2 = fig.add_subplot(2, 1, 2)
+        for morphology, counts in morphology_counts.items():
+            color = self.morphology_colors_rgb.get(
+                morphology, (0.5, 0.5, 0.5))  # Default to gray if color not found
+            ax2.plot(
+                range(len(counts)),
+                counts,
+                marker="o",
+                label=morphology,
+                color=color)
+        ax2.set_title("Cell Counts By Morphology Over Time")
         ax2.set_xlabel("Time")
-        ax2.set_ylabel("Fraction")
-        ax2.legend()
+        ax2.set_ylabel("Count")
+        
+        # Plot total cell count on a separate axis
+        ax3 = ax2.twinx()
+        ax3.plot(range(len(total_cells_per_frame)), total_cells_per_frame, 
+                color='black', linestyle='--', label='Total Cells')
+        ax3.set_ylabel("Total Cell Count")
+        
+        # Add combined legend
+        lines1, labels1 = ax2.get_legend_handles_labels()
+        lines2, labels2 = ax3.get_legend_handles_labels()
+        ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+        
+        fig.tight_layout()
         self.canvas_morphology_fractions.draw()
-
+    
+    
     def handle_error(self, error_message):
         print(f"Error: {error_message}")
         QMessageBox.warning(self, "Processing Error", error_message)
