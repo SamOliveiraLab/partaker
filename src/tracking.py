@@ -110,11 +110,81 @@ def track_cells(segmented_images):
         # Extract track data
         track_dict = {
             'ID': track.ID,
-            'x': track.x,  # x is already a list/array property
-            'y': track.y,  # y is already a list/array property
+            'x': track.x,
+            'y': track.y,
             't': track.t if hasattr(track, 't') else list(range(len(track.x)))
         }
+        
+        # Add lineage information with validation
+        try:
+            # Only set parent if it's different from own ID
+            if hasattr(track, 'parent') and track.parent != track.ID:
+                track_dict['parent'] = track.parent
+            else:
+                track_dict['parent'] = None
+                
+            if hasattr(track, 'children') and track.children and len(track.children) > 0:
+                track_dict['children'] = track.children.copy()
+            else:
+                track_dict['children'] = []
+        except Exception as e:
+            print(f"Warning: Could not extract lineage for track {track.ID}: {e}")
+            track_dict['parent'] = None
+            track_dict['children'] = []
+        
         dict_tracks.append(track_dict)
+
+    # After extracting all tracks, implement a post-processing step to detect divisions
+    print("Post-processing tracks to infer cell divisions...")
+
+    # Create a map of track endpoints and startpoints
+    endpoints = {}
+    startpoints = {}
+
+    for track in dict_tracks:
+        track_id = track['ID']
+        
+        if len(track['t']) > 0:
+            # Record last position of the track
+            end_time = track['t'][-1]
+            end_x, end_y = track['x'][-1], track['y'][-1]
+            endpoints[track_id] = (end_time, end_x, end_y)
+            
+            # Record first position of the track
+            start_time = track['t'][0]
+            start_x, start_y = track['x'][0], track['y'][0]
+            startpoints[track_id] = (start_time, start_x, start_y)
+
+    # Infer parent-child relationships based on spatiotemporal proximity
+    for child_id, (start_time, start_x, start_y) in startpoints.items():
+        # Look for tracks that end just before this one starts
+        for parent_id, (end_time, end_x, end_y) in endpoints.items():
+            if parent_id == child_id:
+                continue  # Skip self
+                
+            # Check if the parent ends 0-1 frames before child starts
+            time_diff = start_time - end_time
+            if 0 <= time_diff <= 1:
+                # Calculate spatial distance
+                distance = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
+                
+                # If close enough, consider it a division
+                if distance < 30:  # 30 pixels threshold, adjust as needed
+                    # Get the track objects
+                    parent_track = next((t for t in dict_tracks if t['ID'] == parent_id), None)
+                    child_track = next((t for t in dict_tracks if t['ID'] == child_id), None)
+                    
+                    if parent_track and child_track:
+                        # Set parent-child relationship
+                        child_track['parent'] = parent_id
+                        parent_track['children'].append(child_id)
+                        print(f"Detected division: Track {parent_id} → Track {child_id}")
+
+    # Report division statistics
+    division_tracks = [t for t in dict_tracks if t['children']]
+    print(f"Detected {len(division_tracks)} tracks with divisions")
+    for track in division_tracks[:5]:  # Show first 5 division tracks
+        print(f"Track {track['ID']} divides into: {track['children']}")
 
     print(f"Converted {len(dict_tracks)} tracks to dictionary format")
     return dict_tracks
