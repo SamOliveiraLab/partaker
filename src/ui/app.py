@@ -635,7 +635,7 @@ class App(QMainWindow):
         tracking_buttons_layout.addWidget(self.track_button)
 
         # Button for lineage tracking
-        self.lineage_button = QPushButton("Track with Lineage")
+        self.lineage_button = QPushButton("Visualize Lineage Tree")
         self.lineage_button.clicked.connect(self.track_cells_with_lineage)
         tracking_buttons_layout.addWidget(self.lineage_button)
 
@@ -937,6 +937,7 @@ class App(QMainWindow):
             QMessageBox.warning(
                 self, "Error", f"Failed to create tracking video: {str(e)}")
 
+
     def track_cells_with_lineage(self):
         """
         Track cells over time with lineage detection and visualize both
@@ -999,10 +1000,9 @@ class App(QMainWindow):
             progress.setValue(0)
             progress.setMaximum(100)
 
-            # Call the improved tracking function with optimized parameters
+            # Call the tracking function without extra parameters
             from tracking import track_cells
-            all_tracks = track_cells(
-                labeled_frames, max_search_radius=75, max_lost_frames=10)
+            all_tracks = track_cells(labeled_frames)
 
             # Filter tracks - only keep those spanning a minimum number of frames
             MIN_TRACK_LENGTH = 5  # Only keep tracks that span at least 5 frames
@@ -1056,7 +1056,7 @@ class App(QMainWindow):
             )
 
             if reply == QMessageBox.Yes:
-                self.visualize_lineage()
+                self.show_lineage_dialog()
 
         except Exception as e:
             import traceback
@@ -1066,7 +1066,305 @@ class App(QMainWindow):
                 "Tracking Error",
                 f"Failed to track cells with lineage: {str(e)}"
             )
+    
+    def show_lineage_dialog(self):
+        """
+        Show dialog with options to visualize lineage trees
+        """
+        # Check if tracking has been performed
+        if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
+            QMessageBox.warning(
+                self, "Error", "No tracking data available. Run tracking with lineage first.")
+            return
+        
+        # Create a dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lineage Tree Visualization")
+        dialog.setMinimumWidth(600)
+        dialog.setMinimumHeight(700)
+        layout = QVBoxLayout(dialog)
+        
+        # Add description
+        info_label = QLabel(
+            "Select a visualization option below. Cell lineage trees show parent-child relationships.\n"
+            "Red nodes indicate cells that divide further, blue nodes are cells that don't divide."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # Create a horizontal layout for selection options
+        selection_layout = QHBoxLayout()
+        
+        # Option group
+        option_group = QButtonGroup(dialog)
+        
+        # Top trees option
+        top_radio = QRadioButton("Top 5 Largest Lineage Trees")
+        top_radio.setChecked(True)
+        option_group.addButton(top_radio)
+        selection_layout.addWidget(top_radio)
+        
+        # Individual cell option
+        cell_radio = QRadioButton("Specific Cell Lineage:")
+        option_group.addButton(cell_radio)
+        selection_layout.addWidget(cell_radio)
+        
+        # Dropdown for cell selection
+        cell_combo = QComboBox()
+        cell_combo.setEnabled(False)
+        selection_layout.addWidget(cell_combo)
+        
+        # Find dividing cells and add to dropdown
+        dividing_cells = []
+        for track in self.lineage_tracks:
+            if 'children' in track and track['children']:
+                dividing_cells.append(track['ID'])
+        
+        # Sort by ID for easier selection
+        dividing_cells.sort()
+        
+        # Add to dropdown
+        for cell_id in dividing_cells:
+            cell_combo.addItem(f"Cell {cell_id}")
+        
+        # Add selection layout
+        layout.addLayout(selection_layout)
+        
+        # Enable/disable combo box based on radio selection
+        def update_combo_state():
+            cell_combo.setEnabled(cell_radio.isChecked())
+        
+        top_radio.toggled.connect(update_combo_state)
+        cell_radio.toggled.connect(update_combo_state)
+        
+        # Matplotlib figure for preview
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+        
+        figure = Figure(figsize=(9, 6), tight_layout=True)
+        canvas = FigureCanvas(figure)
+        layout.addWidget(canvas)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        view_button = QPushButton("Visualize")
+        save_button = QPushButton("Save")
+        close_button = QPushButton("Close")
+        
+        button_layout.addWidget(view_button)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(close_button)
+        
+        layout.addLayout(button_layout)
+        
+        # Function to create visualization
+        def create_visualization():
+            import networkx as nx
+            figure.clear()
+            
+            if top_radio.isChecked():
+                # Create visualization of top 5 lineage trees
+                G = nx.DiGraph()
+                
+                # Add nodes and edges
+                for track in self.lineage_tracks:
+                    track_id = track['ID']
+                    
+                    # Add node with timing info
+                    G.add_node(track_id, 
+                            start_time=track['t'][0] if track['t'] else 0,
+                            end_time=track['t'][-1] if track['t'] else 0,
+                            duration=len(track['t']) if track['t'] else 0,
+                            divides=bool(track.get('children', [])))
+                    
+                    # Add edges for children
+                    if track.get('children'):
+                        for child_id in track['children']:
+                            G.add_edge(track_id, child_id)
+                
+                # Find connected components (separate lineage trees)
+                components = list(nx.weakly_connected_components(G))
+                print(f"Found {len(components)} separate lineage trees")
+                
+                # Get top 5 largest components
+                largest_components = sorted(components, key=len, reverse=True)[:5]
+                
+                # Create subplots
+                if largest_components:
+                    num_components = len(largest_components)
+                    for i, component in enumerate(largest_components):
+                        if num_components > 1:
+                            ax = figure.add_subplot(1, num_components, i+1)
+                        else:
+                            ax = figure.add_subplot(111)
+                        
+                        # Get subgraph for this component
+                        subgraph = G.subgraph(component)
+                        
+                        # Find root(s)
+                        roots = [n for n in subgraph.nodes() if subgraph.in_degree(n) == 0]
+                        if not roots:
+                            ax.text(0.5, 0.5, "No root node found", 
+                                    horizontalalignment='center', 
+                                    verticalalignment='center',
+                                    transform=ax.transAxes)
+                            continue
+                        
+                        # Create hierarchical layout
+                        try:
+                            # Try for a "tree" layout
+                            pos = hierarchy_pos(subgraph, roots[0])
+                        except:
+                            # Fall back to spring layout
+                            pos = nx.spring_layout(subgraph, seed=42)
+                        
+                        # Draw nodes with color based on whether they divide
+                        node_colors = ['red' if subgraph.nodes[n]['divides'] else 'blue' 
+                                    for n in subgraph.nodes()]
+                        
+                        # Size nodes based on track duration
+                        node_sizes = [max(100, subgraph.nodes[n]['duration'] * 10) 
+                                    for n in subgraph.nodes()]
+                        
+                        # Draw the graph
+                        nx.draw_networkx_nodes(subgraph, pos, node_size=node_sizes, 
+                                            node_color=node_colors, alpha=0.8, ax=ax)
+                        nx.draw_networkx_edges(subgraph, pos, edge_color='gray',
+                                            arrows=True, arrowstyle='-|>', ax=ax)
+                        nx.draw_networkx_labels(subgraph, pos, font_size=8, ax=ax)
+                        
+                        ax.set_title(f"Lineage Tree {i+1}\n({len(component)} cells)")
+                        ax.axis('off')
+                else:
+                    ax = figure.add_subplot(111)
+                    ax.text(0.5, 0.5, "No lineage trees found", 
+                            horizontalalignment='center', 
+                            verticalalignment='center',
+                            transform=ax.transAxes)
+            
+            else:  # Specific cell selected
+                if not cell_combo.currentText():
+                    return
+                    
+                # Get selected cell ID
+                cell_id = int(cell_combo.currentText().replace("Cell ", ""))
+                
+                # Create a subgraph for this cell's lineage
+                G = nx.DiGraph()
+                
+                # Find this cell and all its descendants
+                def add_descendants(cell_id):
+                    track = next((t for t in self.lineage_tracks if t['ID'] == cell_id), None)
+                    if not track:
+                        return
+                    
+                    # Add this cell
+                    G.add_node(cell_id, 
+                            start_time=track['t'][0] if track['t'] else 0,
+                            end_time=track['t'][-1] if track['t'] else 0,
+                            duration=len(track['t']) if track['t'] else 0,
+                            divides=bool(track.get('children', [])))
+                    
+                    # Add all children recursively
+                    if track.get('children'):
+                        for child_id in track['children']:
+                            G.add_edge(cell_id, child_id)
+                            add_descendants(child_id)
+                
+                # Start with the selected cell
+                add_descendants(cell_id)
+                
+                # Create a single plot
+                ax = figure.add_subplot(111)
+                
+                if len(G.nodes()) > 0:
+                    # Create hierarchical layout
+                    try:
+                        pos = hierarchy_pos(G, cell_id)
+                    except:
+                        pos = nx.spring_layout(G, seed=42)
+                    
+                    # Draw nodes with color based on whether they divide
+                    node_colors = ['red' if G.nodes[n]['divides'] else 'blue' 
+                                for n in G.nodes()]
+                    
+                    # Size nodes based on track duration
+                    node_sizes = [max(100, G.nodes[n]['duration'] * 10) 
+                                for n in G.nodes()]
+                    
+                    # Draw the graph
+                    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, 
+                                        node_color=node_colors, alpha=0.8, ax=ax)
+                    nx.draw_networkx_edges(G, pos, edge_color='gray',
+                                        arrows=True, arrowstyle='-|>', ax=ax)
+                    nx.draw_networkx_labels(G, pos, font_size=8, ax=ax)
+                    
+                    ax.set_title(f"Lineage Tree for Cell {cell_id}\n({len(G.nodes())} cells)")
+                    
+                    # Add statistics
+                    division_count = sum(1 for n in G.nodes() if G.nodes[n]['divides'])
+                    stats_text = f"Start Time: {G.nodes[cell_id]['start_time']}\n" \
+                                f"Divisions: {division_count}\n" \
+                                f"Generations: {nx.dag_longest_path_length(G)}"
+                                
+                    ax.text(0.02, 0.02, stats_text, transform=ax.transAxes,
+                        bbox=dict(facecolor='white', alpha=0.7))
+                else:
+                    ax.text(0.5, 0.5, f"No lineage data found for cell {cell_id}", 
+                        horizontalalignment='center', 
+                        verticalalignment='center',
+                        transform=ax.transAxes)
+                
+                ax.axis('off')
+            
+            canvas.draw()
+        
+        # Function to save visualization
+        def save_visualization():
+            output_path, _ = QFileDialog.getSaveFileName(
+                dialog, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)")
+            
+            if output_path:
+                figure.savefig(output_path, dpi=300, bbox_inches='tight')
+                QMessageBox.information(
+                    dialog, "Success", f"Lineage tree saved to {output_path}")
+        
+        # Connect buttons
+        view_button.clicked.connect(create_visualization)
+        save_button.clicked.connect(save_visualization)
+        close_button.clicked.connect(dialog.close)
+        
+        # Create initial visualization
+        create_visualization()
+        
+        # Show dialog
+        dialog.exec_()
 
+    def hierarchy_pos(G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5):
+        """
+        Position nodes in a hierarchical layout.
+        """
+        def _hierarchy_pos(G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5, pos=None, parent=None, parsed=[]):
+            if pos is None:
+                pos = {root: (xcenter, vert_loc)}
+            else:
+                pos[root] = (xcenter, vert_loc)
+            children = list(G.neighbors(root))
+            if not children:
+                return pos
+            dx = width / len(children)
+            nextx = xcenter - width/2 - dx/2
+            for child in children:
+                nextx += dx
+                pos = _hierarchy_pos(G, child, width=dx, vert_gap=vert_gap, 
+                                    vert_loc=vert_loc-vert_gap, xcenter=nextx, pos=pos, 
+                                    parent=root, parsed=parsed)
+            return pos
+        
+        return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
+
+    
     def visualize_lineage(self):
         """
         Visualize the lineage tree from tracking data, focusing on a single cell.
