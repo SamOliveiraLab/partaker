@@ -121,14 +121,16 @@ class MorphologyWorker(QObject):
                     self.image_frames[t], binary_image)
 
                 # Then convert the cell_mapping to a metrics dataframe
-                metrics_list = [data["metrics"] for data in cell_mapping.values()]
+                metrics_list = [data["metrics"]
+                                for data in cell_mapping.values()]
                 metrics = pd.DataFrame(metrics_list)
 
                 if not metrics.empty:
                     total_cells = len(metrics)
 
                     # Calculate Morphology Fractions
-                    morphology_counts = metrics["morphology_class"].value_counts(normalize=True)
+                    morphology_counts = metrics["morphology_class"].value_counts(
+                        normalize=True)
                     fractions = morphology_counts.to_dict()
 
                     # Save results for this frame, including the raw metrics
@@ -629,11 +631,6 @@ class App(QMainWindow):
         # Create a horizontal layout for the tracking buttons
         tracking_buttons_layout = QHBoxLayout()
 
-        # Button to track cells over time
-        self.track_button = QPushButton("Track Cells")
-        self.track_button.clicked.connect(self.track_cells_over_time)
-        tracking_buttons_layout.addWidget(self.track_button)
-
         # Button for lineage tracking
         self.lineage_button = QPushButton("Visualize Lineage Tree")
         self.lineage_button.clicked.connect(self.track_cells_with_lineage)
@@ -673,113 +670,183 @@ class App(QMainWindow):
         self.segment_button.clicked.connect(
             self.process_morphology_time_series)
 
-    
-    def track_cells_over_time(self):
+    def create_lineage_tree(self, tracks, canvas, root_cell_id=None):
         """
-        Tracks cells over time using BayesianTracker (btrack) and visualizes the results.
+        Create a lineage tree visualization using NetworkX on a provided canvas.
+
+        Parameters:
+        -----------
+        tracks : list
+            List of track dictionaries with lineage information (ID, t, children).
+        canvas : FigureCanvasQTAgg
+            The Matplotlib canvas to draw on.
+        root_cell_id : int or None
+            If provided, visualize only the lineage tree starting from this cell.
         """
-        p = self.slider_p.value()
-        c = self.slider_c.value() if self.has_channels else None
-        
-        if not self.image_data.is_nd2:
-            QMessageBox.warning(self, "Error", "Tracking requires an ND2 dataset.")
-            return
-        
+        # Clear the existing figure
+        canvas.figure.clear()
+
+        import networkx as nx
+
+        # Create directed graph
+        G = nx.DiGraph()
+
         try:
-            t = self.dimensions["T"]  # Get total number of frames
-            
-            # Create a progress dialog
-            progress = QProgressDialog("Preparing frames for tracking...", "Cancel", 0, t, self)
-            progress.setWindowModality(Qt.WindowModal)
-            progress.show()
-            
-            # Use seg_cache for consistency with the rest of the application
-            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
-            
-            # Create an array to store labeled images
-            labeled_frames = []
-            
-            # Process each frame to create labeled images
-            for i in range(t):
-                if progress.wasCanceled():
-                    return
-                    
-                progress.setValue(i)
-                
-                # Get segmentation from cache
-                segmented = self.image_data.seg_cache[i, p, c]
-                
-                if segmented is not None:
-                    # Convert binary segmentation to labeled regions
-                    from skimage.measure import label
-                    labeled = label(segmented)
-                    labeled_frames.append(labeled)
-            
-            progress.setValue(t)
-            
-            if not labeled_frames:
-                QMessageBox.warning(self, "Error", "No segmented frames found for tracking.")
-                return
-                
-            # Convert to numpy array
-            labeled_frames = np.array(labeled_frames)
-            print(f"Prepared {len(labeled_frames)} frames for tracking")
-            
-            # Update progress dialog
-            progress.setLabelText("Running cell tracking...")
-            progress.setValue(0)
-            progress.setMaximum(100)
-            
-            # Run cell tracking
-            all_tracks = track_cells(labeled_frames)
-            
-            # The tracks are already dictionaries, so we don't need to convert them
-            
-            # Filter tracks - only keep those spanning a minimum number of frames
-            MIN_TRACK_LENGTH = 5  # Only keep tracks that span at least 5 frames
-            filtered_tracks = [track for track in all_tracks if len(track['x']) >= MIN_TRACK_LENGTH]
-            
-            # Sort tracks by length (longest first)
-            filtered_tracks.sort(key=lambda track: len(track['x']), reverse=True)
-            
-            # Keep only the top N longest tracks for visualization
-            MAX_TRACKS_TO_DISPLAY = 30
-            display_tracks = filtered_tracks[:MAX_TRACKS_TO_DISPLAY]
-            
-            # Calculate statistics for reporting
-            total_tracks = len(all_tracks)
-            long_tracks = len(filtered_tracks)
-            displayed_tracks = len(display_tracks)
-            
-            # Store the filtered tracks for visualization
-            self.tracked_cells = display_tracks
-            
-            # Show information about the tracking results
-            QMessageBox.information(
-                self, 
-                "Tracking Complete",
-                f"Cell tracking completed successfully.\n\n"
-                f"Total tracks detected: {total_tracks}\n"
-                f"Tracks spanning {MIN_TRACK_LENGTH}+ frames: {long_tracks}\n"
-                f"Tracks displayed: {displayed_tracks}"
-            )
-            
-            # Visualize the tracking results
-            self.visualize_tracking(self.tracked_cells)
-            
+            # Add nodes for each track
+            for track in tracks:
+                track_id = track['ID']
+
+                # Get timing information
+                if 't' in track and len(track['t']) > 0:
+                    start_time = int(min(track['t']))
+                    end_time = int(max(track['t']))
+                    duration = end_time - start_time + 1
+                else:
+                    start_time = 0
+                    end_time = 0
+                    duration = 0
+
+                # Determine if this track divides
+                has_children = 'children' in track and track['children']
+
+                # Add node with attributes
+                G.add_node(track_id,
+                           start_time=start_time,
+                           end_time=end_time,
+                           duration=duration,
+                           divides=has_children)
+
+            # Add edges for parent-child relationships
+            for track in tracks:
+                if 'children' in track and track['children']:
+                    for child_id in track['children']:
+                        G.add_edge(track['ID'], child_id)
+
+            # Filter based on root_cell_id if provided
+            if root_cell_id is not None:
+                descendants = set()
+
+                def get_descendants(node):
+                    descendants.add(node)
+                    if G.nodes[node]['divides']:
+                        for child in G.neighbors(node):
+                            get_descendants(child)
+                get_descendants(root_cell_id)
+                G = G.subgraph(descendants).copy()
+                print(
+                    f"Visualizing lineage tree for cell {root_cell_id} with {len(G.nodes())} nodes")
+            else:
+                # Find connected components and take top 5
+                connected_components = list(nx.weakly_connected_components(G))
+                print(
+                    f"Found {len(connected_components)} separate lineage trees")
+                largest_components = sorted(
+                    connected_components, key=len, reverse=True)
+                top_components = largest_components[:min(
+                    5, len(largest_components))]
+                G = G.subgraph(set.union(*top_components)).copy()
+                print(f"Showing top {len(top_components)} lineage trees")
+
+            # Add subplot
+            if root_cell_id is None and len(top_components) > 1:
+                axes = []
+                for i in range(len(top_components)):
+                    ax = canvas.figure.add_subplot(1, len(top_components), i+1)
+                    axes.append(ax)
+            else:
+                ax = canvas.figure.add_subplot(111)
+                axes = [ax]
+
+            # Plot each component or single tree
+            if root_cell_id is None and len(top_components) > 1:
+                for i, component in enumerate(top_components):
+                    subgraph = G.subgraph(component)
+                    roots = [n for n in subgraph.nodes(
+                    ) if subgraph.in_degree(n) == 0]
+                    if not roots:
+                        axes[i].text(0.5, 0.5, "No root node",
+                                     ha='center', va='center')
+                        axes[i].axis('off')
+                        continue
+
+                    pos = self.hierarchy_pos(subgraph, roots[0])
+                    node_sizes = [100 + subgraph.nodes[n]
+                                  ['duration'] * 10 for n in subgraph.nodes()]
+                    node_colors = ['red' if subgraph.nodes[n]['divides'] else 'blue'
+                                   for n in subgraph.nodes()]
+
+                    nx.draw_networkx_nodes(subgraph, pos, node_size=node_sizes,
+                                           node_color=node_colors, alpha=0.8, ax=axes[i])
+                    nx.draw_networkx_edges(subgraph, pos, edge_color='black',
+                                           arrows=True, arrowsize=15, ax=axes[i])
+                    nx.draw_networkx_labels(
+                        subgraph, pos, font_size=8, ax=axes[i])
+
+                    axes[i].set_title(f"Tree {i+1} ({len(component)} cells)")
+                    axes[i].axis('off')
+            else:
+                # Single tree (either specific cell or single component)
+                roots = [n for n in G.nodes() if G.in_degree(n) == 0]
+                if not roots:
+                    axes[0].text(0.5, 0.5, "No root node",
+                                 ha='center', va='center')
+                    axes[0].axis('off')
+                else:
+                    pos = self.hierarchy_pos(G, roots[0])
+                    node_sizes = [100 + G.nodes[n]
+                                  ['duration'] * 10 for n in G.nodes()]
+                    node_colors = ['red' if G.nodes[n]['divides'] else 'blue'
+                                   for n in G.nodes()]
+
+                    nx.draw_networkx_nodes(G, pos, node_size=node_sizes,
+                                           node_color=node_colors, alpha=0.8, ax=axes[0])
+                    nx.draw_networkx_edges(G, pos, edge_color='black',
+                                           arrows=True, arrowsize=15, ax=axes[0])
+                    nx.draw_networkx_labels(G, pos, font_size=8, ax=axes[0])
+
+                    title = f"Lineage Tree for Cell {root_cell_id}" if root_cell_id else "Largest Lineage Tree"
+                    axes[0].set_title(f"{title}\n({len(G.nodes())} cells)")
+                    axes[0].axis('off')
+
+            canvas.figure.tight_layout()
+            canvas.draw()
+
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            QMessageBox.warning(
-                self,
-                "Tracking Error",
-                f"Failed to track cells: {str(e)}"
-            )
-    
+            print(f"Error in lineage tree: {e}")
+            ax = canvas.figure.add_subplot(111)
+            ax.text(0.5, 0.5, f"Error: {e}", ha='center', va='center')
+            ax.axis('off')
+            canvas.draw()
+
+        return G
+
+    def hierarchy_pos(self, G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5):
+        """
+        Position nodes in a hierarchical layout.
+        """
+        def _hierarchy_pos(G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5, pos=None, parent=None, parsed=[]):
+            if pos is None:
+                pos = {root: (xcenter, vert_loc)}
+            else:
+                pos[root] = (xcenter, vert_loc)
+            children = list(G.neighbors(root))
+            if parent is not None and root in children:
+                children.remove(parent)
+            if children:
+                dx = width / len(children)
+                nextx = xcenter - width/2 - dx/2
+                for child in children:
+                    nextx += dx
+                    pos = _hierarchy_pos(G, child, width=dx, vert_gap=vert_gap,
+                                         vert_loc=vert_loc-vert_gap, xcenter=nextx, pos=pos,
+                                         parent=root, parsed=parsed)
+            return pos
+        return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
+
     def visualize_tracking(self, tracks):
         """
         Visualizes the tracked cells as trajectories over time.
-        
+
         Parameters:
         -----------
         tracks : list
@@ -788,17 +855,17 @@ class App(QMainWindow):
         if not tracks:
             print("No valid tracking data to visualize.")
             return
-        
+
         self.figure_morphology_fractions.clear()
         ax = self.figure_morphology_fractions.add_subplot(111)
-        
+
         # Create a colormap for the tracks
         import matplotlib.cm as cm
         from matplotlib.colors import Normalize
-        
+
         # Use a colormap that's easier to distinguish
         cmap = cm.get_cmap('tab20', min(20, len(tracks)))
-        
+
         # Calculate displacement for each track
         track_displacements = []
         for track in tracks:
@@ -806,61 +873,64 @@ class App(QMainWindow):
                 # Calculate total displacement (Euclidean distance from start to end)
                 start_x, start_y = track['x'][0], track['y'][0]
                 end_x, end_y = track['x'][-1], track['y'][-1]
-                displacement = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
+                displacement = np.sqrt(
+                    (end_x - start_x)**2 + (end_y - start_y)**2)
                 track_displacements.append(displacement)
             else:
                 track_displacements.append(0)
-        
+
         # Sort tracks by displacement (most movement first)
         sorted_indices = np.argsort(track_displacements)[::-1]
         sorted_tracks = [tracks[i] for i in sorted_indices]
-        
+
         # Plot each track with its own color
         for i, track in enumerate(sorted_tracks):
             # Get track data
             x_coords = track['x']
             y_coords = track['y']
             track_id = track['ID']
-            
+
             # Get color from colormap
             color = cmap(i % 20)
-            
+
             # Plot trajectory
-            ax.plot(x_coords, y_coords, marker='.', markersize=3, 
+            ax.plot(x_coords, y_coords, marker='.', markersize=3,
                     linewidth=1, color=color, label=f'Track {track_id}')
-            
+
             # Mark start and end points
-            ax.plot(x_coords[0], y_coords[0], 'o', color=color, markersize=6)  # Start
-            ax.plot(x_coords[-1], y_coords[-1], 's', color=color, markersize=6)  # End
-        
+            ax.plot(x_coords[0], y_coords[0], 'o',
+                    color=color, markersize=6)  # Start
+            ax.plot(x_coords[-1], y_coords[-1], 's',
+                    color=color, markersize=6)  # End
+
         # Add labels and title
         ax.set_title('Cell Trajectories Over Time')
         ax.set_xlabel('X Coordinate')
         ax.set_ylabel('Y Coordinate')
-        
+
         # Add legend with a reasonable number of entries
         if len(tracks) > 10:
             # For lots of tracks, show just a subset in the legend
             ax.legend(ncol=2, fontsize='small', loc='upper right')
         else:
             ax.legend(loc='best')
-        
+
         # Add statistics to the plot
         stats_text = f"Displaying top {len(tracks)} tracks\n"
-        
+
         # Calculate some statistics
         avg_displacement = np.mean(track_displacements[:len(tracks)])
         max_displacement = np.max(track_displacements[:len(tracks)])
-        
+
         stats_text += f"Avg displacement: {avg_displacement:.1f}px\n"
         stats_text += f"Max displacement: {max_displacement:.1f}px"
-        
-        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes, 
+
+        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes,
                 bbox=dict(facecolor='white', alpha=0.7), verticalalignment='bottom')
-        
+
         # Draw the plot
         self.canvas_morphology_fractions.draw()
-    
+
     def overlay_tracks_on_images(self):
         """
         Overlays tracking trajectories on the segmented images and creates a video.
@@ -937,540 +1007,262 @@ class App(QMainWindow):
             QMessageBox.warning(
                 self, "Error", f"Failed to create tracking video: {str(e)}")
 
-
     def track_cells_with_lineage(self):
-        """
-        Track cells over time with lineage detection and visualize both
-        tracking results and lineage tree.
-        """
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
-
         if not self.image_data.is_nd2:
             QMessageBox.warning(
                 self, "Error", "Tracking requires an ND2 dataset.")
             return
-
         try:
-            t = self.dimensions["T"]  # Get total number of frames
-
-            # Create a progress dialog
+            t = self.dimensions["T"]
             progress = QProgressDialog(
                 "Preparing frames for tracking...", "Cancel", 0, t, self)
             progress.setWindowModality(Qt.WindowModal)
             progress.show()
-
-            # Use seg_cache for consistency with the rest of the application
             self.image_data.seg_cache.with_model(
                 self.model_dropdown.currentText())
-
-            # Create an array to store labeled images
             labeled_frames = []
-
-            # Process each frame to create labeled images
             for i in range(t):
                 if progress.wasCanceled():
                     return
-
                 progress.setValue(i)
-
-                # Get segmentation from cache
                 segmented = self.image_data.seg_cache[i, p, c]
-
                 if segmented is not None:
-                    # Convert binary segmentation to labeled regions
-                    from skimage.measure import label
                     labeled = label(segmented)
                     labeled_frames.append(labeled)
-
             progress.setValue(t)
-
             if not labeled_frames:
                 QMessageBox.warning(
                     self, "Error", "No segmented frames found for tracking.")
                 return
-
-            # Convert to numpy array
             labeled_frames = np.array(labeled_frames)
             print(f"Prepared {len(labeled_frames)} frames for tracking")
-
-            # Update progress dialog
             progress.setLabelText(
                 "Running cell tracking with lineage detection...")
             progress.setValue(0)
             progress.setMaximum(100)
-
-            # Call the tracking function without extra parameters
-            from tracking import track_cells
-            all_tracks = track_cells(labeled_frames)
-
-            # Filter tracks - only keep those spanning a minimum number of frames
-            MIN_TRACK_LENGTH = 5  # Only keep tracks that span at least 5 frames
+            all_tracks, _ = track_cells(labeled_frames)
+            self.lineage_tracks = all_tracks  # Store all tracks
+            MIN_TRACK_LENGTH = 5
             filtered_tracks = [track for track in all_tracks if len(
                 track['x']) >= MIN_TRACK_LENGTH]
-
-            # Sort tracks by length (longest first)
             filtered_tracks.sort(
                 key=lambda track: len(track['x']), reverse=True)
-
-            # Keep only the top N longest tracks for visualization
             MAX_TRACKS_TO_DISPLAY = 30
             display_tracks = filtered_tracks[:MAX_TRACKS_TO_DISPLAY]
-
-            # Calculate statistics for reporting
             total_tracks = len(all_tracks)
             long_tracks = len(filtered_tracks)
             displayed_tracks = len(display_tracks)
-
-            # Count division events
-            division_events = sum(1 for track in all_tracks if track.get(
-                'children') and len(track['children']) > 0)
-
-            # Store the filtered tracks for visualization
             self.tracked_cells = display_tracks
-
-            # Store full lineage information
-            self.lineage_tracks = all_tracks
-
-            # Show information about the tracking results
             QMessageBox.information(
-                self,
-                "Tracking Complete",
-                f"Cell tracking with lineage detection completed.\n\n"
+                self, "Tracking Complete",
+                f"Cell tracking completed successfully.\n\n"
                 f"Total tracks detected: {total_tracks}\n"
                 f"Tracks spanning {MIN_TRACK_LENGTH}+ frames: {long_tracks}\n"
-                f"Cell division events detected: {division_events}\n"
                 f"Tracks displayed: {displayed_tracks}"
             )
-
-            # Create visualization showing cell trajectories
             self.visualize_tracking(self.tracked_cells)
-
-            # Ask if user wants to visualize lineage tree
             reply = QMessageBox.question(
-                self,
-                "Lineage Analysis",
+                self, "Lineage Analysis",
                 "Would you like to visualize the cell lineage tree?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
             )
-
             if reply == QMessageBox.Yes:
                 self.show_lineage_dialog()
-
         except Exception as e:
             import traceback
             traceback.print_exc()
-            QMessageBox.warning(
-                self,
-                "Tracking Error",
-                f"Failed to track cells with lineage: {str(e)}"
-            )
-    
+            QMessageBox.warning(self, "Tracking Error",
+                                f"Failed to track cells with lineage: {str(e)}")
+
     def show_lineage_dialog(self):
-        """
-        Show dialog with options to visualize lineage trees
-        """
-        # Check if tracking has been performed
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
                 self, "Error", "No tracking data available. Run tracking with lineage first.")
             return
-        
-        # Create a dialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Lineage Tree Visualization")
         dialog.setMinimumWidth(600)
         dialog.setMinimumHeight(700)
         layout = QVBoxLayout(dialog)
-        
-        # Add description
         info_label = QLabel(
             "Select a visualization option below. Cell lineage trees show parent-child relationships.\n"
             "Red nodes indicate cells that divide further, blue nodes are cells that don't divide."
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
-        
-        # Create a horizontal layout for selection options
         selection_layout = QHBoxLayout()
-        
-        # Option group
         option_group = QButtonGroup(dialog)
-        
-        # Top trees option
         top_radio = QRadioButton("Top 5 Largest Lineage Trees")
         top_radio.setChecked(True)
         option_group.addButton(top_radio)
         selection_layout.addWidget(top_radio)
-        
-        # Individual cell option
         cell_radio = QRadioButton("Specific Cell Lineage:")
         option_group.addButton(cell_radio)
         selection_layout.addWidget(cell_radio)
-        
-        # Dropdown for cell selection
         cell_combo = QComboBox()
         cell_combo.setEnabled(False)
         selection_layout.addWidget(cell_combo)
-        
-        # Find dividing cells and add to dropdown
-        dividing_cells = []
-        for track in self.lineage_tracks:
-            if 'children' in track and track['children']:
-                dividing_cells.append(track['ID'])
-        
-        # Sort by ID for easier selection
+        dividing_cells = [track['ID']
+                          for track in self.lineage_tracks if track.get('children', [])]
         dividing_cells.sort()
-        
-        # Add to dropdown
         for cell_id in dividing_cells:
             cell_combo.addItem(f"Cell {cell_id}")
-        
-        # Add selection layout
         layout.addLayout(selection_layout)
-        
-        # Enable/disable combo box based on radio selection
+
         def update_combo_state():
             cell_combo.setEnabled(cell_radio.isChecked())
-        
         top_radio.toggled.connect(update_combo_state)
         cell_radio.toggled.connect(update_combo_state)
-        
-        # Matplotlib figure for preview
         from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
-        
         figure = Figure(figsize=(9, 6), tight_layout=True)
         canvas = FigureCanvas(figure)
         layout.addWidget(canvas)
-        
-        # Buttons
         button_layout = QHBoxLayout()
-        
         view_button = QPushButton("Visualize")
         save_button = QPushButton("Save")
         close_button = QPushButton("Close")
-        
         button_layout.addWidget(view_button)
         button_layout.addWidget(save_button)
         button_layout.addWidget(close_button)
-        
         layout.addLayout(button_layout)
-        
-        # Function to create visualization
+
         def create_visualization():
-            import networkx as nx
-            figure.clear()
-            
-            if top_radio.isChecked():
-                # Create visualization of top 5 lineage trees
-                G = nx.DiGraph()
-                
-                # Add nodes and edges
-                for track in self.lineage_tracks:
-                    track_id = track['ID']
-                    
-                    # Add node with timing info
-                    G.add_node(track_id, 
-                            start_time=track['t'][0] if track['t'] else 0,
-                            end_time=track['t'][-1] if track['t'] else 0,
-                            duration=len(track['t']) if track['t'] else 0,
-                            divides=bool(track.get('children', [])))
-                    
-                    # Add edges for children
-                    if track.get('children'):
-                        for child_id in track['children']:
-                            G.add_edge(track_id, child_id)
-                
-                # Find connected components (separate lineage trees)
-                components = list(nx.weakly_connected_components(G))
-                print(f"Found {len(components)} separate lineage trees")
-                
-                # Get top 5 largest components
-                largest_components = sorted(components, key=len, reverse=True)[:5]
-                
-                # Create subplots
-                if largest_components:
-                    num_components = len(largest_components)
-                    for i, component in enumerate(largest_components):
-                        if num_components > 1:
-                            ax = figure.add_subplot(1, num_components, i+1)
-                        else:
-                            ax = figure.add_subplot(111)
-                        
-                        # Get subgraph for this component
-                        subgraph = G.subgraph(component)
-                        
-                        # Find root(s)
-                        roots = [n for n in subgraph.nodes() if subgraph.in_degree(n) == 0]
-                        if not roots:
-                            ax.text(0.5, 0.5, "No root node found", 
-                                    horizontalalignment='center', 
-                                    verticalalignment='center',
-                                    transform=ax.transAxes)
-                            continue
-                        
-                        # Create hierarchical layout
-                        try:
-                            # Try for a "tree" layout
-                            pos = hierarchy_pos(subgraph, roots[0])
-                        except:
-                            # Fall back to spring layout
-                            pos = nx.spring_layout(subgraph, seed=42)
-                        
-                        # Draw nodes with color based on whether they divide
-                        node_colors = ['red' if subgraph.nodes[n]['divides'] else 'blue' 
-                                    for n in subgraph.nodes()]
-                        
-                        # Size nodes based on track duration
-                        node_sizes = [max(100, subgraph.nodes[n]['duration'] * 10) 
-                                    for n in subgraph.nodes()]
-                        
-                        # Draw the graph
-                        nx.draw_networkx_nodes(subgraph, pos, node_size=node_sizes, 
-                                            node_color=node_colors, alpha=0.8, ax=ax)
-                        nx.draw_networkx_edges(subgraph, pos, edge_color='gray',
-                                            arrows=True, arrowstyle='-|>', ax=ax)
-                        nx.draw_networkx_labels(subgraph, pos, font_size=8, ax=ax)
-                        
-                        ax.set_title(f"Lineage Tree {i+1}\n({len(component)} cells)")
-                        ax.axis('off')
-                else:
-                    ax = figure.add_subplot(111)
-                    ax.text(0.5, 0.5, "No lineage trees found", 
-                            horizontalalignment='center', 
-                            verticalalignment='center',
-                            transform=ax.transAxes)
-            
-            else:  # Specific cell selected
-                if not cell_combo.currentText():
-                    return
-                    
-                # Get selected cell ID
-                cell_id = int(cell_combo.currentText().replace("Cell ", ""))
-                
-                # Create a subgraph for this cell's lineage
-                G = nx.DiGraph()
-                
-                # Find this cell and all its descendants
-                def add_descendants(cell_id):
-                    track = next((t for t in self.lineage_tracks if t['ID'] == cell_id), None)
-                    if not track:
-                        return
-                    
-                    # Add this cell
-                    G.add_node(cell_id, 
-                            start_time=track['t'][0] if track['t'] else 0,
-                            end_time=track['t'][-1] if track['t'] else 0,
-                            duration=len(track['t']) if track['t'] else 0,
-                            divides=bool(track.get('children', [])))
-                    
-                    # Add all children recursively
-                    if track.get('children'):
-                        for child_id in track['children']:
-                            G.add_edge(cell_id, child_id)
-                            add_descendants(child_id)
-                
-                # Start with the selected cell
-                add_descendants(cell_id)
-                
-                # Create a single plot
-                ax = figure.add_subplot(111)
-                
-                if len(G.nodes()) > 0:
-                    # Create hierarchical layout
-                    try:
-                        pos = hierarchy_pos(G, cell_id)
-                    except:
-                        pos = nx.spring_layout(G, seed=42)
-                    
-                    # Draw nodes with color based on whether they divide
-                    node_colors = ['red' if G.nodes[n]['divides'] else 'blue' 
-                                for n in G.nodes()]
-                    
-                    # Size nodes based on track duration
-                    node_sizes = [max(100, G.nodes[n]['duration'] * 10) 
-                                for n in G.nodes()]
-                    
-                    # Draw the graph
-                    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, 
-                                        node_color=node_colors, alpha=0.8, ax=ax)
-                    nx.draw_networkx_edges(G, pos, edge_color='gray',
-                                        arrows=True, arrowstyle='-|>', ax=ax)
-                    nx.draw_networkx_labels(G, pos, font_size=8, ax=ax)
-                    
-                    ax.set_title(f"Lineage Tree for Cell {cell_id}\n({len(G.nodes())} cells)")
-                    
-                    # Add statistics
-                    division_count = sum(1 for n in G.nodes() if G.nodes[n]['divides'])
-                    stats_text = f"Start Time: {G.nodes[cell_id]['start_time']}\n" \
-                                f"Divisions: {division_count}\n" \
-                                f"Generations: {nx.dag_longest_path_length(G)}"
-                                
-                    ax.text(0.02, 0.02, stats_text, transform=ax.transAxes,
-                        bbox=dict(facecolor='white', alpha=0.7))
-                else:
-                    ax.text(0.5, 0.5, f"No lineage data found for cell {cell_id}", 
-                        horizontalalignment='center', 
-                        verticalalignment='center',
-                        transform=ax.transAxes)
-                
-                ax.axis('off')
-            
-            canvas.draw()
-        
-        # Function to save visualization
+            selected_cell = None
+            if cell_radio.isChecked() and cell_combo.currentText():
+                selected_cell = int(
+                    cell_combo.currentText().replace("Cell ", ""))
+            self.create_lineage_tree(
+                self.lineage_tracks, canvas, root_cell_id=selected_cell)
+
         def save_visualization():
             output_path, _ = QFileDialog.getSaveFileName(
                 dialog, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)")
-            
             if output_path:
                 figure.savefig(output_path, dpi=300, bbox_inches='tight')
                 QMessageBox.information(
                     dialog, "Success", f"Lineage tree saved to {output_path}")
-        
-        # Connect buttons
         view_button.clicked.connect(create_visualization)
         save_button.clicked.connect(save_visualization)
         close_button.clicked.connect(dialog.close)
-        
-        # Create initial visualization
         create_visualization()
-        
-        # Show dialog
         dialog.exec_()
 
-    def hierarchy_pos(G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5):
-        """
-        Position nodes in a hierarchical layout.
-        """
-        def _hierarchy_pos(G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5, pos=None, parent=None, parsed=[]):
-            if pos is None:
-                pos = {root: (xcenter, vert_loc)}
-            else:
-                pos[root] = (xcenter, vert_loc)
-            children = list(G.neighbors(root))
-            if not children:
-                return pos
-            dx = width / len(children)
-            nextx = xcenter - width/2 - dx/2
-            for child in children:
-                nextx += dx
-                pos = _hierarchy_pos(G, child, width=dx, vert_gap=vert_gap, 
-                                    vert_loc=vert_loc-vert_gap, xcenter=nextx, pos=pos, 
-                                    parent=root, parsed=parsed)
-            return pos
-        
-        return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
-
-    
     def visualize_lineage(self):
         """
         Visualize the lineage tree from tracking data, focusing on a single cell.
         """
         if not hasattr(self, "tracked_cells") or not self.tracked_cells:
-            QMessageBox.warning(self, "Error", "No tracking data available. Run cell tracking first.")
+            QMessageBox.warning(
+                self, "Error", "No tracking data available. Run cell tracking first.")
             return
-        
+
         try:
             import networkx as nx
             import matplotlib.pyplot as plt
-            
+
             # Ask user if they want to pick a specific cell or have one selected automatically
             reply = QMessageBox.question(
-                self, 
-                "Lineage Visualization", 
+                self,
+                "Lineage Visualization",
                 "Would you like to select a specific cell to view its lineage?",
-                QMessageBox.Yes | QMessageBox.No, 
+                QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
-            
+
             # Get list of cell IDs
             cell_ids = [track['ID'] for track in self.tracked_cells]
-            
+
             selected_cell = None
             if reply == QMessageBox.Yes:
                 # Create dialog for selection
                 dialog = QDialog(self)
                 dialog.setWindowTitle("Select Cell")
                 layout = QVBoxLayout(dialog)
-                
+
                 label = QLabel("Select a cell to visualize:")
                 layout.addWidget(label)
-                
+
                 combo = QComboBox()
                 combo.addItems([str(cell_id) for cell_id in cell_ids])
                 layout.addWidget(combo)
-                
-                buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+
+                buttons = QDialogButtonBox(
+                    QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
                 buttons.accepted.connect(dialog.accept)
                 buttons.rejected.connect(dialog.reject)
                 layout.addWidget(buttons)
-                
+
                 if dialog.exec_() == QDialog.Accepted:
                     selected_cell = int(combo.currentText())
                 else:
                     return
             else:
                 # Pick the cell with the longest track
-                longest_track = max(self.tracked_cells, key=lambda t: len(t['x']))
+                longest_track = max(self.tracked_cells,
+                                    key=lambda t: len(t['x']))
                 selected_cell = longest_track['ID']
-            
+
             # Create a graph to represent the lineage
             G = nx.DiGraph()
-            
+
             # Add the selected cell as the root node
-            track = next((t for t in self.tracked_cells if t['ID'] == selected_cell), None)
+            track = next(
+                (t for t in self.tracked_cells if t['ID'] == selected_cell), None)
             if not track:
-                QMessageBox.warning(self, "Error", f"Cell {selected_cell} not found.")
+                QMessageBox.warning(
+                    self, "Error", f"Cell {selected_cell} not found.")
                 return
-                
+
             # Add metadata to the root node
-            G.add_node(selected_cell, 
-                    first_frame=track['t'][0] if track['t'] else 0,
-                    frames=len(track['t']) if track['t'] else len(track['x']),
-                    track_data=track)
-            
+            G.add_node(selected_cell,
+                       first_frame=track['t'][0] if track['t'] else 0,
+                       frames=len(track['t']) if track['t'] else len(
+                           track['x']),
+                       track_data=track)
+
             # Ask for save location
             output_path, _ = QFileDialog.getSaveFileName(
                 self, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)"
             )
-            
+
             # Find temporal relationships (potential divisions)
             # For each track, find tracks that start when it ends
             end_frame_map = {}  # Maps end frame to list of tracks ending at that frame
             start_frame_map = {}  # Maps start frame to list of tracks starting at that frame
-            
+
             for t in self.tracked_cells:
                 if 't' in t and t['t']:
-                    start_frame = t['t'][0] 
+                    start_frame = t['t'][0]
                     end_frame = t['t'][-1]
-                    
+
                     if end_frame not in end_frame_map:
                         end_frame_map[end_frame] = []
                     end_frame_map[end_frame].append(t)
-                    
+
                     if start_frame not in start_frame_map:
                         start_frame_map[start_frame] = []
                     start_frame_map[start_frame].append(t)
-            
+
             # Recursively build the tree from the selected cell
             def build_tree(cell_id, current_depth=0, max_depth=3):
                 if current_depth >= max_depth:
                     return
-                    
+
                 # Get the track for this cell
-                parent_track = next((t for t in self.tracked_cells if t['ID'] == cell_id), None)
+                parent_track = next(
+                    (t for t in self.tracked_cells if t['ID'] == cell_id), None)
                 if not parent_track or 't' not in parent_track or not parent_track['t']:
                     return
-                    
+
                 # Get the end frame for this track
                 end_frame = parent_track['t'][-1]
-                
+
                 # Get potential children (tracks that start right after this one ends)
                 children_candidates = []
-                
+
                 # Look at the next few frames for potential children
                 for frame in range(end_frame, end_frame + 3):
                     if frame in start_frame_map:
@@ -1479,48 +1271,51 @@ class App(QMainWindow):
                             # Skip if it's the parent itself
                             if child_track['ID'] == parent_track['ID']:
                                 continue
-                                
+
                             # Calculate proximity between end of parent and start of child
                             if len(parent_track['x']) > 0 and len(child_track['x']) > 0:
                                 parent_end_x = parent_track['x'][-1]
                                 parent_end_y = parent_track['y'][-1]
                                 child_start_x = child_track['x'][0]
                                 child_start_y = child_track['y'][0]
-                                
+
                                 # Calculate distance
-                                distance = ((parent_end_x - child_start_x)**2 + 
+                                distance = ((parent_end_x - child_start_x)**2 +
                                             (parent_end_y - child_start_y)**2)**0.5
-                                
+
                                 # If close enough, consider it a potential child
                                 if distance < 30:  # Adjust threshold as needed
-                                    children_candidates.append((child_track['ID'], distance))
-                
+                                    children_candidates.append(
+                                        (child_track['ID'], distance))
+
                 # Sort by distance and take up to 2 closest as children (for division)
                 children_candidates.sort(key=lambda x: x[1])
                 children = [c[0] for c in children_candidates[:2]]
-                
+
                 # Add edges to the graph
                 for child_id in children:
                     if child_id not in G:
                         # Get child track
-                        child_track = next((t for t in self.tracked_cells if t['ID'] == child_id), None)
+                        child_track = next(
+                            (t for t in self.tracked_cells if t['ID'] == child_id), None)
                         if child_track:
                             # Add child to graph
                             G.add_node(child_id,
-                                    first_frame=child_track['t'][0] if child_track['t'] else 0,
-                                    frames=len(child_track['t']) if child_track['t'] else len(child_track['x']),
-                                    track_data=child_track)
+                                       first_frame=child_track['t'][0] if child_track['t'] else 0,
+                                       frames=len(child_track['t']) if child_track['t'] else len(
+                                           child_track['x']),
+                                       track_data=child_track)
                             # Add edge
                             G.add_edge(cell_id, child_id)
                             # Recursively build tree for this child
                             build_tree(child_id, current_depth + 1, max_depth)
-            
+
             # Start building the tree
             build_tree(selected_cell)
-            
+
             # Visualization
             plt.figure(figsize=(10, 8))
-            
+
             # Use hierarchical layout for tree
             pos = None
             try:
@@ -1530,65 +1325,69 @@ class App(QMainWindow):
                 for node in G.nodes():
                     # Get node depth (how many steps from root)
                     try:
-                        path_length = len(nx.shortest_path(G, selected_cell, node)) - 1
+                        path_length = len(nx.shortest_path(
+                            G, selected_cell, node)) - 1
                     except nx.NetworkXNoPath:
                         path_length = 0
-                    
+
                     # Get all nodes at this depth
-                    nodes_at_depth = [n for n in G.nodes() if 
-                                    len(nx.shortest_path(G, selected_cell, n)) - 1 == path_length]
-                    
+                    nodes_at_depth = [n for n in G.nodes() if
+                                      len(nx.shortest_path(G, selected_cell, n)) - 1 == path_length]
+
                     # Calculate x position based on position among siblings
                     index = nodes_at_depth.index(node)
                     num_nodes_at_depth = len(nodes_at_depth)
-                    
+
                     if num_nodes_at_depth > 1:
                         x = index / (num_nodes_at_depth - 1)
                     else:
                         x = 0.5
-                    
+
                     # Adjust to spread out the tree
                     x = (x - 0.5) * (1 + path_length) + 0.5
-                    
+
                     # Y coordinate is negative depth (to grow downward)
                     y = -path_length
-                    
+
                     pos[node] = (x, y)
             except Exception as e:
                 print(f"Error creating layout: {e}")
                 # Fallback to spring layout
                 pos = nx.spring_layout(G)
-            
+
             # Draw nodes
-            nx.draw_networkx_nodes(G, pos, node_size=700, node_color='lightblue', alpha=0.8)
-            
+            nx.draw_networkx_nodes(G, pos, node_size=700,
+                                   node_color='lightblue', alpha=0.8)
+
             # Draw edges with arrows
-            nx.draw_networkx_edges(G, pos, edge_color='gray', width=2, 
-                                arrows=True, arrowstyle='-|>', arrowsize=20)
-            
+            nx.draw_networkx_edges(G, pos, edge_color='gray', width=2,
+                                   arrows=True, arrowstyle='-|>', arrowsize=20)
+
             # Draw labels with track info
-            labels = {n: f"ID: {n}\nFrames: {G.nodes[n]['frames']}" for n in G.nodes()}
+            labels = {
+                n: f"ID: {n}\nFrames: {G.nodes[n]['frames']}" for n in G.nodes()}
             nx.draw_networkx_labels(G, pos, labels=labels, font_size=9)
-            
+
             # Title and styling
             plt.title(f"Cell Lineage Tree (Root: Cell {selected_cell})")
             plt.grid(False)
             plt.axis('off')
-            
+
             # Add stats
             node_count = G.number_of_nodes()
             edge_count = G.number_of_edges()
             stats_text = f"Total Cells: {node_count}\nDivision Events: {edge_count}\nRoot Cell: {selected_cell}"
-            plt.figtext(0.02, 0.02, stats_text, bbox=dict(facecolor='white', alpha=0.8))
-            
+            plt.figtext(0.02, 0.02, stats_text, bbox=dict(
+                facecolor='white', alpha=0.8))
+
             # Save if path provided
             if output_path:
                 plt.savefig(output_path, dpi=300, bbox_inches='tight')
                 print(f"Saved lineage tree to {output_path}")
-            
+
             plt.tight_layout()
             plt.show()
-            
+
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -1597,9 +1396,7 @@ class App(QMainWindow):
                 "Visualization Error",
                 f"Failed to visualize lineage tree: {str(e)}"
             )
-        
-        
-        
+
     def get_all_descendants(self, cell_id):
         """
         Recursively get all descendants of a cell.
@@ -1753,7 +1550,8 @@ class App(QMainWindow):
         try:
             # Extract image data for all time points
             t = self.dimensions["T"]  # Get the total number of time points
-            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
+            self.image_data.seg_cache.with_model(
+                self.model_dropdown.currentText())
             if "C" in self.dimensions:
                 image_data = np.array(
                     self.image_data.data[0:t, p, c, :, :].compute()
@@ -1811,7 +1609,6 @@ class App(QMainWindow):
 
         self.thread.start()
 
-    
     def handle_results(self, results):
         if not results:
             QMessageBox.warning(
@@ -1826,7 +1623,8 @@ class App(QMainWindow):
             all_morphologies.update(frame_data["fractions"].keys())
 
         # Initialize dictionaries for both fractions and counts
-        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        morphology_fractions = {morphology: []
+                                for morphology in all_morphologies}
         morphology_counts = {morphology: [] for morphology in all_morphologies}
         total_cells_per_frame = []
 
@@ -1837,29 +1635,31 @@ class App(QMainWindow):
         for t in range(max_time + 1):
             if t in results:
                 frame_data = results[t]["fractions"]
-                
+
                 # Get raw counts from the metrics table when available
                 if "metrics" in results[t]:
                     metrics_df = results[t]["metrics"]
-                    class_counts = metrics_df["morphology_class"].value_counts().to_dict()
+                    class_counts = metrics_df["morphology_class"].value_counts(
+                    ).to_dict()
                     total_cells = len(metrics_df)
-                    
+
                     # Print diagnostics for this frame
                     print(f"Frame {t}: Total cells = {total_cells}")
                     for morph_class, count in class_counts.items():
-                        print(f"  {morph_class}: {count} cells ({count/total_cells*100:.1f}%)")
+                        print(
+                            f"  {morph_class}: {count} cells ({count/total_cells*100:.1f}%)")
                 else:
                     class_counts = {morph: 0 for morph in all_morphologies}
                     total_cells = 0
-                
+
                 # Store total cell count for this frame
                 total_cells_per_frame.append(total_cells)
-                
+
                 for morphology in all_morphologies:
                     # Get the fraction if present, otherwise use 0.0
                     fraction = frame_data.get(morphology, 0.0)
                     morphology_fractions[morphology].append(fraction)
-                    
+
                     # Store the raw count
                     count = class_counts.get(morphology, 0)
                     morphology_counts[morphology].append(count)
@@ -1873,7 +1673,7 @@ class App(QMainWindow):
         # Create a figure with two subplots - fractions and counts
         self.figure_morphology_fractions.clear()
         fig = self.figure_morphology_fractions
-        
+
         # First subplot - fractions (as before)
         ax1 = fig.add_subplot(2, 1, 1)
         for morphology, fractions in morphology_fractions.items():
@@ -1888,7 +1688,7 @@ class App(QMainWindow):
         ax1.set_title("Morphology Fractions Over Time")
         ax1.set_ylabel("Fraction")
         ax1.legend()
-        
+
         # Second subplot - raw counts
         ax2 = fig.add_subplot(2, 1, 2)
         for morphology, counts in morphology_counts.items():
@@ -1903,22 +1703,21 @@ class App(QMainWindow):
         ax2.set_title("Cell Counts By Morphology Over Time")
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Count")
-        
+
         # Plot total cell count on a separate axis
         ax3 = ax2.twinx()
-        ax3.plot(range(len(total_cells_per_frame)), total_cells_per_frame, 
-                color='black', linestyle='--', label='Total Cells')
+        ax3.plot(range(len(total_cells_per_frame)), total_cells_per_frame,
+                 color='black', linestyle='--', label='Total Cells')
         ax3.set_ylabel("Total Cell Count")
-        
+
         # Add combined legend
         lines1, labels1 = ax2.get_legend_handles_labels()
         lines2, labels2 = ax3.get_legend_handles_labels()
         ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
-        
+
         fig.tight_layout()
         self.canvas_morphology_fractions.draw()
-    
-    
+
     def handle_error(self, error_message):
         print(f"Error: {error_message}")
         QMessageBox.warning(self, "Processing Error", error_message)
