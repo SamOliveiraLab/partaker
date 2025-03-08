@@ -158,11 +158,11 @@ class App(QMainWindow):
         super().__init__()
 
         self.morphology_colors = {
-            "Small": (255, 0, 0),       # Blue
-            "Round": (0, 0, 255),       # Red
-            "Normal": (0, 255, 0),      # Green
-            "Elongated": (0, 255, 255),  # Yellow
-            "Deformed": (255, 0, 255),  # Magenta
+            "Artifact": (128, 128, 128),  # Gray
+            "Divided": (255, 0, 0),       # Blue
+            "Healthy": (0, 255, 0),       # Green
+            "Elongated": (0, 255, 255),   # Yellow
+            "Deformed": (255, 0, 255),    # Magenta
         }
 
         self.morphology_colors_rgb = {
@@ -644,6 +644,12 @@ class App(QMainWindow):
 
         # Add the horizontal button layout to the main layout
         layout.addLayout(tracking_buttons_layout)
+
+        self.motility_button = QPushButton("Analyze Cell Motility")
+        self.motility_button.setStyleSheet(
+            "background-color: #4CAF50; color: white; font-weight: bold;")
+        self.motility_button.clicked.connect(self.analyze_motility)
+        tracking_buttons_layout.addWidget(self.motility_button)
 
         # Inner Tabs for Plots
         self.plot_tabs = QTabWidget()
@@ -1538,6 +1544,134 @@ class App(QMainWindow):
         if progress_callback:
             progress_callback(100)
 
+    def analyze_motility(self):
+        """
+        Analyze cell motility and display results with option to use all tracks or filtered tracks.
+        """
+        # Check if any tracking data is available
+        if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
+            QMessageBox.warning(
+                self, "Error", "No tracking data available. Run cell tracking first.")
+            return
+
+        # Ask user which set of tracks to use
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self,
+            "Motility Analysis Options",
+            "Which tracks would you like to analyze?\n\n"
+            "- Filtered Tracks: Uses only the longest, most reliable tracks (recommended)\n"
+            "- All Tracks: Uses all detected cell tracks for a complete population analysis",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+
+        # Select tracks based on user choice
+        if reply == QMessageBox.StandardButton.Yes:
+            # Use filtered tracks (default)
+            tracks_to_analyze = self.tracked_cells
+            track_type = "filtered"
+        else:
+            # Use all tracks
+            tracks_to_analyze = self.lineage_tracks
+            track_type = "all"
+
+        # Check if selected tracks exist
+        if not tracks_to_analyze:
+            QMessageBox.warning(
+                self, "Error", f"No {track_type} tracks available.")
+            return
+
+        # Import the motility analysis functions from tracking.py
+        from tracking import calculate_motility_index, plot_motility_gauge
+
+        # Calculate motility index and detailed metrics
+        motility_index, detailed_metrics = calculate_motility_index(
+            tracks_to_analyze)
+
+        # Store the results for later reference
+        self.motility_results = {
+            "motility_index": motility_index,
+            "detailed_metrics": detailed_metrics,
+            "track_type": track_type,
+            "environment_type": "MC"  # or "MCM" - you'll need to set this based on your data
+        }
+
+        # Create visualization
+        self.figure_morphology_fractions.clear()
+        fig = self.figure_morphology_fractions
+
+        # Create a 2x2 grid
+        grid = fig.add_gridspec(2, 2)
+
+        # 1. Display motility index with gauge-like visualization
+        ax1 = fig.add_subplot(grid[0, 0])
+        plot_motility_gauge(ax1, motility_index)
+
+        # 2. Histogram of displacements
+        ax2 = fig.add_subplot(grid[0, 1])
+        displacements = [m["net_displacement"]
+                         for m in detailed_metrics["individual_metrics"]]
+        ax2.hist(displacements, bins=10, color='skyblue', edgecolor='black')
+        ax2.set_title("Cell Displacements")
+        ax2.set_xlabel("Displacement (pixels)")
+        ax2.set_ylabel("Count")
+
+        # 3. Plot trajectories (similar to your current visualization)
+        ax3 = fig.add_subplot(grid[1, 0])
+        for track in tracks_to_analyze:
+            x_coords = track['x']
+            y_coords = track['y']
+            ax3.plot(x_coords, y_coords, marker='o', markersize=2, linewidth=1)
+
+            # Mark start and end points
+            if len(x_coords) > 0:
+                ax3.plot(x_coords[0], y_coords[0], 'o', markersize=5)
+                ax3.plot(x_coords[-1], y_coords[-1], 's', markersize=5)
+
+        ax3.set_title("Cell Trajectories")
+        ax3.set_xlabel("X Coordinate")
+        ax3.set_ylabel("Y Coordinate")
+
+        # 4. Motion metrics summary
+        ax4 = fig.add_subplot(grid[1, 1])
+        ax4.axis('off')
+
+        # Create a summary text
+        summary_text = (
+            f"Motility Analysis Summary\n\n"
+            f"Motility Index: {motility_index:.1f}\n\n"
+            f"Average Displacement: {detailed_metrics['average_displacement']:.1f} px\n"
+            f"Average Velocity: {detailed_metrics['average_velocity']:.2f} px/frame\n"
+            f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n"
+            f"Movement Directness: {1/detailed_metrics['average_tortuosity']:.2f}\n\n"
+            f"Population Variability:\n"
+            f"Displacement CV: {detailed_metrics['cv_displacement']:.2f}\n"
+            f"Velocity CV: {detailed_metrics['cv_velocity']:.2f}\n\n"
+            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks"
+        )
+
+        ax4.text(0.05, 0.95, summary_text, va='top', ha='left', fontsize=9)
+
+        fig.tight_layout()
+        self.canvas_morphology_fractions.draw()
+
+        # Show summary in a message box
+        QMessageBox.information(
+            self, "Motility Analysis",
+            f"Motility Analysis Complete\n\n"
+            f"Motility Index: {motility_index:.1f}\n"
+            f"This index represents overall cell movement activity.\n"
+            f"Higher values indicate greater movement freedom.\n\n"
+            f"Average Displacement: {detailed_metrics['average_displacement']:.1f} pixels\n"
+            f"Average Velocity: {detailed_metrics['average_velocity']:.2f} pixels/frame\n"
+            f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n\n"
+            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks\n\n"
+            f"These metrics quantify cell movement behavior in the current environment."
+        )
+
+        return motility_index, detailed_metrics, track_type
+
     def process_morphology_time_series(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
@@ -2190,9 +2324,9 @@ class App(QMainWindow):
         # Initialize a dictionary to store ideal examples
         if not hasattr(self, "ideal_examples"):
             self.ideal_examples = {
-                "Small": None,
-                "Round": None,
-                "Normal": None,
+                "Artifact": None,
+                "Divided": None,
+                "Healthy": None,
                 "Elongated": None,
                 "Deformed": None
             }
@@ -2592,29 +2726,28 @@ class App(QMainWindow):
         # Debug: Print original parameters
         print("\n=== ORIGINAL DEFAULT PARAMETERS ===")
         default_params = {
-            # Small cell parameters
-            "small_max_area": 1000,
-            "small_max_perimeter": 150,
-            "small_max_aspect_ratio": 3.0,
+            # Artifact parameters (new)
+            "artifact_max_area": 400,
+            "artifact_max_perimeter": 80,
 
-            # Round cell parameters
-            "round_min_circularity": 0.8,
-            "round_max_aspect_ratio": 1.5,
-            "round_min_solidity": 0.9,
+            # Divided cell parameters (formerly small)
+            "divided_max_area": 1000,
+            "divided_max_perimeter": 150,
+            "divided_max_aspect_ratio": 3.0,
 
-            # Normal cell parameters
-            "normal_min_circularity": 0.6,
-            "normal_max_circularity": 0.8,
-            "normal_min_aspect_ratio": 1.5,
-            "normal_max_aspect_ratio": 3.0,
-            "normal_min_solidity": 0.85,
+            # Healthy cell parameters (formerly normal)
+            "healthy_min_circularity": 0.6,
+            "healthy_max_circularity": 0.8,
+            "healthy_min_aspect_ratio": 1.5,
+            "healthy_max_aspect_ratio": 3.0,
+            "healthy_min_solidity": 0.85,
 
             # Elongated cell parameters
             "elongated_min_area": 3000,
             "elongated_min_aspect_ratio": 5.0,
             "elongated_max_circularity": 0.4,
 
-            # Deformed cell parameters (these are inverse of normal)
+            # Deformed cell parameters
             "deformed_max_circularity": 0.602,
             "deformed_max_solidity": 0.731
         }
@@ -2653,22 +2786,21 @@ class App(QMainWindow):
 
         # Parameter ranges to search
         param_ranges = {
-            # Small cell parameters
-            "small_max_area": (500, 2000),
-            "small_max_perimeter": (50, 300),
-            "small_max_aspect_ratio": (2.0, 4.0),
+            # Artifact parameters (new)
+            "artifact_max_area": (200, 600),
+            "artifact_max_perimeter": (40, 120),
 
-            # Round cell parameters
-            "round_min_circularity": (0.7, 0.9),
-            "round_max_aspect_ratio": (1.1, 2.0),
-            "round_min_solidity": (0.8, 1.0),
+            # Divided cell parameters (formerly small)
+            "divided_max_area": (500, 2000),
+            "divided_max_perimeter": (50, 300),
+            "divided_max_aspect_ratio": (2.0, 4.0),
 
-            # Normal cell parameters
-            "normal_min_circularity": (0.4, 0.7),
-            "normal_max_circularity": (0.7, 0.9),
-            "normal_min_aspect_ratio": (1.2, 2.0),
-            "normal_max_aspect_ratio": (2.0, 4.0),
-            "normal_min_solidity": (0.8, 0.95),
+            # Healthy cell parameters (formerly normal)
+            "healthy_min_circularity": (0.4, 0.7),
+            "healthy_max_circularity": (0.7, 0.9),
+            "healthy_min_aspect_ratio": (1.2, 2.0),
+            "healthy_max_aspect_ratio": (2.0, 4.0),
+            "healthy_min_solidity": (0.8, 0.95),
 
             # Elongated cell parameters
             "elongated_min_area": (2000, 4000),
@@ -2700,13 +2832,13 @@ class App(QMainWindow):
                 params[param_name] = random.uniform(min_val, max_val)
 
             # Make sure max > min for paired parameters
-            if params["normal_min_circularity"] > params["normal_max_circularity"]:
-                params["normal_min_circularity"], params["normal_max_circularity"] = \
-                    params["normal_max_circularity"], params["normal_min_circularity"]
+            if params["healthy_min_circularity"] > params["healthy_max_circularity"]:
+                params["healthy_min_circularity"], params["healthy_max_circularity"] = \
+                    params["healthy_max_circularity"], params["healthy_min_circularity"]
 
-            if params["normal_min_aspect_ratio"] > params["normal_max_aspect_ratio"]:
-                params["normal_min_aspect_ratio"], params["normal_max_aspect_ratio"] = \
-                    params["normal_max_aspect_ratio"], params["normal_min_aspect_ratio"]
+            if params["healthy_min_aspect_ratio"] > params["healthy_max_aspect_ratio"]:
+                params["healthy_min_aspect_ratio"], params["healthy_max_aspect_ratio"] = \
+                    params["healthy_max_aspect_ratio"], params["healthy_min_aspect_ratio"]
 
             # Debug for first few trials
             if trial < 3:
@@ -2717,8 +2849,13 @@ class App(QMainWindow):
             # Test parameters on all cells
             matches = 0
             total_cells = 0
-            classification_counts = {"Small": 0, "Round": 0,
-                                     "Normal": 0, "Elongated": 0, "Deformed": 0}
+            classification_counts = {
+                "Artifact": 0,
+                "Divided": 0,
+                "Healthy": 0,
+                "Elongated": 0,
+                "Deformed": 0
+            }
 
             for cell_id, cell_data in self.cell_mapping.items():
                 total_cells += 1
@@ -2864,10 +3001,20 @@ class App(QMainWindow):
 
         # For tracking changes
         change_count = 0
-        old_class_count = {"Small": 0, "Round": 0,
-                           "Normal": 0, "Elongated": 0, "Deformed": 0}
-        new_class_count = {"Small": 0, "Round": 0,
-                           "Normal": 0, "Elongated": 0, "Deformed": 0}
+        old_class_count = {
+            "Artifact": 0,
+            "Divided": 0,
+            "Healthy": 0,
+            "Elongated": 0,
+            "Deformed": 0
+        }
+        new_class_count = {
+            "Artifact": 0,
+            "Divided": 0,
+            "Healthy": 0,
+            "Elongated": 0,
+            "Deformed": 0
+        }
 
         # Reclassify all cells using optimized parameters
         for cell_id, cell_data in self.cell_mapping.items():

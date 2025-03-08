@@ -677,3 +677,226 @@ def tracks_to_dataframe(tracks, features=None):
         df = df.sort_values(['ID', 't']).reset_index(drop=True)
 
     return df
+
+
+
+def calculate_cell_motility(track):
+    """
+    Calculate motility metrics for a single cell track.
+    
+    Parameters:
+    track: dict with keys 'x', 'y', 't' containing position and time data
+    
+    Returns:
+    dict of motility metrics
+    """
+    # Extract coordinates and times
+    x_coords = np.array(track['x'])
+    y_coords = np.array(track['y'])
+    times = np.array(track['t']) if 't' in track else np.arange(len(x_coords))
+    
+    # Check if track has enough points
+    if len(x_coords) < 2:
+        return {
+            "path_length": 0,
+            "net_displacement": 0,
+            "tortuosity": 1,
+            "avg_velocity": 0,
+            "max_velocity": 0,
+            "min_velocity": 0,
+            "median_velocity": 0,
+            "direction_angle": 0
+        }
+    
+    # Calculate distances between consecutive points
+    dx = np.diff(x_coords)
+    dy = np.diff(y_coords)
+    dt = np.diff(times)
+    dt = np.where(dt == 0, 1, dt)  # Avoid division by zero
+    distances = np.sqrt(dx**2 + dy**2)
+    
+    # Calculate metrics
+    path_length = np.sum(distances)
+    
+    # Net displacement (start to end)
+    net_displacement = np.sqrt(
+        (x_coords[-1] - x_coords[0])**2 + 
+        (y_coords[-1] - y_coords[0])**2
+    )
+        
+    # Tortuosity (path length / net displacement)
+    tortuosity = path_length / net_displacement if net_displacement > 0 else 1
+    
+    # Average velocity
+    total_time = times[-1] - times[0] if len(times) > 1 else 1
+    total_time = max(1, total_time)  # Avoid division by zero
+    avg_velocity = path_length / total_time
+    
+    # Instantaneous velocities
+    inst_velocities = distances / dt
+    
+    # Calculate direction angle (in radians)
+    if net_displacement > 0:
+        direction_angle = np.arctan2(
+            y_coords[-1] - y_coords[0], 
+            x_coords[-1] - x_coords[0]
+        )
+    else:
+        direction_angle = 0
+    
+    return {
+        "path_length": path_length,
+        "net_displacement": net_displacement,
+        "tortuosity": tortuosity,
+        "avg_velocity": avg_velocity,
+        "max_velocity": np.max(inst_velocities) if len(inst_velocities) > 0 else 0,
+        "min_velocity": np.min(inst_velocities) if len(inst_velocities) > 0 else 0,
+        "median_velocity": np.median(inst_velocities) if len(inst_velocities) > 0 else 0,
+        "direction_angle": direction_angle
+    }
+
+
+def calculate_motility_index(tracks):
+    """
+    Calculate a motility index for an entire population of cells.
+    
+    Parameters:
+    tracks: list of track dictionaries with x, y, t positions
+    
+    Returns:
+    float: motility index value, dict: detailed metrics
+    """
+    if not tracks:
+        return 0, {}
+    
+    # Calculate individual motility metrics for each track
+    motility_metrics = [calculate_cell_motility(track) for track in tracks]
+    
+    # Calculate aggregate statistics
+    displacements = [m["net_displacement"] for m in motility_metrics]
+    velocities = [m["avg_velocity"] for m in motility_metrics]
+    tortuosities = [m["tortuosity"] for m in motility_metrics]
+    path_lengths = [m["path_length"] for m in motility_metrics]
+    
+    avg_displacement = np.mean(displacements)
+    avg_velocity = np.mean(velocities)
+    avg_tortuosity = np.mean(tortuosities)
+    avg_path_length = np.mean(path_lengths)
+    
+    # Calculate directional coherence (how aligned the cell movements are)
+    angles = [m["direction_angle"] for m in motility_metrics]
+    x_components = np.cos(angles)
+    y_components = np.sin(angles)
+    
+    # Average the vectors
+    mean_x = np.mean(x_components)
+    mean_y = np.mean(y_components)
+    
+    # Length of resulting vector (0-1)
+    directional_coherence = np.sqrt(mean_x**2 + mean_y**2)
+    
+    # Calculate variances (for measuring population heterogeneity)
+    displacement_variance = np.var(displacements)
+    velocity_variance = np.var(velocities)
+    
+    # Calculate coefficient of variation (CV) for displacement and velocity
+    cv_displacement = (np.std(displacements) / avg_displacement) if avg_displacement > 0 else 0
+    cv_velocity = (np.std(velocities) / avg_velocity) if avg_velocity > 0 else 0
+    
+    # Calculate the motility index 
+    # Normalize each component to 0-1 scale (with reasonable ranges)
+    norm_displacement = min(1.0, avg_displacement / 200)  # Assuming 200 pixels is high
+    norm_velocity = min(1.0, avg_velocity / 20)  # Assuming 20 pixels/frame is high
+    
+    # Inverse of tortuosity (higher value = more direct movement)
+    directness = min(1.0, 1.0 / avg_tortuosity)
+    
+    # Combine metrics with weights
+    motility_index = (
+        0.35 * norm_displacement + 
+        0.35 * norm_velocity + 
+        0.15 * directness +
+        0.15 * directional_coherence
+    )
+    
+    # Scale to 0-100 for easier interpretation
+    motility_index *= 100
+    
+    # Detailed metrics for deeper analysis
+    detailed_metrics = {
+        "average_displacement": avg_displacement,
+        "average_velocity": avg_velocity,
+        "average_tortuosity": avg_tortuosity,
+        "average_path_length": avg_path_length,
+        "directional_coherence": directional_coherence,
+        "displacement_variance": displacement_variance,
+        "velocity_variance": velocity_variance,
+        "cv_displacement": cv_displacement,
+        "cv_velocity": cv_velocity,
+        "noise_displacement": cv_displacement**2,  # Noise = CV²
+        "noise_velocity": cv_velocity**2,
+        "individual_metrics": motility_metrics
+    }
+    
+    return motility_index, detailed_metrics
+
+
+def plot_motility_gauge(ax, motility_index):
+    """
+    Create a gauge-like visualization for the motility index.
+    
+    Parameters:
+    ax: matplotlib axis
+    motility_index: float, the calculated motility index value
+    """
+    # Set up the gauge
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
+    ax.axis('off')
+    
+    # Draw gauge background
+    theta = np.linspace(0.75 * np.pi, 0.25 * np.pi, 100)
+    r_inner = 3
+    r_outer = 4
+    
+    # Gauge background
+    for r in np.linspace(r_inner, r_outer, 10):
+        x = 5 + r * np.cos(theta)
+        y = 5 + r * np.sin(theta)
+        ax.plot(x, y, color='lightgray', linewidth=1)
+    
+    # Color bands (red to green)
+    colors = ['#ff3232', '#ff7f32', '#ffcb32', '#cbff32', '#7fff32', '#32ff32']
+    for i, color in enumerate(colors):
+        theta_band = np.linspace(0.75 * np.pi - i * 0.5 * np.pi / len(colors), 
+                              0.75 * np.pi - (i+1) * 0.5 * np.pi / len(colors), 50)
+        x_outer = 5 + r_outer * np.cos(theta_band)
+        y_outer = 5 + r_outer * np.sin(theta_band)
+        x_inner = 5 + r_inner * np.cos(theta_band)
+        y_inner = 5 + r_inner * np.sin(theta_band)
+        
+        # Combine the points to form a polygon
+        x = np.concatenate([x_outer, x_inner[::-1]])
+        y = np.concatenate([y_outer, y_inner[::-1]])
+        ax.fill(x, y, color=color, alpha=0.7)
+    
+    # Scale markers and labels
+    for i, label in enumerate(['0', '20', '40', '60', '80', '100']):
+        angle = 0.75 * np.pi - i * 0.1 * np.pi
+        x = 5 + 4.5 * np.cos(angle)
+        y = 5 + 4.5 * np.sin(angle)
+        ax.text(x, y, label, ha='center', va='center', fontsize=8)
+    
+    # Needle
+    needle_angle = 0.75 * np.pi - (motility_index / 100) * 0.5 * np.pi
+    ax.plot([5, 5 + 4.2 * np.cos(needle_angle)], 
+            [5, 5 + 4.2 * np.sin(needle_angle)], 
+            color='black', linewidth=2)
+    
+    # Center circle
+    circle = plt.Circle((5, 5), 0.3, color='darkgray')
+    ax.add_patch(circle)
+    
+    # Display motility index value
+    ax.text(5, 3, f"Motility Index", ha='center', fontsize=12)
+    ax.text(5, 2, f"{motility_index:.1f}", ha='center', fontsize=16, fontweight='bold')

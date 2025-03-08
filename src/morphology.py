@@ -50,13 +50,13 @@ def extract_individual_cells(image, segmented_image):
 def classify_morphology(metrics, parameters=None):
     """
     Classify cell morphology based on its metrics.
-
+    
     Parameters:
     - metrics: dict, a dictionary containing cell metrics
     - parameters: dict, optional threshold parameters to use (for optimization)
-
+    
     Returns:
-    - str, the morphology class (Small, Round, Normal, Elongated, Deformed)
+    - str, the morphology class (Artifact, Divided, Healthy, Elongated, Deformed)
     """
     # Extract metrics
     area = metrics.get("area", 0)
@@ -68,29 +68,28 @@ def classify_morphology(metrics, parameters=None):
 
     # Default parameters
     default_params = {
-        # Small cell parameters
-        "small_max_area": 1000,
-        "small_max_perimeter": 150,
-        "small_max_aspect_ratio": 3.0,
-
-        # Round cell parameters
-        "round_min_circularity": 0.8,
-        "round_max_aspect_ratio": 1.5,
-        "round_min_solidity": 0.9,
-
-        # Normal cell parameters
-        "normal_min_circularity": 0.6,
-        "normal_max_circularity": 0.8,
-        "normal_min_aspect_ratio": 1.5,
-        "normal_max_aspect_ratio": 3.0,
-        "normal_min_solidity": 0.85,
-
+        # Artifact parameters (new)
+        "artifact_max_area": 400,
+        "artifact_max_perimeter": 80,
+        
+        # Divided cell parameters (formerly small)
+        "divided_max_area": 1000,
+        "divided_max_perimeter": 150,
+        "divided_max_aspect_ratio": 3.0,
+        
+        # Healthy cell parameters (formerly normal)
+        "healthy_min_circularity": 0.6,
+        "healthy_max_circularity": 0.8,
+        "healthy_min_aspect_ratio": 1.5,
+        "healthy_max_aspect_ratio": 3.0,
+        "healthy_min_solidity": 0.85,
+        
         # Elongated cell parameters
         "elongated_min_area": 3000,
         "elongated_min_aspect_ratio": 5.0,
         "elongated_max_circularity": 0.4,
-
-        # Deformed cell parameters (these are inverse of normal)
+        
+        # Deformed cell parameters 
         "deformed_max_circularity": 0.602,
         "deformed_max_solidity": 0.731
     }
@@ -99,40 +98,38 @@ def classify_morphology(metrics, parameters=None):
     params = parameters if parameters else default_params
 
     # Classify cells based on thresholds
-
-    # Small Cells - small area, limited perimeter
-    if (area < params["small_max_area"] and
-        perimeter < params["small_max_perimeter"] and
-            aspect_ratio < params["small_max_aspect_ratio"]):
-        return "Small"
-
-    # Round Cells - high circularity, low aspect ratio
-    elif (circularity >= params["round_min_circularity"] and
-          aspect_ratio <= params["round_max_aspect_ratio"] and
-          solidity >= params["round_min_solidity"]):
-        return "Round"
-
-    # Normal Cells - balanced circularity, aspect ratio, and solidity
-    elif (params["normal_min_circularity"] <= circularity <= params["normal_max_circularity"] and
-          params["normal_min_aspect_ratio"] <= aspect_ratio <= params["normal_max_aspect_ratio"] and
-          solidity >= params["normal_min_solidity"]):
-        return "Normal"
-
+    
+    # Artifacts - extremely small objects (likely segmentation errors)
+    if (area < params["artifact_max_area"] or 
+        perimeter < params["artifact_max_perimeter"]):
+        return "Artifact"
+    
+    # Divided Cells (formerly Small) - recently divided cells
+    if (area < params["divided_max_area"] and
+        perimeter < params["divided_max_perimeter"] and
+        aspect_ratio < params["divided_max_aspect_ratio"]):
+        return "Divided"
+    
+    # Healthy Cells (formerly Normal) - balanced morphology
+    elif (params["healthy_min_circularity"] <= circularity <= params["healthy_max_circularity"] and
+          params["healthy_min_aspect_ratio"] <= aspect_ratio <= params["healthy_max_aspect_ratio"] and
+          solidity >= params["healthy_min_solidity"]):
+        return "Healthy"
+    
     # Elongated Cells - large area, high aspect ratio
     elif (area >= params["elongated_min_area"] and
           aspect_ratio >= params["elongated_min_aspect_ratio"] and
           circularity <= params["elongated_max_circularity"]):
         return "Elongated"
-
+    
     # Deformed Cells - low circularity and solidity
     elif (circularity <= params["deformed_max_circularity"] and
           solidity <= params["deformed_max_solidity"]):
         return "Deformed"
-
+    
     # Default case
     else:
-        return "Normal"  # Default to normal if no other criteria match
-
+        return "Healthy"  # Default to healthy if no other criteria match
 
 def extract_cells_and_metrics(image, segmented_image):
     """
@@ -253,18 +250,18 @@ def annotate_binary_mask(segmented_image, cell_mapping):
 
     # Define color mapping for morphology classes
     morphology_colors = {
-        "Small": (0, 0, 255),  # Blue
-        "Round": (255, 0, 0),  # Red
-        "Normal": (0, 255, 0),  # Green
-        "Elongated": (255, 255, 0),  # Yellow
-        "Deformed": (255, 0, 255),  # Magenta
+        "Artifact": (128, 128, 128),  # Gray
+        "Divided": (255, 0, 0),       # Blue
+        "Healthy": (0, 255, 0),       # Green
+        "Elongated": (0, 255, 255),   # Yellow
+        "Deformed": (255, 0, 255),    # Magenta
     }
 
     for cell_id, data in cell_mapping.items():
         y1, x1, y2, x2 = data["bbox"]
 
         # Get the morphology class and corresponding color
-        morphology_class = data["metrics"].get("morphology_class", "Normal")
+        morphology_class = data["metrics"].get("morphology_class", "Healthy")
         color = morphology_colors.get(
             morphology_class, (255, 255, 255))  # Default to white
 
