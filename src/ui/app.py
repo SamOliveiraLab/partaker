@@ -1553,29 +1553,35 @@ class App(QMainWindow):
             QMessageBox.warning(
                 self, "Error", "No tracking data available. Run cell tracking first.")
             return
-
-        # Ask user which set of tracks to use
+        
+        # Ask user which set of tracks to use - with custom button text
         from PySide6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self,
-            "Motility Analysis Options",
-            "Which tracks would you like to analyze?\n\n"
-            "- Filtered Tracks: Uses only the longest, most reliable tracks (recommended)\n"
-            "- All Tracks: Uses all detected cell tracks for a complete population analysis",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Motility Analysis Options")
+        msg_box.setText("Which tracks would you like to analyze?")
+        msg_box.setInformativeText(
+            "• Filtered Tracks: Uses only the longest, most reliable tracks (recommended)\n"
+            "• All Tracks: Uses all detected cell tracks for a complete population analysis"
         )
-
-        # Select tracks based on user choice
-        if reply == QMessageBox.StandardButton.Yes:
-            # Use filtered tracks (default)
+        
+        # Create custom buttons
+        filtered_button = msg_box.addButton("Filtered Tracks", QMessageBox.ActionRole)
+        all_button = msg_box.addButton("All Tracks", QMessageBox.ActionRole)
+        cancel_button = msg_box.addButton(QMessageBox.Cancel)
+        
+        msg_box.exec()
+        
+        # Handle user choice
+        if msg_box.clickedButton() == filtered_button:
             tracks_to_analyze = self.tracked_cells
             track_type = "filtered"
-        else:
-            # Use all tracks
+        elif msg_box.clickedButton() == all_button:
             tracks_to_analyze = self.lineage_tracks
             track_type = "all"
-
+        else:
+            # User clicked Cancel
+            return
+        
         # Check if selected tracks exist
         if not tracks_to_analyze:
             QMessageBox.warning(
