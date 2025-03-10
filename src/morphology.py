@@ -68,30 +68,26 @@ def classify_morphology(metrics, parameters=None):
 
     # Default parameters
     default_params = {
-        # Artifact parameters (new)
-        "artifact_max_area": 400,
-        "artifact_max_perimeter": 80,
         
-        # Divided cell parameters (formerly small)
-        "divided_max_area": 1000,
-        "divided_max_perimeter": 150,
-        "divided_max_aspect_ratio": 3.0,
+        "artifact_max_area": 245.510,
+        "artifact_max_perimeter": 65.901,
         
-        # Healthy cell parameters (formerly normal)
-        "healthy_min_circularity": 0.6,
-        "healthy_max_circularity": 0.8,
-        "healthy_min_aspect_ratio": 1.5,
-        "healthy_max_aspect_ratio": 3.0,
-        "healthy_min_solidity": 0.85,
+        "divided_max_area": 685.844,
+        "divided_max_perimeter": 269.150,
+        "divided_max_aspect_ratio": 3.531,
         
-        # Elongated cell parameters
-        "elongated_min_area": 3000,
-        "elongated_min_aspect_ratio": 5.0,
-        "elongated_max_circularity": 0.4,
+        "healthy_min_circularity": 0.516,
+        "healthy_max_circularity": 0.727,
+        "healthy_min_aspect_ratio": 1.463,
+        "healthy_max_aspect_ratio": 3.292,
+        "healthy_min_solidity": 0.880,
         
-        # Deformed cell parameters 
-        "deformed_max_circularity": 0.602,
-        "deformed_max_solidity": 0.731
+        "elongated_min_area": 2398.996,
+        "elongated_min_aspect_ratio": 5.278,
+        "elongated_max_circularity": 0.245,
+        
+        "deformed_max_circularity": 0.589,
+        "deformed_max_solidity": 0.706
     }
 
     # Use provided parameters if available, otherwise use defaults

@@ -1553,7 +1553,7 @@ class App(QMainWindow):
             QMessageBox.warning(
                 self, "Error", "No tracking data available. Run cell tracking first.")
             return
-        
+
         # Ask user which set of tracks to use - with custom button text
         from PySide6.QtWidgets import QMessageBox
         msg_box = QMessageBox(self)
@@ -1563,14 +1563,15 @@ class App(QMainWindow):
             "• Filtered Tracks: Uses only the longest, most reliable tracks (recommended)\n"
             "• All Tracks: Uses all detected cell tracks for a complete population analysis"
         )
-        
+
         # Create custom buttons
-        filtered_button = msg_box.addButton("Filtered Tracks", QMessageBox.ActionRole)
+        filtered_button = msg_box.addButton(
+            "Filtered Tracks", QMessageBox.ActionRole)
         all_button = msg_box.addButton("All Tracks", QMessageBox.ActionRole)
         cancel_button = msg_box.addButton(QMessageBox.Cancel)
-        
+
         msg_box.exec()
-        
+
         # Handle user choice
         if msg_box.clickedButton() == filtered_button:
             tracks_to_analyze = self.tracked_cells
@@ -1581,7 +1582,7 @@ class App(QMainWindow):
         else:
             # User clicked Cancel
             return
-        
+
         # Check if selected tracks exist
         if not tracks_to_analyze:
             QMessageBox.warning(
@@ -1652,8 +1653,8 @@ class App(QMainWindow):
             f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n"
             f"Movement Directness: {1/detailed_metrics['average_tortuosity']:.2f}\n\n"
             f"Population Variability:\n"
-            f"Displacement CV: {detailed_metrics['cv_displacement']:.2f}\n"
-            f"Velocity CV: {detailed_metrics['cv_velocity']:.2f}\n\n"
+            f"Displacement (cv): {detailed_metrics['cv_displacement']:.2f}\n"
+            f"Velocity (cv): {detailed_metrics['cv_velocity']:.2f}\n\n"
             f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks"
         )
 
@@ -2660,65 +2661,165 @@ class App(QMainWindow):
 
     def display_similarity_results(self, match_percentage):
         """
-        Display the similarity analysis results.
+        Display the similarity analysis results with consistent coloring and ordering.
+
+        Parameters:
+        -----------
+        match_percentage : float
+            The overall match percentage between current and best match classifications.
         """
+        # Define a consistent color scheme for all morphology classes
+        morphology_colors = {
+            "Artifact": "#4CAF50",  # Green
+            "Divided": "#FF9800",   # Orange
+            "Healthy": "#2196F3",   # Blue
+            "Elongated": "#9C27B0",  # Purple
+            "Deformed": "#F44336"   # Red
+        }
+
+        # Ensure we have the same class order for both pie charts
+        ordered_classes = ["Healthy", "Divided",
+                           "Artifact", "Elongated", "Deformed"]
+
         # Clear the existing figure
         self.figure_morphology_metrics.clear()
 
         # Create a figure with subplots
         gridspec = self.figure_morphology_metrics.add_gridspec(2, 2)
 
-        # 1. Pie chart of current classifications
+        # 1. Pie chart of current classifications - ensure consistent order
         ax1 = self.figure_morphology_metrics.add_subplot(gridspec[0, 0])
-        class_counts = self.similarity_df["current_class"].value_counts()
-        ax1.pie(class_counts, labels=class_counts.index, autopct='%1.1f%%')
+        current_class_counts = self.similarity_df["current_class"].value_counts(
+        )
+
+        # Reorder the data to match our predefined order
+        current_data = []
+        current_labels = []
+        current_colors = []
+
+        for class_name in ordered_classes:
+            if class_name in current_class_counts:
+                current_data.append(current_class_counts[class_name])
+                current_labels.append(class_name)
+                current_colors.append(morphology_colors[class_name])
+
+        # Create pie chart with consistent colors
+        wedges, texts, autotexts = ax1.pie(
+            current_data,
+            labels=current_labels,
+            colors=current_colors,
+            autopct='%1.1f%%'
+        )
         ax1.set_title("Current Classification Distribution")
 
-        # 2. Pie chart of best match classifications
+        # Style the pie chart text
+        for text in texts:
+            text.set_fontsize(9)
+        for autotext in autotexts:
+            autotext.set_fontsize(9)
+            autotext.set_weight('bold')
+
+        # 2. Pie chart of best match classifications - using same order and colors
         ax2 = self.figure_morphology_metrics.add_subplot(gridspec[0, 1])
         best_counts = self.similarity_df["best_match_class"].value_counts()
-        ax2.pie(best_counts, labels=best_counts.index, autopct='%1.1f%%')
+
+        # Reorder the data to match our predefined order
+        best_data = []
+        best_labels = []
+        best_colors = []
+
+        for class_name in ordered_classes:
+            if class_name in best_counts:
+                best_data.append(best_counts[class_name])
+                best_labels.append(class_name)
+                best_colors.append(morphology_colors[class_name])
+
+        # Create pie chart with consistent colors
+        wedges, texts, autotexts = ax2.pie(
+            best_data,
+            labels=best_labels,
+            colors=best_colors,
+            autopct='%1.1f%%'
+        )
         ax2.set_title("Best Match Classification Distribution")
+
+        # Style the pie chart text
+        for text in texts:
+            text.set_fontsize(9)
+        for autotext in autotexts:
+            autotext.set_fontsize(9)
+            autotext.set_weight('bold')
 
         # 3. Bar chart of match percentage by class
         ax3 = self.figure_morphology_metrics.add_subplot(gridspec[1, 0])
         match_by_class = self.similarity_df.groupby(
             "current_class")["matches_best"].mean() * 100
-        match_by_class.plot(kind='bar', ax=ax3)
+
+        # Reorder the data to match our predefined order
+        ordered_match_data = []
+        ordered_match_index = []
+        ordered_match_colors = []
+
+        for class_name in ordered_classes:
+            if class_name in match_by_class:
+                ordered_match_data.append(match_by_class[class_name])
+                ordered_match_index.append(class_name)
+                ordered_match_colors.append(morphology_colors[class_name])
+
+        # Create reordered series
+        match_by_class_ordered = pd.Series(
+            ordered_match_data, index=ordered_match_index)
+
+        # Plot with consistent colors
+        bars = ax3.bar(
+            match_by_class_ordered.index,
+            match_by_class_ordered.values,
+            color=ordered_match_colors
+        )
+
         ax3.set_title("Match Percentage by Class")
         ax3.set_ylabel("Match Percentage (%)")
         ax3.set_ylim(0, 100)
 
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax3.annotate(f'{height:.1f}%',
+                         xy=(bar.get_x() + bar.get_width() / 2, height),
+                         xytext=(0, 3),  # 3 points vertical offset
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8)
+
+        ax3.set_xticklabels(match_by_class_ordered.index,
+                            rotation=45, ha='right')
+
         # 4. Text summary
         ax4 = self.figure_morphology_metrics.add_subplot(gridspec[1, 1])
         ax4.axis('off')
-        summary_text = f"""
-        Classification Analysis Summary:
-        
-        Total Cells: {len(self.similarity_df)}
-        Matching Current to Best: {match_percentage:.1f}%
-        
-        Ideal Examples Used:
-        """
 
-        for class_name, cell_id in self.ideal_examples.items():
-            if cell_id is not None:
-                summary_text += f"\n{class_name}: Cell #{cell_id}"
+        # Get total cells
+        total_cells = len(self.similarity_df)
 
-        ax4.text(0, 0.5, summary_text, va='center')
+        # Create formatted summary text
+        summary_text = f"""Classification Analysis Summary:
+        
+    Total Cells: {total_cells}
+    Matching Current to Best: {match_percentage:.1f}%
+
+    Ideal Examples Used:"""
+
+        # Add ideal examples if available
+        if hasattr(self, "ideal_examples"):
+            for class_name, cell_id in self.ideal_examples.items():
+                if cell_id is not None:
+                    summary_text += f"\n{class_name}: Cell #{cell_id}"
+
+        ax4.text(0, 0.7, summary_text, va='top', fontsize=10)
 
         # Adjust layout and draw
         self.figure_morphology_metrics.tight_layout()
         self.canvas_morphology_metrics.draw()
-
-        # Show result in a message box
-        QMessageBox.information(
-            self,
-            "Similarity Analysis",
-            f"Classification to Ideal Similarity Analysis Complete\n\n"
-            f"Overall match percentage: {match_percentage:.1f}%\n\n"
-            f"This indicates how well your current classification matches the 'ideal' examples."
-        )
 
     def optimize_classification_parameters(self):
         """
@@ -2732,30 +2833,25 @@ class App(QMainWindow):
         # Debug: Print original parameters
         print("\n=== ORIGINAL DEFAULT PARAMETERS ===")
         default_params = {
-            # Artifact parameters (new)
-            "artifact_max_area": 400,
-            "artifact_max_perimeter": 80,
+            "artifact_max_area": 245.510,
+            "artifact_max_perimeter": 65.901,
 
-            # Divided cell parameters (formerly small)
-            "divided_max_area": 1000,
-            "divided_max_perimeter": 150,
-            "divided_max_aspect_ratio": 3.0,
+            "divided_max_area": 685.844,
+            "divided_max_perimeter": 269.150,
+            "divided_max_aspect_ratio": 3.531,
 
-            # Healthy cell parameters (formerly normal)
-            "healthy_min_circularity": 0.6,
-            "healthy_max_circularity": 0.8,
-            "healthy_min_aspect_ratio": 1.5,
-            "healthy_max_aspect_ratio": 3.0,
-            "healthy_min_solidity": 0.85,
+            "healthy_min_circularity": 0.516,
+            "healthy_max_circularity": 0.727,
+            "healthy_min_aspect_ratio": 1.463,
+            "healthy_max_aspect_ratio": 3.292,
+            "healthy_min_solidity": 0.880,
 
-            # Elongated cell parameters
-            "elongated_min_area": 3000,
-            "elongated_min_aspect_ratio": 5.0,
-            "elongated_max_circularity": 0.4,
-
-            # Deformed cell parameters
-            "deformed_max_circularity": 0.602,
-            "deformed_max_solidity": 0.731
+            "elongated_min_area": 2398.996,
+            "elongated_min_aspect_ratio": 5.278,
+            "elongated_max_circularity": 0.245,
+            
+            "deformed_max_circularity": 0.589,
+            "deformed_max_solidity": 0.706
         }
 
         for key, value in default_params.items():
