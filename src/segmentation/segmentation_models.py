@@ -64,6 +64,7 @@ class SegmentationModels:
     CELLPOSE_FT_0 = 'cellpose_finetuned'
     CELLPOSE_BACT_PHASE = 'bact_phase_cp3'
     CELLPOSE_BACT_FLUOR = 'bact_fluor_cp3'
+    CELLPOSE_BACT_HHLN_MAR_14 = 'CP_20250314_100004_bact_phase_hhln'
 
     _instance = None
 
@@ -241,6 +242,14 @@ class SegmentationModels:
         if preprocess:
             images = [preprocess_image(img) for img in images]
 
+        # Check if this is a Cellpose-based model
+        is_cellpose_model = mode in [
+            SegmentationModels.CELLPOSE, 
+            SegmentationModels.CELLPOSE_BACT_PHASE,
+            SegmentationModels.CELLPOSE_BACT_FLUOR, 
+            SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14
+        ]
+
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
                 self.models[self.CELLPOSE] = models.CellposeModel(
@@ -260,6 +269,22 @@ class SegmentationModels:
         elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
             if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
                 self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
+                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
+
+            segmented_images = self.segment_cellpose(
+                images, progress, self.models[mode])
+
+        elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
+            if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
+                self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
+                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
+
+            segmented_images = self.segment_cellpose(
+                images, progress, self.models[mode])
+            
+        elif mode == SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14:
+            if SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14 not in self.models:
+                self.models[self.CELLPOSE_BACT_HHLN_MAR_14] = models.CellposeModel(
                     gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
 
             segmented_images = self.segment_cellpose(
@@ -290,8 +315,114 @@ class SegmentationModels:
                  original_shape[0]),
                 interpolation=cv2.INTER_NEAREST) for segmented_image in segmented_images]
 
-        return resized_images
+        # Apply erosion specifically for Cellpose models
+        if is_cellpose_model:
+            resized_images = self.apply_morphological_erosion(resized_images)
 
+        # Remove artifacts (optional step that can be enabled with a parameter)
+        cleaned_images = [self.remove_artifacts_from_mask(img) for img in resized_images]
+
+        return cleaned_images
+
+    def remove_artifacts_from_mask(self, mask, min_area_ratio=0.2):
+        """
+        Remove artifacts from a segmentation mask based on cell area and morphological opening.
+        
+        Parameters:
+            mask (np.ndarray): Binary or labeled segmentation mask
+            min_area_ratio (float): Minimum area ratio compared to average area
+        
+        Returns:
+            np.ndarray: Cleaned mask with artifacts removed
+        """
+        from skimage.measure import label, regionprops
+        import numpy as np
+        import cv2
+        
+        # First apply morphological opening to remove small artifacts
+        # Create a structuring element appropriate for E. coli (rod-shaped bacteria)
+        # Elliptical/oblong structuring element works well for rod-shaped bacteria
+        kernel_size = 3  # Start with a small kernel
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        
+        if np.max(mask) <= 1:
+            # Binary mask
+            opened_mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
+        else:
+            # Labeled mask - convert to binary, open, then re-label
+            binary_mask = (mask > 0).astype(np.uint8)
+            opened_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel)
+            if np.max(opened_mask) == 0:  # If opening removed everything
+                return mask  # Return original mask
+        
+        # Convert to labeled image
+        if np.max(opened_mask) <= 1:
+            labeled_mask = label(opened_mask)
+        else:
+            labeled_mask = opened_mask.copy()
+        
+        # Calculate areas
+        regions = regionprops(labeled_mask)
+        if not regions:
+            return mask  # If no regions found, return original
+        
+        areas = [region.area for region in regions]
+        
+        # Find average area
+        mean_area = np.mean(areas)
+        
+        # Set threshold
+        area_threshold = mean_area * min_area_ratio
+        
+        # Create clean mask
+        clean_mask = np.zeros_like(mask)
+        for region in regions:
+            if region.area >= area_threshold:
+                if np.max(mask) <= 255:
+                    clean_mask[labeled_mask == region.label] = 255
+                else:
+                    clean_mask[labeled_mask == region.label] = region.label
+        
+        return clean_mask
+
+    def apply_morphological_erosion(self, masks, kernel_size=3):
+        """
+        Apply morphological erosion to segmentation masks.
+        
+        Parameters:
+            masks (list): List of segmentation masks
+            kernel_size (int): Size of the erosion kernel
+        
+        Returns:
+            list: Eroded segmentation masks
+        """
+        import cv2
+        import numpy as np
+        
+        # Create a circular/elliptical structuring element (good for bacterial cells)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        
+        eroded_masks = []
+        for mask in masks:
+            # For binary masks
+            if np.max(mask) <= 1 or np.max(mask) == 255:
+                binary_mask = mask.astype(np.uint8)
+                if np.max(binary_mask) == 1:
+                    binary_mask = binary_mask * 255
+                eroded = cv2.erode(binary_mask, kernel, iterations=1)
+                eroded_masks.append(eroded)
+            # For labeled masks
+            else:
+                # Create a binary version, erode it, then relabel
+                binary = (mask > 0).astype(np.uint8) * 255
+                eroded_binary = cv2.erode(binary, kernel, iterations=1)
+                
+                # Relabel the eroded binary mask
+                from skimage.measure import label
+                eroded_labeled = label(eroded_binary)
+                eroded_masks.append(eroded_labeled)
+        
+        return eroded_masks
 
 def preprocess_image(image):
     """

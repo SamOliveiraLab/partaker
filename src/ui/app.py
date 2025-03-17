@@ -71,6 +71,7 @@ import matplotlib.pyplot as plt
 from skimage.measure import label, regionprops
 from image_data import ImageData
 
+from .roisel import PolygonROISelector
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -246,6 +247,7 @@ class App(QMainWindow):
             # Update population tab slider
             self.slider_p_5.setMaximum(max_position)
             self.update_controls()
+            self.update_slider_range()
             self.display_image()
 
             self.image_data.segmentation_cache.clear()  # Clear segmentation cache
@@ -357,6 +359,7 @@ class App(QMainWindow):
             image_data = image_data[t]
 
         image_data = np.array(image_data)  # Ensure it's a NumPy array
+        self.current_image = image_data
 
         # Apply thresholding or segmentation if selected
         if self.radio_thresholding.isChecked():
@@ -612,14 +615,43 @@ class App(QMainWindow):
         )
         layout.addWidget(button)
 
+        self.roi_button = QPushButton("Select ROI")
+        self.roi_button.clicked.connect(self.open_roi_selector)
+        self.roi_mask = None
+        layout.addWidget(self.roi_button)
+
         self.is_folder_checkbox = QCheckBox("Load from folder?")
         layout.addWidget(self.is_folder_checkbox)
 
         self.filename_label = QLabel("Filename will be shown here.")
         layout.addWidget(self.filename_label)
 
+        # ROI selector
+        # self.import_tab_roi_selector_label = QLabel("Region of interest selection")
+        # self.import_tab_roi_selector_checkbox = QCheckBox("Use ROI?")
+        # self.import_tab_roi_selector = ROIWidget()
+        # layout.addWidget(self.import_tab_roi_selector_label)
+        # layout.addWidget(self.import_tab_roi_selector)
+        # layout.addWidget(self.import_tab_roi_selector_checkbox)
+
         self.info_label = QLabel("File info will be shown here.")
         layout.addWidget(self.info_label)
+
+    def open_roi_selector(self):
+        # Get the image to use for ROI selection
+        image_data = self.current_image
+        
+        # Create and show the ROI selector dialog
+        roi_dialog = PolygonROISelector(image_data)
+        roi_dialog.roi_selected.connect(self.handle_roi_result)
+        roi_dialog.exec_()  # Use exec_ to make it modal
+        
+    def handle_roi_result(self, mask):
+        # Store and apply mask
+        self.roi_mask = mask
+        self.image_data.seg_cache.set_binary_mask(self.roi_mask)
+        # Update UI or perform other actions with the new mask
+        print(f"ROI mask created with shape: {self.roi_mask.shape}")
 
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
@@ -2030,6 +2062,7 @@ class App(QMainWindow):
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems(
             [
+                SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14,
                 SegmentationModels.CELLPOSE_BACT_PHASE,
                 SegmentationModels.CELLPOSE_BACT_FLUOR,
                 SegmentationModels.CELLPOSE,
@@ -3386,11 +3419,11 @@ class App(QMainWindow):
             labeled_cells = label(segmented)
 
             # Visualize labeled segmentation
-            plt.figure(figsize=(5, 5))
-            # Color-coded labels
-            plt.imshow(labeled_cells, cmap='nipy_spectral')
-            plt.title(f'Labeled Segmentation - Frame {t}')
-            plt.axis('off')
+            # plt.figure(figsize=(5, 5))
+            # # Color-coded labels
+            # plt.imshow(labeled_cells, cmap='nipy_spectral')
+            # plt.title(f'Labeled Segmentation - Frame {t}')
+            # plt.axis('off')
             # plt.show()
 
             segmented_results.append(labeled_cells)
