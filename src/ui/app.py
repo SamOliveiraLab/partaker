@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import cv2
 import imageio.v3 as iio
@@ -37,6 +38,7 @@ extract_cells_and_metrics,
 from segmentation.segmentation_models import SegmentationModels
 from tracking import optimize_tracking_parameters, track_cells
 from .roisel import PolygonROISelector
+from .about import AboutDialog
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -2175,6 +2177,43 @@ class App(QMainWindow):
         self.initMorphologyTab()
         self.initMorphologyTimeTab()
         self.initMorphologyVisualizationTab()
+        self.initMenuBar()
+
+    def initMenuBar(self):
+        # Create the menu bar
+        menu_bar = self.menuBar()
+
+        # File menu
+        file_menu = menu_bar.addMenu("File")
+
+        # Save action
+        save_action = QAction("Save", self)
+        save_action.setShortcut("Ctrl+S")
+        # save_action.triggered.connect(self.save_file)
+        file_menu.addAction(save_action)
+
+        # Load action
+        load_action = QAction("Load", self)
+        load_action.setShortcut("Ctrl+L")
+        # load_action.triggered.connect(self.load_file)
+        file_menu.addAction(load_action)
+
+        # Help menu (for About dialog)
+        help_menu = menu_bar.addMenu("Help")
+
+        about_action = QAction("About", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+
+        # macOS specific: "About" in the application menu
+        if sys.platform == "darwin":
+            about_action_mac = QAction("About", self)
+            about_action_mac.triggered.connect(self.show_about_dialog)
+            self.menuBar().addAction(about_action_mac)
+
+    def show_about_dialog(self):
+        about_dialog = AboutDialog()
+        about_dialog.exec_()
 
     def initMorphologyTab(self):
         layout = QVBoxLayout(self.morphologyTab)
