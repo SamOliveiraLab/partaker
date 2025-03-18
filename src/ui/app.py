@@ -1,76 +1,41 @@
-import sys
-import os
-from types import new_class
-
-from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QVBoxLayout,
-    QButtonGroup,
-    QTabWidget,
-    QWidget,
-    QLabel,
-    QPushButton,
-    QFileDialog,
-    QScrollArea,
-    QSlider,
-    QHBoxLayout,
-    QCheckBox,
-    QMessageBox,
-    QRadioButton,
-    QMenu,
-    QTableWidget,
-    QTableWidgetItem,
-    QSpinBox,
-    QFormLayout,
-    QDialog,
-    QSizePolicy, QComboBox, QLabel, QProgressBar, QDialogButtonBox, QProgressDialog
-)
-from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot
-import PySide6.QtAsyncio as QtAsyncio
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-
-from cellpose import models, utils
-
-# import xarray as xr
 from pathlib import Path
-from matplotlib import pyplot as plt
-import nd2
-import pandas as pd
-import numpy as np
+
 import cv2
 import imageio.v3 as iio
-import tifffile
-from morphology import annotate_image, extract_cells_and_metrics, annotate_binary_mask, extract_cell_morphologies, extract_cell_morphologies_time, classify_morphology
-
-from segmentation.segmentation_models import SegmentationModels
-from segmentation.segmentation_cache import SegmentationCache
-
-from image_functions import remove_stage_jitter_MAE
-from PySide6.QtCore import QThread, Signal, QObject
-
-# import pims
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvas
-
+import nd2
+import numpy as np
+import pandas as pd
 import seaborn as sns
-
-from population import get_fluorescence_all_experiments, get_fluorescence_single_experiment
-
-from fluorescence.sc import analyze_fluorescence_singlecell, analyze_fluorescence_total
-from fluorescence.rpu import AVAIL_RPUS
-
-from tracking import track_cells, optimize_tracking_parameters
-
+import tifffile
 from tqdm import tqdm
 
-import matplotlib.pyplot as plt
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *
+import PySide6.QtAsyncio as QtAsyncio
 
+from cellpose import models, utils
 from skimage.measure import label, regionprops
-from image_data import ImageData
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
+from fluorescence.rpu import AVAIL_RPUS
+from fluorescence.sc import analyze_fluorescence_singlecell
+from image_data import ImageData
+from image_functions import remove_stage_jitter_MAE
+from morphology import (
+annotate_binary_mask,
+annotate_image,
+classify_morphology,
+extract_cell_morphologies,
+extract_cell_morphologies_time,
+extract_cells_and_metrics,
+)
+from segmentation.segmentation_models import SegmentationModels
+from tracking import optimize_tracking_parameters, track_cells
 from .roisel import PolygonROISelector
 
 class MorphologyWorker(QObject):
@@ -215,6 +180,7 @@ class App(QMainWindow):
         self.image_data.phc_path = folder_path
 
         self.image_data.segmentation_cache.clear()  # Clear segmentation cache
+        self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
         print("Segmentation cache cleared.")
 
     def load_nd2_file(self, file_path):
@@ -244,13 +210,11 @@ class App(QMainWindow):
             # dimensions
             max_position = self.dimensions.get("P", 1) - 1
             self.slider_p.setMaximum(max_position)
-            # Update population tab slider
-            self.slider_p_5.setMaximum(max_position)
             self.update_controls()
-            self.update_slider_range()
             self.display_image()
 
             self.image_data.segmentation_cache.clear()  # Clear segmentation cache
+            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
             print("Segmentation cache cleared.")
 
     def display_file_info(self, file_path):
@@ -260,7 +224,7 @@ class App(QMainWindow):
         self.info_label.setText(info_text)
 
     def update_controls(self):
-        # Set max values for sliders based on ND2 dimensions
+        """Updates all the applications controls based on the dimensions of the lodaded ImageData"""
         t_max = self.dimensions.get("T", 1) - 1
         p_max = self.dimensions.get("P", 1) - 1
 
@@ -268,15 +232,22 @@ class App(QMainWindow):
         self.slider_t.setMaximum(t_max)
         self.slider_p.setMaximum(p_max)
 
-    def update_slider_range(self):
         self.slider_t.setMaximum(self.dimensions.get("T", 1) - 1)
 
         max_position = self.dimensions.get("P", 1) - 1
         self.slider_p.setMaximum(max_position)
-        self.slider_p_5.setMaximum(max_position)
 
         # Population tab
         self.time_max_box.setMaximum(self.dimensions.get("T", 1) - 1)
+        
+        max_p = (
+            self.dimensions.get("P", 1) - 1
+            if hasattr(self, "dimensions") and "P" in self.dimensions
+            else 0
+        )
+        # Populate with all possible P values
+        for p in range(max_p + 1):
+            self.p_dropdown.addItem(str(p))
 
     def show_cell_area(self, img):
         from skimage import measure
@@ -362,14 +333,7 @@ class App(QMainWindow):
         self.current_image = image_data
 
         # Apply thresholding or segmentation if selected
-        if self.radio_thresholding.isChecked():
-            threshold = self.threshold_slider.value()
-            image_data = cv2.threshold(
-                image_data, threshold, 255, cv2.THRESH_BINARY)[1]
-            if hasattr(image_data, 'compute'):
-                image_data = image_data.compute()
-
-        elif self.radio_labeled_segmentation.isChecked():
+        if self.radio_labeled_segmentation.isChecked():
             # Ensure segmentation model is set correctly in seg_cache
             selected_model = self.model_dropdown.currentText()
             self.image_data.seg_cache.with_model(selected_model)
@@ -423,34 +387,6 @@ class App(QMainWindow):
 
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
-            # if cache_key in self.image_data.segmentation_cache:
-            #     print(
-            #         f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-            #     image_data = self.image_data.segmentation_cache[cache_key]
-            # else:
-            #     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-            #         model_type = 'bact_phase_cp3' if c in (
-            #             0, None) else 'bact_fluor_cp3'
-            #         print(f"Using model type: {model_type} for channel {c}")
-            #     else:
-            #         model_type = None
-
-            #     frame = self.image_data.data[t, p,
-            # c] if self.image_data.is_nd2 else self.image_data.data[t]
-
-            #     # Perform segmentation
-            #     segmented = SegmentationModels().segment_images(np.array(
-            #         [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
-
-            #     # Relabel if output is binary mask
-            #     if segmented.max() == 255 and len(np.unique(segmented)) <= 2:
-
-            #         segmented = label(segmented).astype(
-            #             np.uint8) * 255  # Ensure correct type for OpenCV
-            #         segmented_display = (segmented > 0).astype(np.uint8) * 255
-
-            #     self.image_data.segmentation_cache[cache_key] = segmented_display
-            #     image_data = segmented_display
 
             self.image_data.seg_cache.with_model(
                 self.model_dropdown.currentText())  # Setting the model we want
@@ -1945,9 +1881,6 @@ class App(QMainWindow):
         segment_button.clicked.connect(self.segment_this_p)
         layout.addWidget(segment_button)
 
-        self.segmentation_progress_bar = QProgressBar()
-        layout.addWidget(self.segmentation_progress_bar)
-
         # T controls
         t_layout = QHBoxLayout()
         t_label = QLabel("T: 0")
@@ -2023,7 +1956,6 @@ class App(QMainWindow):
 
         # Create a radio button for thresholding, normal and segmented
         self.radio_normal = QRadioButton("Normal")
-        self.radio_thresholding = QRadioButton("Thresholding")
         self.radio_segmented = QRadioButton("Segmented")
         self.radio_overlay_outlines = QRadioButton("Overlay with Outlines")
         # Add new radio button for labeled segmentation
@@ -2032,7 +1964,6 @@ class App(QMainWindow):
         # Create a button group and add the radio buttons to it
         self.button_group = QButtonGroup()
         self.button_group.addButton(self.radio_normal)
-        self.button_group.addButton(self.radio_thresholding)
         self.button_group.addButton(self.radio_labeled_segmentation)
         self.button_group.addButton(self.radio_segmented)
         self.button_group.addButton(self.radio_overlay_outlines)
@@ -2042,18 +1973,10 @@ class App(QMainWindow):
         self.radio_normal.setChecked(True)
 
         # Add radio buttons to the layout
-        layout.addWidget(self.radio_thresholding)
         layout.addWidget(self.radio_normal)
         layout.addWidget(self.radio_segmented)
         layout.addWidget(self.radio_overlay_outlines)
         layout.addWidget(self.radio_labeled_segmentation)
-
-        # Threshold slider
-        self.threshold_slider = QSlider(Qt.Horizontal)
-        self.threshold_slider.setMinimum(0)
-        self.threshold_slider.setMaximum(255)
-        self.threshold_slider.valueChanged.connect(self.display_image)
-        layout.addWidget(self.threshold_slider)
 
         # Segmentation model selection
         model_label = QLabel("Select Segmentation Model:")
@@ -2062,7 +1985,6 @@ class App(QMainWindow):
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems(
             [
-                SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14,
                 SegmentationModels.CELLPOSE_BACT_PHASE,
                 SegmentationModels.CELLPOSE_BACT_FLUOR,
                 SegmentationModels.CELLPOSE,
@@ -3376,41 +3298,6 @@ class App(QMainWindow):
         total_frames = self.image_data.data.shape[0]
 
         for t in tqdm(range(total_frames), desc="Segmenting frames"):
-            # cache_key = (t, p, c)
-
-            # # Use cached segmentation if available
-            # if cache_key in self.image_data.segmentation_cache:
-            #     print(
-            #         f"[CACHE HIT] Using cached segmentation for T={t}, P={p}, C={c}")
-            #     segmented = self.image_data.segmentation_cache[cache_key]
-            # else:
-            #     print(f"[CACHE MISS] Segmenting T={t}, P={p}, C={c}")
-
-            #     frame = self.image_data.data[t, p, c]
-
-            #     # Determine model type ONLY if Cellpose is selected
-            #     model_type = None
-            #     if self.model_dropdown.currentText() == SegmentationModels.CELLPOSE:
-            #         model_type = 'bact_phase_cp3' if c in (
-            #             0, None) else 'bact_fluor_cp3'
-
-            #     # Perform segmentation
-            #     segmented = SegmentationModels().segment_images(np.array(
-            #         [frame]), self.model_dropdown.currentText(), model_type=model_type)[0]
-
-            #     # Rescale the image to the base resolution. Reverse because
-            #     # it's opencv
-            #     base_resolution = (
-            #         self.image_data.data.shape[4],
-            #         self.image_data.data.shape[3])
-            #     segmented = cv2.resize(
-            #         segmented,
-            #         base_resolution,
-            #         interpolation=cv2.INTER_NEAREST)
-
-            #     # Store result in cache
-            #     self.image_data.segmentation_cache[cache_key] = segmented
-
             self.image_data.seg_cache.with_model(
                 self.model_dropdown.currentText())  # Setting the model we want
             segmented = self.image_data.seg_cache[t, p, c]
@@ -3869,44 +3756,57 @@ class App(QMainWindow):
 
     def initPopulationTab(self):
         layout = QVBoxLayout(self.populationTab)
-        label = QLabel("Average Pixel Intensity")
-        layout.addWidget(label)
 
         self.population_figure = plt.figure()
         self.population_canvas = FigureCanvas(self.population_figure)
         layout.addWidget(self.population_canvas)
 
-        # Channel control
-        channel_choice_layout = QHBoxLayout()
-        channel_combo = QComboBox()
-        channel_combo.addItem('0')
-        channel_combo.addItem('1')
-        channel_combo.addItem('2')
-        # channel_combo.valueChanged.connect(self.plot_fluorescence_signal)
-        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
-        channel_choice_layout.addWidget(channel_combo)
-        self.channel_combo = channel_combo
+        # P selection mode radio buttons
+        p_mode_group = QGroupBox("P Selection Mode")
+        p_mode_layout = QVBoxLayout()
 
-        # P controls
-        p_layout = QHBoxLayout()
-        p_label = QLabel("P: 0")
-        p_layout.addWidget(p_label)
+        self.use_current_p_radio = QRadioButton("Use current P")
+        self.use_current_p_radio.setChecked(True)  # Default selection
+        self.select_ps_radio = QRadioButton("Select Ps to aggregate")
 
-        # Set slider range based on loaded dimensions, or default to 0 if not
-        # loaded
-        max_p = (
-            self.dimensions.get("P", 1) - 1
-            if hasattr(self, "dimensions") and "P" in self.dimensions
-            else 0
-        )
-        self.slider_p_5 = QSlider(Qt.Horizontal)
-        self.slider_p_5.setMinimum(0)
-        self.slider_p_5.setMaximum(max_p)
-        self.slider_p_5.setValue(0)
-        self.slider_p_5.valueChanged.connect(
-            lambda value: p_label.setText(f'P: {value}'))
+        p_mode_layout.addWidget(self.use_current_p_radio)
+        p_mode_layout.addWidget(self.select_ps_radio)
+        p_mode_group.setLayout(p_mode_layout)
+        layout.addWidget(p_mode_group)
 
-        p_layout.addWidget(self.slider_p_5)
+        # Create the multiple P selection widget (initially hidden)
+        self.multi_p_widget = QWidget()
+        self.multi_p_widget.setVisible(False)  # Hidden by default
+        multi_p_layout = QVBoxLayout(self.multi_p_widget)
+
+        # Create a table to show selected Ps
+        self.selected_ps_table = QTableWidget()
+        self.selected_ps_table.setColumnCount(2)  # P value and Remove button
+        self.selected_ps_table.setHorizontalHeaderLabels(["P Value", "Action"])
+        self.selected_ps_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.selected_ps_table.setSelectionMode(QAbstractItemView.NoSelection)
+        multi_p_layout.addWidget(QLabel("Selected Ps:"))
+        multi_p_layout.addWidget(self.selected_ps_table)
+
+        # Add dropdown and button to add new Ps
+        add_p_layout = QHBoxLayout()
+        self.p_dropdown = QComboBox()
+            
+        add_p_button = QPushButton("Add P")
+        add_p_button.clicked.connect(self.add_p_to_selection)
+        add_p_layout.addWidget(self.p_dropdown)
+        add_p_layout.addWidget(add_p_button)
+        multi_p_layout.addLayout(add_p_layout)
+
+        # Add the multi_p_widget to the main layout
+        layout.addWidget(self.multi_p_widget)
+
+        # Connect radio buttons to toggle the multi_p_widget visibility
+        self.use_current_p_radio.toggled.connect(self.update_p_selection_mode)
+        self.select_ps_radio.toggled.connect(self.update_p_selection_mode)
+
+        # Store selected Ps
+        self.selected_ps = set()
 
         # Checkbox for single cell analysis
         self.single_cell_checkbox = QCheckBox("Single Cell Analysis")
@@ -3916,9 +3816,17 @@ class App(QMainWindow):
         plot_fluo_btn = QPushButton("Plot Fluorescence")
         plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
 
+        # Channel control
+        channel_choice_layout = QHBoxLayout()
+        channel_combo = QComboBox()
+        channel_combo.addItem('0')
+        channel_combo.addItem('1')
+        channel_combo.addItem('2')
+        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
+        channel_choice_layout.addWidget(channel_combo)
+        self.channel_combo = channel_combo
         channel_choice_layout.addWidget(plot_fluo_btn)
 
-        layout.addLayout(p_layout)
         layout.addLayout(channel_choice_layout)
 
         # Time range controls
@@ -3943,21 +3851,84 @@ class App(QMainWindow):
         hb.addWidget(self.rpu_params_combo)
         layout.addLayout(hb)
 
-        # Only attempt to plot if image_data has been loaded
-        if hasattr(self, 'image_data') and self.image_data is not None:
-            self.plot_fluorescente_signal()
+    def update_p_selection_mode(self):
+        """Show or hide the multiple P selection widget based on radio button selection"""
+        if self.select_ps_radio.isChecked():
+            self.multi_p_widget.setVisible(True)
+        else:
+            self.multi_p_widget.setVisible(False)
+
+    def add_p_to_selection(self):
+        """Add a P value to the selection table"""
+        try:
+            p_value = int(self.p_dropdown.currentText())
+        except:
+            return
+        
+        # Check if this P is already in the selection
+        if p_value in self.selected_ps:
+            return
+        
+        # Add to our set of selected Ps
+        self.selected_ps.add(p_value)
+        
+        # Update the table
+        row_position = self.selected_ps_table.rowCount()
+        self.selected_ps_table.insertRow(row_position)
+        
+        # Add P value
+        self.selected_ps_table.setItem(row_position, 0, QTableWidgetItem(str(p_value)))
+        
+        # Add remove button
+        remove_button = QPushButton("Remove")
+        remove_button.clicked.connect(lambda: self.remove_p_from_selection(p_value))
+        self.selected_ps_table.setCellWidget(row_position, 1, remove_button)
+        
+        # Update dropdown to remove this P
+        current_index = self.p_dropdown.currentIndex()
+        self.p_dropdown.removeItem(current_index)
+
+    def remove_p_from_selection(self, p_value):
+        """Remove a P value from the selection"""
+        if p_value in self.selected_ps:
+            self.selected_ps.remove(p_value)
+            
+            # Find and remove the row from the table
+            for row in range(self.selected_ps_table.rowCount()):
+                if int(self.selected_ps_table.item(row, 0).text()) == p_value:
+                    self.selected_ps_table.removeRow(row)
+                    break
+            
+            # Add the P value back to the dropdown
+            # Sort the items to keep them in numerical order
+            self.p_dropdown.addItem(str(p_value))
+            items = [self.p_dropdown.itemText(i) for i in range(self.p_dropdown.count())]
+            items = sorted(items, key=int)
+            
+            self.p_dropdown.clear()
+            for item in items:
+                self.p_dropdown.addItem(item)
+
+    def get_selected_ps(self):
+        """Return the selected P values based on the current mode"""
+        if self.use_current_p_radio.isChecked(): # Return P from view area
+            return [self.slider_p.value()]
+        else:
+            # Multiple P mode - return the set of selected Ps
+            return list(self.selected_ps)
 
     def plot_fluorescence_signal(self):
         if not hasattr(self, 'image_data'):
             return
 
-        p = self.slider_p.value()
+        selected_ps = self.get_selected_ps()
+        p = selected_ps[0]
         c = int(self.channel_combo.currentText())
         rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
         t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
 
         fluo, timestamp = analyze_fluorescence_singlecell(
-            self.segmented_time_series[t_s:t_e], self.image_data.data[t_s:t_e, p, c], rpu)
+            self.image_data.seg_cache[t_s:t_e, p, 0], self.image_data.data[t_s:t_e, p, c], rpu)
 
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)

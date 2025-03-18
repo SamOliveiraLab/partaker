@@ -1,23 +1,10 @@
+from itertools import product
 import numpy as np
 from .segmentation_models import SegmentationModels
-
-
-def slices_to_indices(slice_indices):
-
-    shape = tuple(s.stop - s.start for s in slice_indices)
-
-    for index in np.ndindex(shape):
-        actual_index = tuple(
-            slice_indices[i].start +
-            index[i] for i in range(
-                len(slice_indices)))
-        yield actual_index
-
 
 class SegmentationCache:
     def __init__(self, nd2_data):
         self.nd2_data = nd2_data
-        self.shape = nd2_data.shape
         self.mmap_arrays_idx = {}
         self.model_name = None
         self.seg = SegmentationModels()
@@ -127,35 +114,105 @@ class SegmentationCache:
         
         return result
 
-
-    def __getitem__(self, slice_indices):
+    def __getitem__(self, key):
         if self.model_name is None:
-            raise ValueError(
-                "Model name must be set using with_model() before accessing data.")
+            raise ValueError("Model name must be set using with_model() before accessing data.")
 
-        if isinstance(
-                slice_indices,
-                tuple) and all(
-                isinstance(
-                i,
-                int) for i in slice_indices):
-            slice_indices = tuple(slice(i, i + 1) for i in slice_indices)
-
+        # Get the memory-mapped array and indices for current model
         mmap_array, indices = self.mmap_arrays_idx[self.model_name]
+        
+        # Convert various index types to standardized form
+        key = self._normalize_index(key)
+        
+        # Calculate actual shape and indices
+        requested_shape = self._get_requested_shape(key)
+        all_indices = self._expand_indices(key)
+        
+        # Process unprocessed frames
+        for idx in all_indices:
+            if idx not in indices:
+                self._process_frame(mmap_array, indices, idx)
+        
+        # Return data with proper dimensions
+        return np.squeeze(mmap_array[key])
 
-        for actual_index in slices_to_indices(slice_indices):
-            if actual_index not in indices:
-                frame = self.nd2_data[actual_index].compute()
-                indices.add(actual_index)
-                segmented_frame = self.seg.segment_images(
-                    np.array([frame]), mode=self.model_name)[0]
+    def _normalize_index(self, key):
+        """Convert various index types to tuple of slice objects"""
+        if not isinstance(key, tuple):
+            key = (key,)
+        
+        normalized = []
+        for k in key:
+            if isinstance(k, int):
+                # Convert single integers to slices to maintain dimensions
+                normalized.append(slice(k, k+1))
+            elif isinstance(k, Ellipsis.__class__):  # Handle ellipsis
+                remaining_dims = self.ndim - len(key) + 1
+                normalized.extend([slice(None)] * remaining_dims)
+            else:
+                normalized.append(k)
+        
+        # Fill missing dimensions with full slices
+        while len(normalized) < self.ndim:
+            normalized.append(slice(None))
             
-                # Apply binary mask if available
-                if hasattr(self, 'binary_mask') and self.binary_mask is not None:
-                    segmented_frame = self.apply_binary_mask(segmented_frame)
-                    
-                # Artifact removal
-                segmented_frame = self.remove_artifacts(segmented_frame)
+        return tuple(normalized[:self.ndim])
+
+    def _get_requested_shape(self, key):
+        """Calculate the shape of the requested array portion"""
+        shape = []
+        for k, dim_size in zip(key, self.shape):
+            if isinstance(k, slice):
+                shape.append(len(range(*k.indices(dim_size))))
+            elif isinstance(k, int):
+                shape.append(1)
+            else:
+                raise IndexError(f"Unsupported index type: {type(k)}")
+        return tuple(shape)
+
+    def _expand_indices(self, key):
+        """Generate all actual indices from slices"""
+        indices = []
+        for dim_slice, dim_size in zip(key, self.shape):
+            if isinstance(dim_slice, slice):
+                start, stop, step = dim_slice.indices(dim_size)
+                indices.append(range(start, stop, step))
+            elif isinstance(dim_slice, int):
+                indices.append([dim_slice])
+            else:
+                raise IndexError(f"Unsupported index type: {type(dim_slice)}")
+        
+        return product(*indices)
+
+    def _process_frame(self, mmap_array, indices, idx):
+        """Process and cache a single frame"""
+        # Convert negative indices to positive
+        idx = tuple(i % s for i, s in zip(idx, self.shape))
+        
+        try:
+            frame = self.nd2_data[idx].compute()
+            segmented_frame = self.seg.segment_images([frame], mode=self.model_name)[0]
             
-                mmap_array[actual_index][:, :] = np.copy(segmented_frame)
-        return mmap_array[slice_indices][0, 0, 0]
+            if hasattr(self, 'binary_mask') and self.binary_mask is not None:
+                segmented_frame = self.apply_binary_mask(segmented_frame)
+                
+            segmented_frame = self.remove_artifacts(segmented_frame)
+            mmap_array[idx] = segmented_frame
+            indices.add(idx)
+        except Exception as e:
+            raise IndexError(f"Failed to process frame {idx}") from e
+
+    @property
+    def shape(self):
+        return self.nd2_data.shape
+
+    @property
+    def ndim(self):
+        return self.nd2_data.ndim - 2 # Since the last 2 will be image X and Y
+
+    @property
+    def dtype(self):
+        return self.mmap_array.dtype
+
+    def __array__(self):
+        return self.mmap_array[:]
