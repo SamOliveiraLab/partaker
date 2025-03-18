@@ -157,7 +157,9 @@ def track_cells(segmented_images):
             else:
                 track_dict['parent'] = None
 
-            if hasattr(track, 'children') and track.children and len(track.children) > 0:
+            if hasattr(
+                    track, 'children') and track.children and len(
+                    track.children) > 0:
                 track_dict['children'] = track.children.copy()
             else:
                 track_dict['children'] = []
@@ -229,7 +231,7 @@ def optimize_tracking_parameters(segmented_images, test_frames=None):
 
     if frames_to_analyze.shape[0] >= 2:
         # Extract centroids from first 5 frames (or fewer if not available)
-        max_frames = min(5, frames_to_analyze.shape[0]-1)
+        max_frames = min(5, frames_to_analyze.shape[0] - 1)
 
         for t in range(max_frames):
             current_centroids = {}
@@ -241,7 +243,7 @@ def optimize_tracking_parameters(segmented_images, test_frames=None):
                 current_centroids[prop.label] = prop.centroid
 
             # Get next frame centroids
-            props = regionprops(frames_to_analyze[t+1])
+            props = regionprops(frames_to_analyze[t + 1])
             for prop in props:
                 next_centroids[prop.label] = prop.centroid
 
@@ -309,8 +311,14 @@ def optimize_tracking_parameters(segmented_images, test_frames=None):
     return suggested_params
 
 
-def overlay_tracks_on_images(segmented_images, tracks, save_video=True, output_path="tracked_cells.mp4", show_frames=False,
-                             max_tracks=None, progress_callback=None):
+def overlay_tracks_on_images(
+        segmented_images,
+        tracks,
+        save_video=True,
+        output_path="tracked_cells.mp4",
+        show_frames=False,
+        max_tracks=None,
+        progress_callback=None):
     """
     Overlays tracking trajectories on segmented images and creates a video.
 
@@ -392,9 +400,9 @@ def overlay_tracks_on_images(segmented_images, tracks, save_video=True, output_p
 
             # Draw full trajectory up to current time
             for i in range(len(times) - 1):
-                if times[i+1] <= t:  # Only draw up to current time
+                if times[i + 1] <= t:  # Only draw up to current time
                     pt1 = (int(x_coords[i]), int(y_coords[i]))
-                    pt2 = (int(x_coords[i+1]), int(y_coords[i+1]))
+                    pt2 = (int(x_coords[i + 1]), int(y_coords[i + 1]))
                     cv2.line(frame_rgb, pt1, pt2, color, 1)
 
             # Draw the current position if the track exists at this time
@@ -442,7 +450,11 @@ def overlay_tracks_on_images(segmented_images, tracks, save_video=True, output_p
         progress_callback(100)
 
 
-def visualize_lineage_tree(tracks, output_path=None, min_track_length=5, progress_callback=None):
+def visualize_lineage_tree(
+        tracks,
+        output_path=None,
+        min_track_length=5,
+        progress_callback=None):
     """
     Creates a lineage tree visualization showing cell divisions.
 
@@ -495,7 +507,8 @@ def visualize_lineage_tree(tracks, output_path=None, min_track_length=5, progres
     # Plot settings
     plt.figure(figsize=(14, 10))
 
-    # Position nodes based on start time (y-axis) and a layout algorithm (x-axis)
+    # Position nodes based on start time (y-axis) and a layout algorithm
+    # (x-axis)
     pos = {}
 
     # Use networkx to generate initial x positions
@@ -666,7 +679,8 @@ def tracks_to_dataframe(tracks, features=None):
             # Add any features the track might have
             if hasattr(track, 'features') and track.features is not None:
                 for feature in features:
-                    if i < len(track.features) and feature in track.features[i]:
+                    if i < len(
+                            track.features) and feature in track.features[i]:
                         row[feature] = track.features[i][feature]
 
             data.append(row)
@@ -679,14 +693,13 @@ def tracks_to_dataframe(tracks, features=None):
     return df
 
 
-
 def calculate_cell_motility(track):
     """
     Calculate motility metrics for a single cell track.
-    
+
     Parameters:
     track: dict with keys 'x', 'y', 't' containing position and time data
-    
+
     Returns:
     dict of motility metrics
     """
@@ -694,7 +707,7 @@ def calculate_cell_motility(track):
     x_coords = np.array(track['x'])
     y_coords = np.array(track['y'])
     times = np.array(track['t']) if 't' in track else np.arange(len(x_coords))
-    
+
     # Check if track has enough points
     if len(x_coords) < 2:
         return {
@@ -707,43 +720,43 @@ def calculate_cell_motility(track):
             "median_velocity": 0,
             "direction_angle": 0
         }
-    
+
     # Calculate distances between consecutive points
     dx = np.diff(x_coords)
     dy = np.diff(y_coords)
     dt = np.diff(times)
     dt = np.where(dt == 0, 1, dt)  # Avoid division by zero
     distances = np.sqrt(dx**2 + dy**2)
-    
+
     # Calculate metrics
     path_length = np.sum(distances)
-    
+
     # Net displacement (start to end)
     net_displacement = np.sqrt(
-        (x_coords[-1] - x_coords[0])**2 + 
+        (x_coords[-1] - x_coords[0])**2 +
         (y_coords[-1] - y_coords[0])**2
     )
-        
+
     # Tortuosity (path length / net displacement)
     tortuosity = path_length / net_displacement if net_displacement > 0 else 1
-    
+
     # Average velocity
     total_time = times[-1] - times[0] if len(times) > 1 else 1
     total_time = max(1, total_time)  # Avoid division by zero
     avg_velocity = path_length / total_time
-    
+
     # Instantaneous velocities
     inst_velocities = distances / dt
-    
+
     # Calculate direction angle (in radians)
     if net_displacement > 0:
         direction_angle = np.arctan2(
-            y_coords[-1] - y_coords[0], 
+            y_coords[-1] - y_coords[0],
             x_coords[-1] - x_coords[0]
         )
     else:
         direction_angle = 0
-    
+
     return {
         "path_length": path_length,
         "net_displacement": net_displacement,
@@ -752,76 +765,80 @@ def calculate_cell_motility(track):
         "max_velocity": np.max(inst_velocities) if len(inst_velocities) > 0 else 0,
         "min_velocity": np.min(inst_velocities) if len(inst_velocities) > 0 else 0,
         "median_velocity": np.median(inst_velocities) if len(inst_velocities) > 0 else 0,
-        "direction_angle": direction_angle
-    }
+        "direction_angle": direction_angle}
 
 
 def calculate_motility_index(tracks):
     """
     Calculate a motility index for an entire population of cells.
-    
+
     Parameters:
     tracks: list of track dictionaries with x, y, t positions
-    
+
     Returns:
     float: motility index value, dict: detailed metrics
     """
     if not tracks:
         return 0, {}
-    
+
     # Calculate individual motility metrics for each track
     motility_metrics = [calculate_cell_motility(track) for track in tracks]
-    
+
     # Calculate aggregate statistics
     displacements = [m["net_displacement"] for m in motility_metrics]
     velocities = [m["avg_velocity"] for m in motility_metrics]
     tortuosities = [m["tortuosity"] for m in motility_metrics]
     path_lengths = [m["path_length"] for m in motility_metrics]
-    
+
     avg_displacement = np.mean(displacements)
     avg_velocity = np.mean(velocities)
     avg_tortuosity = np.mean(tortuosities)
     avg_path_length = np.mean(path_lengths)
-    
+
     # Calculate directional coherence (how aligned the cell movements are)
     angles = [m["direction_angle"] for m in motility_metrics]
     x_components = np.cos(angles)
     y_components = np.sin(angles)
-    
+
     # Average the vectors
     mean_x = np.mean(x_components)
     mean_y = np.mean(y_components)
-    
+
     # Length of resulting vector (0-1)
     directional_coherence = np.sqrt(mean_x**2 + mean_y**2)
-    
+
     # Calculate variances (for measuring population heterogeneity)
     displacement_variance = np.var(displacements)
     velocity_variance = np.var(velocities)
-    
+
     # Calculate coefficient of variation (CV) for displacement and velocity
-    cv_displacement = (np.std(displacements) / avg_displacement) if avg_displacement > 0 else 0
-    cv_velocity = (np.std(velocities) / avg_velocity) if avg_velocity > 0 else 0
-    
-    # Calculate the motility index 
+    cv_displacement = (np.std(displacements) /
+                       avg_displacement) if avg_displacement > 0 else 0
+    cv_velocity = (
+        np.std(velocities) /
+        avg_velocity) if avg_velocity > 0 else 0
+
+    # Calculate the motility index
     # Normalize each component to 0-1 scale (with reasonable ranges)
-    norm_displacement = min(1.0, avg_displacement / 200)  # Assuming 200 pixels is high
-    norm_velocity = min(1.0, avg_velocity / 20)  # Assuming 20 pixels/frame is high
-    
+    # Assuming 200 pixels is high
+    norm_displacement = min(1.0, avg_displacement / 200)
+    # Assuming 20 pixels/frame is high
+    norm_velocity = min(1.0, avg_velocity / 20)
+
     # Inverse of tortuosity (higher value = more direct movement)
     directness = min(1.0, 1.0 / avg_tortuosity)
-    
+
     # Combine metrics with weights
     motility_index = (
-        0.35 * norm_displacement + 
-        0.35 * norm_velocity + 
+        0.35 * norm_displacement +
+        0.35 * norm_velocity +
         0.15 * directness +
         0.15 * directional_coherence
     )
-    
+
     # Scale to 0-100 for easier interpretation
     motility_index *= 100
-    
+
     # Detailed metrics for deeper analysis
     detailed_metrics = {
         "average_displacement": avg_displacement,
@@ -837,14 +854,14 @@ def calculate_motility_index(tracks):
         "noise_velocity": cv_velocity**2,
         "individual_metrics": motility_metrics
     }
-    
+
     return motility_index, detailed_metrics
 
 
 def plot_motility_gauge(ax, motility_index):
     """
     Create a gauge-like visualization for the motility index.
-    
+
     Parameters:
     ax: matplotlib axis
     motility_index: float, the calculated motility index value
@@ -853,50 +870,66 @@ def plot_motility_gauge(ax, motility_index):
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 10)
     ax.axis('off')
-    
+
     # Draw gauge background
     theta = np.linspace(0.75 * np.pi, 0.25 * np.pi, 100)
     r_inner = 3
     r_outer = 4
-    
+
     # Gauge background
     for r in np.linspace(r_inner, r_outer, 10):
         x = 5 + r * np.cos(theta)
         y = 5 + r * np.sin(theta)
         ax.plot(x, y, color='lightgray', linewidth=1)
-    
+
     # Color bands (red to green)
     colors = ['#ff3232', '#ff7f32', '#ffcb32', '#cbff32', '#7fff32', '#32ff32']
     for i, color in enumerate(colors):
-        theta_band = np.linspace(0.75 * np.pi - i * 0.5 * np.pi / len(colors), 
-                              0.75 * np.pi - (i+1) * 0.5 * np.pi / len(colors), 50)
+        theta_band = np.linspace(0.75 *
+                                 np.pi -
+                                 i *
+                                 0.5 *
+                                 np.pi /
+                                 len(colors), 0.75 *
+                                 np.pi -
+                                 (i +
+                                  1) *
+                                 0.5 *
+                                 np.pi /
+                                 len(colors), 50)
         x_outer = 5 + r_outer * np.cos(theta_band)
         y_outer = 5 + r_outer * np.sin(theta_band)
         x_inner = 5 + r_inner * np.cos(theta_band)
         y_inner = 5 + r_inner * np.sin(theta_band)
-        
+
         # Combine the points to form a polygon
         x = np.concatenate([x_outer, x_inner[::-1]])
         y = np.concatenate([y_outer, y_inner[::-1]])
         ax.fill(x, y, color=color, alpha=0.7)
-    
+
     # Scale markers and labels
     for i, label in enumerate(['0', '20', '40', '60', '80', '100']):
         angle = 0.75 * np.pi - i * 0.1 * np.pi
         x = 5 + 4.5 * np.cos(angle)
         y = 5 + 4.5 * np.sin(angle)
         ax.text(x, y, label, ha='center', va='center', fontsize=8)
-    
+
     # Needle
     needle_angle = 0.75 * np.pi - (motility_index / 100) * 0.5 * np.pi
-    ax.plot([5, 5 + 4.2 * np.cos(needle_angle)], 
-            [5, 5 + 4.2 * np.sin(needle_angle)], 
+    ax.plot([5, 5 + 4.2 * np.cos(needle_angle)],
+            [5, 5 + 4.2 * np.sin(needle_angle)],
             color='black', linewidth=2)
-    
+
     # Center circle
     circle = plt.Circle((5, 5), 0.3, color='darkgray')
     ax.add_patch(circle)
-    
+
     # Display motility index value
     ax.text(5, 3, f"Motility Index", ha='center', fontsize=12)
-    ax.text(5, 2, f"{motility_index:.1f}", ha='center', fontsize=16, fontweight='bold')
+    ax.text(
+        5,
+        2,
+        f"{motility_index:.1f}",
+        ha='center',
+        fontsize=16,
+        fontweight='bold')

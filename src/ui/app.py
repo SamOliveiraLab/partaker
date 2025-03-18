@@ -28,17 +28,18 @@ from fluorescence.sc import analyze_fluorescence_singlecell
 from image_data import ImageData
 from image_functions import remove_stage_jitter_MAE
 from morphology import (
-annotate_binary_mask,
-annotate_image,
-classify_morphology,
-extract_cell_morphologies,
-extract_cell_morphologies_time,
-extract_cells_and_metrics,
+    annotate_binary_mask,
+    annotate_image,
+    classify_morphology,
+    extract_cell_morphologies,
+    extract_cell_morphologies_time,
+    extract_cells_and_metrics,
 )
 from segmentation.segmentation_models import SegmentationModels
 from tracking import optimize_tracking_parameters, track_cells
 from .roisel import PolygonROISelector
 from .about import AboutDialog
+
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -76,7 +77,7 @@ class MorphologyWorker(QObject):
 
                 t, p, c = (t, self.position, self.channel)
 
-                binary_image = self.image_data.seg_cache[t, p, c]
+                binary_image = self.image_data.segmentation_cache[t, p, c]
 
                 # Validate segmentation result
                 if binary_image is None or binary_image.sum() == 0:
@@ -180,16 +181,21 @@ class App(QMainWindow):
         )
 
         self.image_data.phc_path = folder_path
-
-        self.image_data.segmentation_cache.clear()  # Clear segmentation cache
-        self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
+        self.image_data.segmentation_cache.with_model(
+            self.model_dropdown.currentText())
         print("Segmentation cache cleared.")
 
     def load_nd2_file(self, file_path):
-
-        self.file_path = file_path
         with nd2.ND2File(file_path) as nd2_file:
-            self.nd2_file = nd2_file
+            self.image_data = ImageData(data=nd2.imread(
+                file_path, dask=True), path=file_path, is_nd2=True)
+        self.init_controls_nd2(file_path)
+
+    def init_controls_nd2(self, file_path):
+        """ This function updates the controls with the ND2 dimensions.
+        Must be called after initializing the ND2 file, either way.
+        """
+        with nd2.ND2File(file_path) as nd2_file:
             self.dimensions = nd2_file.sizes
             info_text = f"Number of dimensions: {nd2_file.sizes}\n"
 
@@ -205,8 +211,6 @@ class App(QMainWindow):
                 self.has_channels = False
 
             self.info_label.setText(info_text)
-            self.image_data = ImageData(nd2.imread(
-                file_path, dask=True), is_nd2=True)
 
             # Set the slider range for position (P) immediately based on
             # dimensions
@@ -215,8 +219,8 @@ class App(QMainWindow):
             self.update_controls()
             self.display_image()
 
-            self.image_data.segmentation_cache.clear()  # Clear segmentation cache
-            self.image_data.seg_cache.with_model(self.model_dropdown.currentText())
+            self.image_data.segmentation_cache.with_model(
+                self.model_dropdown.currentText())
             print("Segmentation cache cleared.")
 
     def display_file_info(self, file_path):
@@ -241,7 +245,7 @@ class App(QMainWindow):
 
         # Population tab
         self.time_max_box.setMaximum(self.dimensions.get("T", 1) - 1)
-        
+
         max_p = (
             self.dimensions.get("P", 1) - 1
             if hasattr(self, "dimensions") and "P" in self.dimensions
@@ -336,12 +340,12 @@ class App(QMainWindow):
 
         # Apply thresholding or segmentation if selected
         if self.radio_labeled_segmentation.isChecked():
-            # Ensure segmentation model is set correctly in seg_cache
+            # Ensure segmentation model is set correctly in segmentation_cache
             selected_model = self.model_dropdown.currentText()
-            self.image_data.seg_cache.with_model(selected_model)
+            self.image_data.segmentation_cache.with_model(selected_model)
 
-            # Retrieve segmentation from seg_cache
-            segmented = self.image_data.seg_cache[t, p, c]
+            # Retrieve segmentation from segmentation_cache
+            segmented = self.image_data.segmentation_cache[t, p, c]
 
             if segmented is None:
                 print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
@@ -357,7 +361,9 @@ class App(QMainWindow):
             if max_label == 0:
                 print("[ERROR] No valid labeled regions found.")
                 QMessageBox.warning(
-                    self, "Labeled Segmentation Error", "No valid labeled regions found.")
+                    self,
+                    "Labeled Segmentation Error",
+                    "No valid labeled regions found.")
                 return
 
             # Convert labels to color image
@@ -370,8 +376,8 @@ class App(QMainWindow):
             for prop in props:
                 y, x = prop.centroid  # Get centroid coordinates
                 cell_id = prop.label  # Get cell ID
-                cv2.putText(labeled_image, str(cell_id), (int(x), int(y)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+                cv2.putText(labeled_image, str(cell_id), (int(x), int(
+                    y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
             # Display the labeled image
             height, width, _ = labeled_image.shape
@@ -390,25 +396,22 @@ class App(QMainWindow):
         elif self.radio_segmented.isChecked():
             cache_key = (t, p, c)
 
-            self.image_data.seg_cache.with_model(
+            self.image_data.segmentation_cache.with_model(
                 self.model_dropdown.currentText())  # Setting the model we want
-            image_data = self.image_data.seg_cache[t, p, c]
+            image_data = self.image_data.segmentation_cache[t, p, c]
 
-            # Extract and cache morphology metrics if not already cached
-            metrics_key = cache_key + ('metrics',)
-            if metrics_key not in self.image_data.segmentation_cache:
-                # print(f"Extracting morphology metrics for T={t}, P={p}, C={c}")
-                metrics = extract_cell_morphologies(image_data)
-                self.image_data.segmentation_cache[metrics_key] = metrics
+            # TODO: check if this is really needed
+            metrics = extract_cell_morphologies(image_data)
 
         else:  # Normal view or overlay
             if self.radio_overlay_outlines.isChecked():
-                # Ensure segmentation model is set correctly in seg_cache
+                # Ensure segmentation model is set correctly in
+                # segmentation_cache
                 selected_model = self.model_dropdown.currentText()
-                self.image_data.seg_cache.with_model(selected_model)
+                self.image_data.segmentation_cache.with_model(selected_model)
 
-                # Retrieve segmentation from seg_cache
-                segmented_image = self.image_data.seg_cache[t, p, c]
+                # Retrieve segmentation from segmentation_cache
+                segmented_image = self.image_data.segmentation_cache[t, p, c]
 
                 if segmented_image is None:
                     print(
@@ -578,16 +581,16 @@ class App(QMainWindow):
     def open_roi_selector(self):
         # Get the image to use for ROI selection
         image_data = self.current_image
-        
+
         # Create and show the ROI selector dialog
         roi_dialog = PolygonROISelector(image_data)
         roi_dialog.roi_selected.connect(self.handle_roi_result)
         roi_dialog.exec_()  # Use exec_ to make it modal
-        
+
     def handle_roi_result(self, mask):
         # Store and apply mask
         self.roi_mask = mask
-        self.image_data.seg_cache.set_binary_mask(self.roi_mask)
+        self.image_data.segmentation_cache.set_binary_mask(self.roi_mask)
         # Update UI or perform other actions with the new mask
         print(f"ROI mask created with shape: {self.roi_mask.shape}")
 
@@ -727,7 +730,8 @@ class App(QMainWindow):
             if root_cell_id is None and len(top_components) > 1:
                 axes = []
                 for i in range(len(top_components)):
-                    ax = canvas.figure.add_subplot(1, len(top_components), i+1)
+                    ax = canvas.figure.add_subplot(
+                        1, len(top_components), i + 1)
                     axes.append(ax)
             else:
                 ax = canvas.figure.add_subplot(111)
@@ -748,13 +752,23 @@ class App(QMainWindow):
                     pos = self.hierarchy_pos(subgraph, roots[0])
                     node_sizes = [100 + subgraph.nodes[n]
                                   ['duration'] * 10 for n in subgraph.nodes()]
-                    node_colors = ['red' if subgraph.nodes[n]['divides'] else 'blue'
-                                   for n in subgraph.nodes()]
+                    node_colors = [
+                        'red' if subgraph.nodes[n]['divides'] else 'blue' for n in subgraph.nodes()]
 
-                    nx.draw_networkx_nodes(subgraph, pos, node_size=node_sizes,
-                                           node_color=node_colors, alpha=0.8, ax=axes[i])
-                    nx.draw_networkx_edges(subgraph, pos, edge_color='black',
-                                           arrows=True, arrowsize=15, ax=axes[i])
+                    nx.draw_networkx_nodes(
+                        subgraph,
+                        pos,
+                        node_size=node_sizes,
+                        node_color=node_colors,
+                        alpha=0.8,
+                        ax=axes[i])
+                    nx.draw_networkx_edges(
+                        subgraph,
+                        pos,
+                        edge_color='black',
+                        arrows=True,
+                        arrowsize=15,
+                        ax=axes[i])
                     nx.draw_networkx_labels(
                         subgraph, pos, font_size=8, ax=axes[i])
 
@@ -774,10 +788,20 @@ class App(QMainWindow):
                     node_colors = ['red' if G.nodes[n]['divides'] else 'blue'
                                    for n in G.nodes()]
 
-                    nx.draw_networkx_nodes(G, pos, node_size=node_sizes,
-                                           node_color=node_colors, alpha=0.8, ax=axes[0])
-                    nx.draw_networkx_edges(G, pos, edge_color='black',
-                                           arrows=True, arrowsize=15, ax=axes[0])
+                    nx.draw_networkx_nodes(
+                        G,
+                        pos,
+                        node_size=node_sizes,
+                        node_color=node_colors,
+                        alpha=0.8,
+                        ax=axes[0])
+                    nx.draw_networkx_edges(
+                        G,
+                        pos,
+                        edge_color='black',
+                        arrows=True,
+                        arrowsize=15,
+                        ax=axes[0])
                     nx.draw_networkx_labels(G, pos, font_size=8, ax=axes[0])
 
                     title = f"Lineage Tree for Cell {root_cell_id}" if root_cell_id else "Largest Lineage Tree"
@@ -796,11 +820,27 @@ class App(QMainWindow):
 
         return G
 
-    def hierarchy_pos(self, G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5):
+    def hierarchy_pos(
+            self,
+            G,
+            root,
+            width=1.,
+            vert_gap=0.1,
+            vert_loc=0,
+            xcenter=0.5):
         """
         Position nodes in a hierarchical layout.
         """
-        def _hierarchy_pos(G, root, width=1., vert_gap=0.1, vert_loc=0, xcenter=0.5, pos=None, parent=None, parsed=[]):
+        def _hierarchy_pos(
+                G,
+                root,
+                width=1.,
+                vert_gap=0.1,
+                vert_loc=0,
+                xcenter=0.5,
+                pos=None,
+                parent=None,
+                parsed=[]):
             if pos is None:
                 pos = {root: (xcenter, vert_loc)}
             else:
@@ -810,12 +850,20 @@ class App(QMainWindow):
                 children.remove(parent)
             if children:
                 dx = width / len(children)
-                nextx = xcenter - width/2 - dx/2
+                nextx = xcenter - width / 2 - dx / 2
                 for child in children:
                     nextx += dx
-                    pos = _hierarchy_pos(G, child, width=dx, vert_gap=vert_gap,
-                                         vert_loc=vert_loc-vert_gap, xcenter=nextx, pos=pos,
-                                         parent=root, parsed=parsed)
+                    pos = _hierarchy_pos(
+                        G,
+                        child,
+                        width=dx,
+                        vert_gap=vert_gap,
+                        vert_loc=vert_loc -
+                        vert_gap,
+                        xcenter=nextx,
+                        pos=pos,
+                        parent=root,
+                        parsed=parsed)
             return pos
         return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
 
@@ -846,7 +894,8 @@ class App(QMainWindow):
         track_displacements = []
         for track in tracks:
             if len(track['x']) >= 2:
-                # Calculate total displacement (Euclidean distance from start to end)
+                # Calculate total displacement (Euclidean distance from start
+                # to end)
                 start_x, start_y = track['x'][0], track['y'][0]
                 end_x, end_y = track['x'][-1], track['y'][-1]
                 displacement = np.sqrt(
@@ -901,8 +950,8 @@ class App(QMainWindow):
         stats_text += f"Avg displacement: {avg_displacement:.1f}px\n"
         stats_text += f"Max displacement: {max_displacement:.1f}px"
 
-        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes,
-                bbox=dict(facecolor='white', alpha=0.7), verticalalignment='bottom')
+        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes, bbox=dict(
+            facecolor='white', alpha=0.7), verticalalignment='bottom')
 
         # Draw the plot
         self.canvas_morphology_fractions.draw()
@@ -913,7 +962,9 @@ class App(QMainWindow):
         """
         if not hasattr(self, "tracked_cells") or not self.tracked_cells:
             QMessageBox.warning(
-                self, "Error", "No tracking data available. Run cell tracking first.")
+                self,
+                "Error",
+                "No tracking data available. Run cell tracking first.")
             return
 
         p = self.slider_p.value()
@@ -935,7 +986,7 @@ class App(QMainWindow):
             if progress.wasCanceled():
                 return
 
-            segmented = self.image_data.seg_cache[i, p, c]
+            segmented = self.image_data.segmentation_cache[i, p, c]
             if segmented is not None:
                 segmented_images.append(segmented)
 
@@ -976,7 +1027,9 @@ class App(QMainWindow):
             )
 
             QMessageBox.information(
-                self, "Video Created", f"Tracking visualization saved to {output_path}")
+                self,
+                "Video Created",
+                f"Tracking visualization saved to {output_path}")
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -996,14 +1049,14 @@ class App(QMainWindow):
                 "Preparing frames for tracking...", "Cancel", 0, t, self)
             progress.setWindowModality(Qt.WindowModal)
             progress.show()
-            self.image_data.seg_cache.with_model(
+            self.image_data.segmentation_cache.with_model(
                 self.model_dropdown.currentText())
             labeled_frames = []
             for i in range(t):
                 if progress.wasCanceled():
                     return
                 progress.setValue(i)
-                segmented = self.image_data.seg_cache[i, p, c]
+                segmented = self.image_data.segmentation_cache[i, p, c]
                 if segmented is not None:
                     labeled = label(segmented)
                     labeled_frames.append(labeled)
@@ -1049,13 +1102,17 @@ class App(QMainWindow):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            QMessageBox.warning(self, "Tracking Error",
-                                f"Failed to track cells with lineage: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Tracking Error",
+                f"Failed to track cells with lineage: {str(e)}")
 
     def show_lineage_dialog(self):
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
-                self, "Error", "No tracking data available. Run tracking with lineage first.")
+                self,
+                "Error",
+                "No tracking data available. Run tracking with lineage first.")
             return
         dialog = QDialog(self)
         dialog.setWindowTitle("Lineage Tree Visualization")
@@ -1064,8 +1121,7 @@ class App(QMainWindow):
         layout = QVBoxLayout(dialog)
         info_label = QLabel(
             "Select a visualization option below. Cell lineage trees show parent-child relationships.\n"
-            "Red nodes indicate cells that divide further, blue nodes are cells that don't divide."
-        )
+            "Red nodes indicate cells that divide further, blue nodes are cells that don't divide.")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
         selection_layout = QHBoxLayout()
@@ -1080,8 +1136,9 @@ class App(QMainWindow):
         cell_combo = QComboBox()
         cell_combo.setEnabled(False)
         selection_layout.addWidget(cell_combo)
-        dividing_cells = [track['ID']
-                          for track in self.lineage_tracks if track.get('children', [])]
+        dividing_cells = [
+            track['ID'] for track in self.lineage_tracks if track.get(
+                'children', [])]
         dividing_cells.sort()
         for cell_id in dividing_cells:
             cell_combo.addItem(f"Cell {cell_id}")
@@ -1132,21 +1189,23 @@ class App(QMainWindow):
         """
         if not hasattr(self, "tracked_cells") or not self.tracked_cells:
             QMessageBox.warning(
-                self, "Error", "No tracking data available. Run cell tracking first.")
+                self,
+                "Error",
+                "No tracking data available. Run cell tracking first.")
             return
 
         try:
             import networkx as nx
             import matplotlib.pyplot as plt
 
-            # Ask user if they want to pick a specific cell or have one selected automatically
+            # Ask user if they want to pick a specific cell or have one
+            # selected automatically
             reply = QMessageBox.question(
                 self,
                 "Lineage Visualization",
                 "Would you like to select a specific cell to view its lineage?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
+                QMessageBox.Yes)
 
             # Get list of cell IDs
             cell_ids = [track['ID'] for track in self.tracked_cells]
@@ -1201,8 +1260,7 @@ class App(QMainWindow):
 
             # Ask for save location
             output_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)"
-            )
+                self, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)")
 
             # Find temporal relationships (potential divisions)
             # For each track, find tracks that start when it ends
@@ -1236,7 +1294,8 @@ class App(QMainWindow):
                 # Get the end frame for this track
                 end_frame = parent_track['t'][-1]
 
-                # Get potential children (tracks that start right after this one ends)
+                # Get potential children (tracks that start right after this
+                # one ends)
                 children_candidates = []
 
                 # Look at the next few frames for potential children
@@ -1248,8 +1307,11 @@ class App(QMainWindow):
                             if child_track['ID'] == parent_track['ID']:
                                 continue
 
-                            # Calculate proximity between end of parent and start of child
-                            if len(parent_track['x']) > 0 and len(child_track['x']) > 0:
+                            # Calculate proximity between end of parent and
+                            # start of child
+                            if len(
+                                    parent_track['x']) > 0 and len(
+                                    child_track['x']) > 0:
                                 parent_end_x = parent_track['x'][-1]
                                 parent_end_y = parent_track['y'][-1]
                                 child_start_x = child_track['x'][0]
@@ -1259,12 +1321,14 @@ class App(QMainWindow):
                                 distance = ((parent_end_x - child_start_x)**2 +
                                             (parent_end_y - child_start_y)**2)**0.5
 
-                                # If close enough, consider it a potential child
+                                # If close enough, consider it a potential
+                                # child
                                 if distance < 30:  # Adjust threshold as needed
                                     children_candidates.append(
                                         (child_track['ID'], distance))
 
-                # Sort by distance and take up to 2 closest as children (for division)
+                # Sort by distance and take up to 2 closest as children (for
+                # division)
                 children_candidates.sort(key=lambda x: x[1])
                 children = [c[0] for c in children_candidates[:2]]
 
@@ -1276,11 +1340,13 @@ class App(QMainWindow):
                             (t for t in self.tracked_cells if t['ID'] == child_id), None)
                         if child_track:
                             # Add child to graph
-                            G.add_node(child_id,
-                                       first_frame=child_track['t'][0] if child_track['t'] else 0,
-                                       frames=len(child_track['t']) if child_track['t'] else len(
-                                           child_track['x']),
-                                       track_data=child_track)
+                            G.add_node(
+                                child_id,
+                                first_frame=child_track['t'][0] if child_track['t'] else 0,
+                                frames=len(
+                                    child_track['t']) if child_track['t'] else len(
+                                    child_track['x']),
+                                track_data=child_track)
                             # Add edge
                             G.add_edge(cell_id, child_id)
                             # Recursively build tree for this child
@@ -1307,8 +1373,12 @@ class App(QMainWindow):
                         path_length = 0
 
                     # Get all nodes at this depth
-                    nodes_at_depth = [n for n in G.nodes() if
-                                      len(nx.shortest_path(G, selected_cell, n)) - 1 == path_length]
+                    nodes_at_depth = [
+                        n for n in G.nodes() if len(
+                            nx.shortest_path(
+                                G,
+                                selected_cell,
+                                n)) - 1 == path_length]
 
                     # Calculate x position based on position among siblings
                     index = nodes_at_depth.index(node)
@@ -1396,7 +1466,11 @@ class App(QMainWindow):
 
         return descendants
 
-    def visualize_focused_lineage_tree(self, root_cell_id, output_path=None, progress_callback=None):
+    def visualize_focused_lineage_tree(
+            self,
+            root_cell_id,
+            output_path=None,
+            progress_callback=None):
         """
         Create a focused lineage tree visualization starting from a specific cell.
         """
@@ -1439,11 +1513,11 @@ class App(QMainWindow):
         try:
             # First try a hierarchical layout (best for trees)
             pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
-        except:
+        except BaseException:
             try:
                 # Fallback to a different hierarchical layout
                 pos = nx.drawing.nx_agraph.graphviz_layout(G, prog='dot')
-            except:
+            except BaseException:
                 # Last resort - spring layout with time on y-axis
                 pos = {}
                 for node in G.nodes():
@@ -1521,7 +1595,9 @@ class App(QMainWindow):
         # Check if any tracking data is available
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
-                self, "Error", "No tracking data available. Run cell tracking first.")
+                self,
+                "Error",
+                "No tracking data available. Run cell tracking first.")
             return
 
         # Ask user which set of tracks to use - with custom button text
@@ -1531,8 +1607,7 @@ class App(QMainWindow):
         msg_box.setText("Which tracks would you like to analyze?")
         msg_box.setInformativeText(
             "• Filtered Tracks: Uses only the longest, most reliable tracks (recommended)\n"
-            "• All Tracks: Uses all detected cell tracks for a complete population analysis"
-        )
+            "• All Tracks: Uses all detected cell tracks for a complete population analysis")
 
         # Create custom buttons
         filtered_button = msg_box.addButton(
@@ -1625,8 +1700,7 @@ class App(QMainWindow):
             f"Population Variability:\n"
             f"Displacement (cv): {detailed_metrics['cv_displacement']:.2f}\n"
             f"Velocity (cv): {detailed_metrics['cv_velocity']:.2f}\n\n"
-            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks"
-        )
+            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks")
 
         ax4.text(0.05, 0.95, summary_text, va='top', ha='left', fontsize=9)
 
@@ -1635,8 +1709,7 @@ class App(QMainWindow):
 
         # Show summary in a message box
         QMessageBox.information(
-            self, "Motility Analysis",
-            f"Motility Analysis Complete\n\n"
+            self, "Motility Analysis", f"Motility Analysis Complete\n\n"
             f"Motility Index: {motility_index:.1f}\n"
             f"This index represents overall cell movement activity.\n"
             f"Higher values indicate greater movement freedom.\n\n"
@@ -1644,8 +1717,7 @@ class App(QMainWindow):
             f"Average Velocity: {detailed_metrics['average_velocity']:.2f} pixels/frame\n"
             f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n\n"
             f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks\n\n"
-            f"These metrics quantify cell movement behavior in the current environment."
-        )
+            f"These metrics quantify cell movement behavior in the current environment.")
 
         return motility_index, detailed_metrics, track_type
 
@@ -1661,7 +1733,7 @@ class App(QMainWindow):
         try:
             # Extract image data for all time points
             t = self.dimensions["T"]  # Get the total number of time points
-            self.image_data.seg_cache.with_model(
+            self.image_data.segmentation_cache.with_model(
                 self.model_dropdown.currentText())
             if "C" in self.dimensions:
                 image_data = np.array(
@@ -1993,7 +2065,7 @@ class App(QMainWindow):
                 SegmentationModels.UNET,
                 SegmentationModels.CELLSAM])
         self.model_dropdown.currentIndexChanged.connect(
-            lambda: self.image_data.seg_cache.with_model(
+            lambda: self.image_data.segmentation_cache.with_model(
                 self.model_dropdown.currentText()))
         layout.addWidget(self.model_dropdown)
 
@@ -2002,12 +2074,12 @@ class App(QMainWindow):
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
 
-        # Ensure segmentation model is set correctly in seg_cache
+        # Ensure segmentation model is set correctly in segmentation_cache
         selected_model = self.model_dropdown.currentText()
-        self.image_data.seg_cache.with_model(selected_model)
+        self.image_data.segmentation_cache.with_model(selected_model)
 
-        # Retrieve segmentation from seg_cache
-        segmented_image = self.image_data.seg_cache[t, p, c]
+        # Retrieve segmentation from segmentation_cache
+        segmented_image = self.image_data.segmentation_cache[t, p, c]
 
         if segmented_image is None:
             print(f"[ERROR] Segmentation failed for T={t}, P={p}, C={c}")
@@ -2044,8 +2116,9 @@ class App(QMainWindow):
 
         # Convert to QPixmap and set to QLabel
         pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
+            self.image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
 
         self.update_annotation_scatter()
@@ -2189,13 +2262,13 @@ class App(QMainWindow):
         # Save action
         save_action = QAction("Save", self)
         save_action.setShortcut("Ctrl+S")
-        # save_action.triggered.connect(self.save_file)
+        save_action.triggered.connect(self.save_to_folder)
         file_menu.addAction(save_action)
 
         # Load action
         load_action = QAction("Load", self)
         load_action.setShortcut("Ctrl+L")
-        # load_action.triggered.connect(self.load_file)
+        load_action.triggered.connect(self.load_from_folder)
         file_menu.addAction(load_action)
 
         # Help menu (for About dialog)
@@ -2214,6 +2287,32 @@ class App(QMainWindow):
     def show_about_dialog(self):
         about_dialog = AboutDialog()
         about_dialog.exec_()
+
+    def save_to_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(
+            self,                           # Parent widget
+            "Select Destination Folder",    # Dialog caption
+            # Default directory (empty starts in last used)
+            "",
+            QFileDialog.ShowDirsOnly        # Option to show only directories
+        )
+        if folder_path:
+            print(f"Project will be saved to folder: {folder_path}")
+            self.image_data.save(folder_path)
+
+    def load_from_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Project Folder",
+            "",
+            QFileDialog.ShowDirsOnly
+        )
+        if folder_path:
+            print(f"Project loaded from folder: {folder_path}")
+            self.image_data = ImageData.load(folder_path)
+            # Update controls / app state
+            if self.image_data.nd2_filename is not None:
+                self.init_controls_nd2(self.image_data.nd2_filename)
 
     def initMorphologyTab(self):
         layout = QVBoxLayout(self.morphologyTab)
@@ -2445,7 +2544,7 @@ class App(QMainWindow):
                 c = self.slider_c.value() if self.has_channels else None
 
                 # Extract the cell region from the segmented image
-                segmented_image = self.image_data.seg_cache[t, p, c]
+                segmented_image = self.image_data.segmentation_cache[t, p, c]
 
                 # Create a visualization focusing on just this cell
                 # Make a local crop of the segmented image around the cell
@@ -2468,7 +2567,8 @@ class App(QMainWindow):
                 local_y1, local_x1 = y1 - y_min, x1 - x_min
                 local_y2, local_x2 = y2 - y_min, x2 - x_min
 
-                # Use connected components to find the cell within the bounding box
+                # Use connected components to find the cell within the bounding
+                # box
                 roi = cropped_seg[max(0, local_y1):min(cropped_seg.shape[0], local_y2),
                                   max(0, local_x1):min(cropped_seg.shape[1], local_x2)]
 
@@ -2491,8 +2591,8 @@ class App(QMainWindow):
                         np.uint8) * 255
 
                     # Place it in the full mask at the right position
-                    cell_mask[max(0, local_y1):min(cropped_seg.shape[0], local_y2),
-                              max(0, local_x1):min(cropped_seg.shape[1], local_x2)] = component_mask
+                    cell_mask[max(0, local_y1):min(cropped_seg.shape[0], local_y2), max(
+                        0, local_x1):min(cropped_seg.shape[1], local_x2)] = component_mask
 
                 # Highlight the cell in the appropriate morphology color
                 # Default to red if color not found
@@ -2502,8 +2602,8 @@ class App(QMainWindow):
                 # Draw bounding box
                 cv2.rectangle(cropped_rgb,
                               (max(0, local_x1), max(0, local_y1)),
-                              (min(cropped_seg.shape[1]-1, local_x2),
-                               min(cropped_seg.shape[0]-1, local_y2)),
+                              (min(cropped_seg.shape[1] - 1, local_x2),
+                               min(cropped_seg.shape[0] - 1, local_y2)),
                               (255, 0, 0), 1)
 
                 # Add text
@@ -2554,7 +2654,9 @@ class App(QMainWindow):
         """
         if not hasattr(self, "ideal_metrics") or not self.ideal_metrics:
             QMessageBox.warning(
-                self, "Error", "No ideal metrics defined. Please select ideal examples first.")
+                self,
+                "Error",
+                "No ideal metrics defined. Please select ideal examples first.")
             return
 
         # Get all cells from current frame
@@ -2565,12 +2667,20 @@ class App(QMainWindow):
         # Make sure cell mapping exists
         if not hasattr(self, "cell_mapping") or not self.cell_mapping:
             QMessageBox.warning(
-                self, "Error", "No cell data available. Please classify cells first.")
+                self,
+                "Error",
+                "No cell data available. Please classify cells first.")
             return
 
         # Metrics to compare (exclude morphology_class)
-        metrics_to_compare = ["area", "perimeter", "equivalent_diameter",
-                              "orientation", "aspect_ratio", "circularity", "solidity"]
+        metrics_to_compare = [
+            "area",
+            "perimeter",
+            "equivalent_diameter",
+            "orientation",
+            "aspect_ratio",
+            "circularity",
+            "solidity"]
 
         # Store results
         similarity_results = []
@@ -2594,7 +2704,8 @@ class App(QMainWindow):
                     continue
 
                 # Calculate Euclidean distance in feature space
-                # First normalize each feature to prevent any single feature from dominating
+                # First normalize each feature to prevent any single feature
+                # from dominating
                 squared_diff_sum = 0
                 valid_metrics = 0
 
@@ -2608,7 +2719,8 @@ class App(QMainWindow):
                         if cell_value is None or ideal_value is None:
                             continue
 
-                        # Normalize based on ideal value to get relative difference
+                        # Normalize based on ideal value to get relative
+                        # difference
                         if ideal_value != 0:
                             normalized_diff = (
                                 cell_value - ideal_value) / ideal_value
@@ -2713,7 +2825,8 @@ class App(QMainWindow):
             autotext.set_fontsize(9)
             autotext.set_weight('bold')
 
-        # 2. Pie chart of best match classifications - using same order and colors
+        # 2. Pie chart of best match classifications - using same order and
+        # colors
         ax2 = self.figure_morphology_metrics.add_subplot(gridspec[0, 1])
         best_counts = self.similarity_df["best_match_class"].value_counts()
 
@@ -2797,7 +2910,7 @@ class App(QMainWindow):
 
         # Create formatted summary text
         summary_text = f"""Classification Analysis Summary:
-        
+
     Total Cells: {total_cells}
     Matching Current to Best: {match_percentage:.1f}%
 
@@ -2821,7 +2934,9 @@ class App(QMainWindow):
         """
         if not hasattr(self, "ideal_metrics") or not self.ideal_metrics:
             QMessageBox.warning(
-                self, "Error", "No ideal metrics defined. Please select ideal examples first.")
+                self,
+                "Error",
+                "No ideal metrics defined. Please select ideal examples first.")
             return
 
         # Debug: Print original parameters
@@ -2843,7 +2958,7 @@ class App(QMainWindow):
             "elongated_min_area": 2398.996,
             "elongated_min_aspect_ratio": 5.278,
             "elongated_max_circularity": 0.245,
-            
+
             "deformed_max_circularity": 0.589,
             "deformed_max_solidity": 0.706
         }
@@ -2868,7 +2983,9 @@ class App(QMainWindow):
         # Make sure cell mapping exists
         if not hasattr(self, "cell_mapping") or not self.cell_mapping:
             QMessageBox.warning(
-                self, "Error", "No cell data available. Please classify cells first.")
+                self,
+                "Error",
+                "No cell data available. Please classify cells first.")
             return
 
         # Create progress dialog
@@ -2968,8 +3085,13 @@ class App(QMainWindow):
                         continue
 
                     # Calculate similarity to this ideal
-                    metrics_to_compare = ["area", "perimeter", "equivalent_diameter",
-                                          "aspect_ratio", "circularity", "solidity"]
+                    metrics_to_compare = [
+                        "area",
+                        "perimeter",
+                        "equivalent_diameter",
+                        "aspect_ratio",
+                        "circularity",
+                        "solidity"]
 
                     squared_diff_sum = 0
                     valid_metrics = 0
@@ -3062,19 +3184,24 @@ class App(QMainWindow):
         result_message = (
             f"Optimization complete!\n\n"
             f"Best match percentage: {best_match_percentage:.1f}%\n\n"
-            f"Changes if applied: {changes} of {len(self.original_classification)} cells\n"
-        )
+            f"Changes if applied: {changes} of {len(self.original_classification)} cells\n")
 
         # Add detail on most significant changes
         if changes > 0:
             result_message += "\nSignificant changes:\n"
-            for change, count in sorted(change_matrix.items(), key=lambda x: x[1], reverse=True)[:3]:
+            for change, count in sorted(
+                    change_matrix.items(), key=lambda x: x[1], reverse=True)[
+                    :3]:
                 result_message += f"• {change}: {count} cells\n"
 
         result_message += "\nWould you like to apply these optimized parameters?"
 
-        reply = QMessageBox.question(self, "Optimization Results", result_message,
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        reply = QMessageBox.question(
+            self,
+            "Optimization Results",
+            result_message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes)
 
         if reply == QMessageBox.Yes:
             # Apply the optimized parameters and reclassify cells
@@ -3166,9 +3293,11 @@ class App(QMainWindow):
         # Display a detailed before/after comparison
         self.display_classification_results(old_class_count, new_class_count)
 
-        QMessageBox.information(self, "Reclassification Complete",
-                                f"All cells have been reclassified using optimized parameters.\n\n"
-                                f"Changed classification for {change_count} cells out of {len(self.cell_mapping)}.")
+        QMessageBox.information(
+            self,
+            "Reclassification Complete",
+            f"All cells have been reclassified using optimized parameters.\n\n"
+            f"Changed classification for {change_count} cells out of {len(self.cell_mapping)}.")
 
     def display_classification_results(self, before_counts, after_counts):
         """
@@ -3194,9 +3323,9 @@ class App(QMainWindow):
         after_values = [after_counts.get(cls, 0) for cls in all_classes]
 
         # Plot the bars
-        before_bars = ax.bar([i - width/2 for i in x],
+        before_bars = ax.bar([i - width / 2 for i in x],
                              before_values, width, label='Before Optimization')
-        after_bars = ax.bar([i + width/2 for i in x],
+        after_bars = ax.bar([i + width / 2 for i in x],
                             after_values, width, label='After Optimization')
 
         # Add labels and titles
@@ -3209,18 +3338,23 @@ class App(QMainWindow):
 
         # Add value labels on the bars
         for i, v in enumerate(before_values):
-            ax.text(i - width/2, v + 0.5, str(v), ha='center')
+            ax.text(i - width / 2, v + 0.5, str(v), ha='center')
 
         for i, v in enumerate(after_values):
-            ax.text(i + width/2, v + 0.5, str(v), ha='center')
+            ax.text(i + width / 2, v + 0.5, str(v), ha='center')
 
         # Highlight differences
         for i, (before, after) in enumerate(zip(before_values, after_values)):
             if before != after:
                 diff = after - before
                 color = 'green' if diff > 0 else 'red'
-                ax.text(i, max(before, after) + 5, f"{'+' if diff > 0 else ''}{diff}",
-                        ha='center', color=color, fontweight='bold')
+                ax.text(i,
+                        max(before,
+                            after) + 5,
+                        f"{'+' if diff > 0 else ''}{diff}",
+                        ha='center',
+                        color=color,
+                        fontweight='bold')
 
         # Draw the plot
         self.canvas_morphology_metrics.draw()
@@ -3265,7 +3399,7 @@ class App(QMainWindow):
             c = self.slider_c.value() if self.has_channels else None
             frame = self.get_current_frame(t, p, c)
 
-            segmented_image = self.image_data.seg_cache[t, p, c]
+            segmented_image = self.image_data.segmentation_cache[t, p, c]
 
             # Extract cell metrics
             self.cell_mapping = extract_cells_and_metrics(
@@ -3337,9 +3471,9 @@ class App(QMainWindow):
         total_frames = self.image_data.data.shape[0]
 
         for t in tqdm(range(total_frames), desc="Segmenting frames"):
-            self.image_data.seg_cache.with_model(
+            self.image_data.segmentation_cache.with_model(
                 self.model_dropdown.currentText())  # Setting the model we want
-            segmented = self.image_data.seg_cache[t, p, c]
+            segmented = self.image_data.segmentation_cache[t, p, c]
 
             # Label segmented objects (Assign unique label to each object)
             labeled_cells = label(segmented)
@@ -3474,7 +3608,7 @@ class App(QMainWindow):
         c = self.slider_c.value() if self.has_channels else None
 
         # Get the binary segmentation
-        segmented_image = self.image_data.seg_cache[t, p, c]
+        segmented_image = self.image_data.segmentation_cache[t, p, c]
 
         if segmented_image is None:
             QMessageBox.warning(self, "Error", "Segmented image not found.")
@@ -3490,7 +3624,9 @@ class App(QMainWindow):
         # Ensure stored cell mappings exist
         if not hasattr(self, "cell_mapping") or not self.cell_mapping:
             QMessageBox.warning(
-                self, "Error", "No stored cell mappings found. Did you classify cells first?")
+                self,
+                "Error",
+                "No stored cell mappings found. Did you classify cells first?")
             return
 
         available_ids = list(map(int, self.cell_mapping.keys()))
@@ -3498,7 +3634,9 @@ class App(QMainWindow):
 
         if cell_id not in available_ids:
             QMessageBox.warning(
-                self, "Error", f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
+                self,
+                "Error",
+                f"Cell ID {cell_id} not found in segmentation. Available IDs: {available_ids}")
             return
 
         # Get the bounding box coordinates for the selected cell
@@ -3555,11 +3693,14 @@ class App(QMainWindow):
         qimage = QImage(segmented_rgb.data, width, height,
                         bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimage).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
 
         # print(
-        #     f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1, y2, x2)}")
+        # f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1,
+        # y2, x2)}")
 
     def highlight_selected_cell(self, cell_id, cache_key):
         """
@@ -3830,7 +3971,7 @@ class App(QMainWindow):
         # Add dropdown and button to add new Ps
         add_p_layout = QHBoxLayout()
         self.p_dropdown = QComboBox()
-            
+
         add_p_button = QPushButton("Add P")
         add_p_button.clicked.connect(self.add_p_to_selection)
         add_p_layout.addWidget(self.p_dropdown)
@@ -3901,28 +4042,31 @@ class App(QMainWindow):
         """Add a P value to the selection table"""
         try:
             p_value = int(self.p_dropdown.currentText())
-        except:
+        except BaseException:
             return
-        
+
         # Check if this P is already in the selection
         if p_value in self.selected_ps:
             return
-        
+
         # Add to our set of selected Ps
         self.selected_ps.add(p_value)
-        
+
         # Update the table
         row_position = self.selected_ps_table.rowCount()
         self.selected_ps_table.insertRow(row_position)
-        
+
         # Add P value
-        self.selected_ps_table.setItem(row_position, 0, QTableWidgetItem(str(p_value)))
-        
+        self.selected_ps_table.setItem(
+            row_position, 0, QTableWidgetItem(
+                str(p_value)))
+
         # Add remove button
         remove_button = QPushButton("Remove")
-        remove_button.clicked.connect(lambda: self.remove_p_from_selection(p_value))
+        remove_button.clicked.connect(
+            lambda: self.remove_p_from_selection(p_value))
         self.selected_ps_table.setCellWidget(row_position, 1, remove_button)
-        
+
         # Update dropdown to remove this P
         current_index = self.p_dropdown.currentIndex()
         self.p_dropdown.removeItem(current_index)
@@ -3931,26 +4075,28 @@ class App(QMainWindow):
         """Remove a P value from the selection"""
         if p_value in self.selected_ps:
             self.selected_ps.remove(p_value)
-            
+
             # Find and remove the row from the table
             for row in range(self.selected_ps_table.rowCount()):
                 if int(self.selected_ps_table.item(row, 0).text()) == p_value:
                     self.selected_ps_table.removeRow(row)
                     break
-            
+
             # Add the P value back to the dropdown
             # Sort the items to keep them in numerical order
             self.p_dropdown.addItem(str(p_value))
-            items = [self.p_dropdown.itemText(i) for i in range(self.p_dropdown.count())]
+            items = [
+                self.p_dropdown.itemText(i) for i in range(
+                    self.p_dropdown.count())]
             items = sorted(items, key=int)
-            
+
             self.p_dropdown.clear()
             for item in items:
                 self.p_dropdown.addItem(item)
 
     def get_selected_ps(self):
         """Return the selected P values based on the current mode"""
-        if self.use_current_p_radio.isChecked(): # Return P from view area
+        if self.use_current_p_radio.isChecked():  # Return P from view area
             return [self.slider_p.value()]
         else:
             # Multiple P mode - return the set of selected Ps
@@ -3967,7 +4113,7 @@ class App(QMainWindow):
         t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
 
         fluo, timestamp = analyze_fluorescence_singlecell(
-            self.image_data.seg_cache[t_s:t_e, p, 0], self.image_data.data[t_s:t_e, p, c], rpu)
+            self.image_data.segmentation_cache[t_s:t_e, p, 0], self.image_data.data[t_s:t_e, p, c], rpu)
 
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)

@@ -1,6 +1,13 @@
 from itertools import product
+import json
+import os
+import pickle
+
+import h5py
 import numpy as np
+
 from .segmentation_models import SegmentationModels
+
 
 class SegmentationCache:
     def __init__(self, nd2_data):
@@ -16,15 +23,100 @@ class SegmentationCache:
                 np.zeros(self.shape, dtype=np.uint8), set())
         return self
 
+    def save(self, file_path):
+        """Save the cache state to an HDF5 file"""
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+
+        with h5py.File(file_path, 'w') as f:
+            # Store basic attributes
+            f.attrs['model_name'] = self.model_name if self.model_name else ''
+
+            # Create a group for mmap arrays
+            mmap_group = f.create_group('mmap_arrays')
+
+            # Store each model's data
+            for model_name, (array, index_set) in self.mmap_arrays_idx.items():
+                model_group = mmap_group.create_group(model_name)
+                # Store the array
+                model_group.create_dataset(
+                    'array', data=array, compression='gzip')
+                # Store the set as a JSON string
+                model_group.attrs['index_set'] = json.dumps(list(index_set))
+
+            # Store nd2_data reference or metadata
+            # Note: We don't store the actual nd2_data, just metadata about it
+            if self.nd2_data is not None:
+                nd2_group = f.create_group('nd2_metadata')
+                # Store file path if available
+                if hasattr(self.nd2_data, 'filename'):
+                    nd2_group.attrs['filename'] = str(self.nd2_data.filename)
+                # Store shape if available
+                if hasattr(self.nd2_data, 'shape'):
+                    nd2_shape = self.nd2_data.shape
+                    nd2_group.attrs['shape'] = json.dumps(nd2_shape)
+
+            # For the segmentation model, store the name or parameters
+            if hasattr(self.seg, 'get_state'):
+                # If seg has a get_state method, use it
+                seg_state = self.seg.get_state()
+                f.create_dataset(
+                    'seg_state', data=np.void(
+                        pickle.dumps(seg_state)))
+            elif hasattr(self.seg, '__dict__'):
+                # Fallback: try to pickle seg's dict
+                seg_dict = {k: v for k, v in self.seg.__dict__.items()
+                            if not k.startswith('_')}
+                f.create_dataset(
+                    'seg_dict', data=np.void(
+                        pickle.dumps(seg_dict)))
+
+    @classmethod
+    def load(cls, file_path, nd2_data=None):
+        """Load cache state from an HDF5 file"""
+        cache = cls(nd2_data)
+
+        with h5py.File(file_path, 'r') as f:
+            # Load basic attributes
+            cache.model_name = f.attrs.get('model_name', '')
+
+            if 'mmap_arrays' in f:  # reload each segmentation cache with the associated cache index
+                mmap_group = f['mmap_arrays']
+                for model_name in mmap_group:
+                    model_group = mmap_group[model_name]
+                    array = model_group['array'][:]
+                    index_list = json.loads(model_group.attrs['index_set'])
+                    # Here we need to convert the index_list, which is read
+                    # into a list of lists, into a list of tuples
+                    index_list = [tuple(_index) for _index in index_list]
+                    index_set = set(index_list)
+                    cache.mmap_arrays_idx[model_name] = (array, index_set)
+
+            cache.seg = SegmentationModels()
+
+            # Load segmentation model state if available
+            if 'seg_state' in f:
+                seg_state = pickle.loads(f['seg_state'][()])
+                if hasattr(cache.seg, 'set_state'):
+                    cache.seg.set_state(seg_state)
+            elif 'seg_dict' in f:
+                seg_dict = pickle.loads(f['seg_dict'][()])
+                for key, value in seg_dict.items():
+                    setattr(cache.seg, key, value)
+
+        return cache
+
     def set_binary_mask(self, binary_mask):
         """
         Set a binary mask to crop segmentation results.
-        
+
         Parameters:
             binary_mask (np.ndarray): Binary mask where True/1 indicates regions to keep
         """
-        if binary_mask.shape != self.shape[-2:]:  # Check if mask matches image dimensions
-            raise ValueError(f"Binary mask shape {binary_mask.shape} does not match image dimensions {self.shape[-2:]}")
+        if binary_mask.shape != self.shape[-2:
+                                           ]:  # Check if mask matches image dimensions
+            raise ValueError(
+                f"Binary mask shape {binary_mask.shape} does not match image dimensions {self.shape[-2:]}")
         self.binary_mask = binary_mask
         return self
 
@@ -32,10 +124,10 @@ class SegmentationCache:
         """
         Apply binary mask to segmentation results.
         Discard segmentations outside the mask and those touching the mask boundary.
-        
+
         Parameters:
             segmented_frame (np.ndarray): Segmented image with labeled regions
-        
+
         Returns:
             np.ndarray: Masked segmentation
         """
@@ -48,61 +140,64 @@ class SegmentationCache:
             labeled_frame = label(segmented_frame)
         else:
             labeled_frame = segmented_frame
-        
+
         # Find regions that overlap with the mask boundary
         from scipy.ndimage import binary_dilation
         mask_boundary = binary_dilation(self.binary_mask) & ~self.binary_mask
-        
+
         # Get labels of regions touching the boundary
         boundary_labels = set(np.unique(labeled_frame * mask_boundary))
         if 0 in boundary_labels:
             boundary_labels.remove(0)  # Remove background label
-        
-        # Create a new segmentation with only regions inside mask and not touching boundary
+
+        # Create a new segmentation with only regions inside mask and not
+        # touching boundary
         result = np.zeros_like(segmented_frame)
         for label_id in np.unique(labeled_frame):
             if label_id > 0:  # Skip background
-                if label_id not in boundary_labels and np.any((labeled_frame == label_id) & self.binary_mask):
-                    result[labeled_frame == label_id] = 255 if np.max(segmented_frame) <= 255 else label_id
-        
+                if label_id not in boundary_labels and np.any(
+                        (labeled_frame == label_id) & self.binary_mask):
+                    result[labeled_frame == label_id] = 255 if np.max(
+                        segmented_frame) <= 255 else label_id
+
         return result
 
     def remove_artifacts(self, segmented_frame):
         """
         Remove artifacts based on cell area.
         Keep only regions with area >= 20% of the most common cell area.
-        
+
         Parameters:
             segmented_frame (np.ndarray): Segmented image
-        
+
         Returns:
             np.ndarray: Cleaned segmentation with artifacts removed
         """
         from skimage.measure import label, regionprops
         from scipy import stats
-        
+
         # Convert binary segmentation to labeled regions if needed
         if np.max(segmented_frame) <= 1:
             labeled_frame = label(segmented_frame)
         else:
             labeled_frame = segmented_frame.copy()
-        
+
         # Calculate areas of all regions
         regions = regionprops(labeled_frame)
         if not regions:
             return segmented_frame  # No regions found
-        
+
         areas = [region.area for region in regions]
-        
+
         # Find the most common cell area (mode)
         if len(areas) > 1:
             mode_area = stats.mode(areas, keepdims=True)[0][0]
         else:
             mode_area = areas[0]  # If only one region, use its area
-        
+
         # Set area threshold as 20% of the mode area
         area_threshold = mode_area * 0.2
-        
+
         # Create a new segmentation with only regions above the threshold
         result = np.zeros_like(segmented_frame)
         for region in regions:
@@ -111,28 +206,29 @@ class SegmentationCache:
                     result[labeled_frame == region.label] = 255
                 else:
                     result[labeled_frame == region.label] = region.label
-        
+
         return result
 
     def __getitem__(self, key):
         if self.model_name is None:
-            raise ValueError("Model name must be set using with_model() before accessing data.")
+            raise ValueError(
+                "Model name must be set using with_model() before accessing data.")
 
         # Get the memory-mapped array and indices for current model
         mmap_array, indices = self.mmap_arrays_idx[self.model_name]
-        
+
         # Convert various index types to standardized form
         key = self._normalize_index(key)
-        
+
         # Calculate actual shape and indices
         requested_shape = self._get_requested_shape(key)
         all_indices = self._expand_indices(key)
-        
+
         # Process unprocessed frames
         for idx in all_indices:
             if idx not in indices:
                 self._process_frame(mmap_array, indices, idx)
-        
+
         # Return data with proper dimensions
         return np.squeeze(mmap_array[key])
 
@@ -140,22 +236,22 @@ class SegmentationCache:
         """Convert various index types to tuple of slice objects"""
         if not isinstance(key, tuple):
             key = (key,)
-        
+
         normalized = []
         for k in key:
             if isinstance(k, int):
                 # Convert single integers to slices to maintain dimensions
-                normalized.append(slice(k, k+1))
+                normalized.append(slice(k, k + 1))
             elif isinstance(k, Ellipsis.__class__):  # Handle ellipsis
                 remaining_dims = self.ndim - len(key) + 1
                 normalized.extend([slice(None)] * remaining_dims)
             else:
                 normalized.append(k)
-        
+
         # Fill missing dimensions with full slices
         while len(normalized) < self.ndim:
             normalized.append(slice(None))
-            
+
         return tuple(normalized[:self.ndim])
 
     def _get_requested_shape(self, key):
@@ -181,21 +277,22 @@ class SegmentationCache:
                 indices.append([dim_slice])
             else:
                 raise IndexError(f"Unsupported index type: {type(dim_slice)}")
-        
+
         return product(*indices)
 
     def _process_frame(self, mmap_array, indices, idx):
         """Process and cache a single frame"""
         # Convert negative indices to positive
         idx = tuple(i % s for i, s in zip(idx, self.shape))
-        
+
         try:
             frame = self.nd2_data[idx].compute()
-            segmented_frame = self.seg.segment_images([frame], mode=self.model_name)[0]
-            
+            segmented_frame = self.seg.segment_images(
+                [frame], mode=self.model_name)[0]
+
             if hasattr(self, 'binary_mask') and self.binary_mask is not None:
                 segmented_frame = self.apply_binary_mask(segmented_frame)
-                
+
             segmented_frame = self.remove_artifacts(segmented_frame)
             mmap_array[idx] = segmented_frame
             indices.add(idx)
@@ -208,7 +305,7 @@ class SegmentationCache:
 
     @property
     def ndim(self):
-        return self.nd2_data.ndim - 2 # Since the last 2 will be image X and Y
+        return self.nd2_data.ndim - 2  # Since the last 2 will be image X and Y
 
     @property
     def dtype(self):

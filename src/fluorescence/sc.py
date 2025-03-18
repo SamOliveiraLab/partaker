@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 FLUO_EPSILON = 0.01
 
+
 def process_component(
         component,
         labeled_array,
