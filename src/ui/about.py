@@ -20,7 +20,7 @@ class AboutDialog(QDialog):
 
         layout = QVBoxLayout()
         about_label = QLabel(
-            'Partaker microfluidic image analyzer.\nVersion 1.0\nCreated by Henrique Núñez and Bukola ')
+            'Partaker microfluidic image analyzer.\nVersion 1.0\nCreated by Henrique Núñez and Bukola Akindipe')
         layout.addWidget(about_label)
 
         close_button = QPushButton("Close")
