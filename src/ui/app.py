@@ -15,7 +15,6 @@ from tqdm import tqdm
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
-import PySide6.QtAsyncio as QtAsyncio
 
 from cellpose import models, utils
 from skimage.measure import label, regionprops
@@ -1951,9 +1950,22 @@ class App(QMainWindow):
         annotate_button.clicked.connect(self.annotate_cells)
         layout.addWidget(annotate_button)
 
-        segment_button = QPushButton("Segment This Position")
-        segment_button.clicked.connect(self.segment_this_p)
-        layout.addWidget(segment_button)
+        segmentation_group = QGroupBox("Segmentation")
+        segmentation_layout = QHBoxLayout()
+
+        segment_position_button = QPushButton("Position")
+        segment_position_button.clicked.connect(self.segment_this_p)
+        segmentation_layout.addWidget(segment_position_button)
+
+        segment_all_button = QPushButton("Everything")
+        segment_all_button.clicked.connect(self.segment_all)
+        segmentation_layout.addWidget(segment_all_button)
+
+        segmentation_group.setLayout(segmentation_layout)
+        layout.addWidget(segmentation_group)
+
+        nd2_controls_group = QGroupBox("ND2 controls")
+        nd2_controls_layout = QVBoxLayout()
 
         # T controls
         t_layout = QHBoxLayout()
@@ -1978,7 +1990,7 @@ class App(QMainWindow):
         )
         t_layout.addWidget(self.t_right_button)
 
-        layout.addLayout(t_layout)
+        nd2_controls_layout.addLayout(t_layout)
 
         # P controls
         p_layout = QHBoxLayout()
@@ -2002,7 +2014,7 @@ class App(QMainWindow):
         )
         p_layout.addWidget(self.p_right_button)
 
-        layout.addLayout(p_layout)
+        nd2_controls_layout.addLayout(p_layout)
 
         # C control (channel)
         c_layout = QHBoxLayout()
@@ -2026,7 +2038,9 @@ class App(QMainWindow):
         )
         c_layout.addWidget(self.c_right_button)
 
-        layout.addLayout(c_layout)
+        nd2_controls_layout.addLayout(c_layout)
+        nd2_controls_group.setLayout(nd2_controls_layout)
+        layout.addWidget(nd2_controls_group)
 
         # Create a radio button for thresholding, normal and segmented
         self.radio_normal = QRadioButton("Normal")
@@ -3461,6 +3475,25 @@ class App(QMainWindow):
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
+
+    def segment_all(self):
+        """
+        Segments all positions and timesteps directly.
+        Uses the channel selected in the UI
+        """
+
+        c = self.slider_c.value() if self.has_channels else None
+
+        # Create list to store segmented results
+        segmented_results = []
+        frame_num = self.image_data.data.shape[0]
+        position_num = self.dimensions.get("P", 1)
+
+        for t in tqdm(range(frame_num), desc="Time"):
+            for p in tqdm(range(position_num), desc="Position"):
+                self.image_data.segmentation_cache.with_model(
+                    self.model_dropdown.currentText())  # Setting the model we want
+                segmented = self.image_data.segmentation_cache[t, p, c]
 
     def segment_this_p(self):
         p = self.slider_p.value()
