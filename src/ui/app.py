@@ -1109,6 +1109,7 @@ class App(QMainWindow):
     def visualize_morphology_lineage_tree(self, tracks, canvas, root_cell_id=None):
         """
         Create a lineage tree visualization with cartoony bacterial cell shapes and animations.
+        Uses a 2x2 grid layout with larger trees and scrolling capability.
         
         Parameters:
         -----------
@@ -1130,6 +1131,9 @@ class App(QMainWindow):
         from matplotlib.animation import FuncAnimation
         from PySide6.QtCore import QTimer
 
+        # Increase the figure size substantially
+        canvas.figure.set_size_inches(15, 12)  # Larger figure
+        
         # Create directed graph
         G = nx.DiGraph()
 
@@ -1176,38 +1180,35 @@ class App(QMainWindow):
                 get_descendants(root_cell_id)
                 G = G.subgraph(descendants).copy()
                 print(f"Visualizing lineage tree for cell {root_cell_id} with {len(G.nodes())} nodes")
+                
+                # Single tree mode - use full figure
+                ax = canvas.figure.add_subplot(111)
+                axes = [ax]
+                title = f"Lineage Tree for Cell {root_cell_id}"
+                ax.set_title(title, fontsize=16)
             else:
+                # Get connected components for multiple trees
                 connected_components = list(nx.weakly_connected_components(G))
                 print(f"Found {len(connected_components)} separate lineage trees")
                 largest_components = sorted(connected_components, key=len, reverse=True)
                 top_components = largest_components[:min(5, len(largest_components))]
                 G = G.subgraph(set.union(*top_components)).copy()
                 print(f"Showing top {len(top_components)} lineage trees")
-
-            # Group nodes by level for animation
-            levels = []
-            current_nodes = [n for n in G.nodes() if G.in_degree(n) == 0]  # Root nodes
-            while current_nodes:
-                levels.append(current_nodes.copy())
-                next_level = []
-                for node in current_nodes:
-                    next_level.extend(list(G.successors(node)))
-                current_nodes = next_level
-            
-            print(f"Tree organized into {len(levels)} levels")
-
-            # Set up the visualization
-            if root_cell_id is None and len(top_components) > 1:
+                
+                # Create a 2x2 grid (or 2x3 if needed) for the trees
+                # This ensures only 2 trees per row, making each tree larger
+                num_trees = len(top_components)
+                rows = (num_trees + 1) // 2  # Ceiling division for rows needed
+                cols = min(2, num_trees)     # At most 2 columns
+                
+                # Create figure with appropriate size
                 axes = []
-                for i in range(len(top_components)):
-                    ax = canvas.figure.add_subplot(1, len(top_components), i + 1)
-                    ax.set_title(f"Tree {i+1} ({len(top_components[i])} cells)")
+                for i in range(num_trees):
+                    row_idx = i // 2
+                    col_idx = i % 2
+                    ax = canvas.figure.add_subplot(rows, cols, i + 1)
                     axes.append(ax)
-            else:
-                ax = canvas.figure.add_subplot(111)
-                axes = [ax]
-                title = f"Lineage Tree for Cell {root_cell_id}" if root_cell_id else "Largest Lineage Tree"
-                ax.set_title(title)
+                    ax.set_title(f"Tree {i+1} ({len(top_components[i])} cells)", fontsize=14)
 
             # Define colors for different morphology types
             morphology_colors = {
@@ -1225,7 +1226,19 @@ class App(QMainWindow):
             self.cell_objects = {}  # To store cell patches for updating
             self.nucleoid_objects = {}  # To store nucleoid patches
 
-            # Position nodes with hierarchy_pos function
+            # Group nodes by level for animation
+            levels = []
+            current_nodes = [n for n in G.nodes() if G.in_degree(n) == 0]  # Root nodes
+            while current_nodes:
+                levels.append(current_nodes.copy())
+                next_level = []
+                for node in current_nodes:
+                    next_level.extend(list(G.successors(node)))
+                current_nodes = next_level
+            
+            print(f"Tree organized into {len(levels)} levels")
+
+            # Position nodes with hierarchy_pos function - use larger spacing
             if root_cell_id is None and len(top_components) > 1:
                 all_positions = {}
                 for i, component in enumerate(top_components):
@@ -1233,7 +1246,8 @@ class App(QMainWindow):
                     roots = [n for n in subgraph.nodes() if subgraph.in_degree(n) == 0]
                     if not roots:
                         continue
-                    pos = self.hierarchy_pos(subgraph, roots[0], vert_gap=0.2, width=1.5)
+                    # Increase spacing parameters for larger visualization
+                    pos = self.hierarchy_pos(subgraph, roots[0], vert_gap=0.35, width=1.8)
                     all_positions.update(pos)
             else:
                 roots = [n for n in G.nodes() if G.in_degree(n) == 0]
@@ -1241,25 +1255,23 @@ class App(QMainWindow):
                     ax.text(0.5, 0.5, "No root node", ha='center', va='center')
                     canvas.draw()
                     return G
-                all_positions = self.hierarchy_pos(G, roots[0], vert_gap=0.2, width=1.5)
+                # Increase spacing parameters for larger visualization
+                all_positions = self.hierarchy_pos(G, roots[0], vert_gap=0.35, width=1.8)
 
-            # Function to create a star-like shape with subtle spikes
+            # Function to create a star-like shape with subtle spikes (for deformed cells)
             def create_star_shape(x, y, width, height, wobble, num_spikes=8):
                 vertices = []
                 codes = []
-                # Calculate the step angle for the spikes
-                angle_step = 2 * np.pi / (num_spikes * 2)  # Alternate between inner and outer points
+                angle_step = 2 * np.pi / (num_spikes * 2)
                 for i in range(num_spikes * 2):
                     angle = i * angle_step
-                    # Alternate between outer (spike) and inner (base) points
-                    radius = (width/2 + wobble * 0.005) if i % 2 == 0 else (width/2 - 0.01 - wobble * 0.005)
-                    # Adjust the radius vertically to account for the height
+                    radius = (width/2 + wobble * 0.01) if i % 2 == 0 else (width/2 - 0.02 - wobble * 0.01)
                     vert_radius = radius * (height/width)
                     vert_x = x + radius * np.cos(angle)
                     vert_y = y + vert_radius * np.sin(angle)
                     vertices.append((vert_x, vert_y))
                     codes.append(Path.MOVETO if i == 0 else Path.LINETO)
-                vertices.append(vertices[0])  # Close the path
+                vertices.append(vertices[0])
                 codes.append(Path.CLOSEPOLY)
                 return Path(vertices, codes)
 
@@ -1290,14 +1302,16 @@ class App(QMainWindow):
                 # Update edge states (lines appear before nodes)
                 for i, (parent, child) in enumerate(G.edges()):
                     if parent in nodes_to_show and child in nodes_to_show:
-                        # Introduce a delay for the second line from the same parent
-                        delay = 5 if i % 2 == 1 else 0  # Delay the second line by 5 frames
+                        delay = 5 if i % 2 == 1 else 0
                         if self.edge_states[(parent, child)]['frame_appeared'] == -1:
                             self.edge_states[(parent, child)]['frame_appeared'] = self.frame + delay
                 
                 # Process components separately if multiple trees
                 if root_cell_id is None and len(top_components) > 1:
                     for i, component in enumerate(top_components):
+                        if i >= len(axes):  # Safety check
+                            continue
+                            
                         subgraph = G.subgraph(component)
                         component_nodes = [n for n in nodes_to_show if n in subgraph]
                         
@@ -1308,19 +1322,19 @@ class App(QMainWindow):
                                 if self.frame >= edge_frame and edge_frame != -1:
                                     parent_pos = all_positions[parent]
                                     child_pos = all_positions[child]
-                                    edge_alpha = min((self.frame - edge_frame) / 10, 1)  # Slower fade-in
+                                    edge_alpha = min((self.frame - edge_frame) / 10, 1)
                                     axes[i].plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
-                                            'gray', linewidth=2, zorder=1, alpha=edge_alpha)
+                                            'gray', linewidth=2.5, zorder=1, alpha=edge_alpha)
                         
-                        # Draw nodes
+                        # Draw nodes with enhanced size
                         for node in component_nodes:
-                            draw_node(node, all_positions[node], subgraph, axes[i])
+                            draw_node(node, all_positions[node], subgraph, axes[i], size_multiplier=1.5)
                             
-                        # Set axis limits and appearance
+                        # Set axis limits
                         x_values = [all_positions[n][0] for n in component_nodes if n in all_positions]
                         y_values = [all_positions[n][1] for n in component_nodes if n in all_positions]
                         if x_values and y_values:
-                            padding = 0.2
+                            padding = 0.3
                             axes[i].set_xlim(min(x_values) - padding, max(x_values) + padding)
                             axes[i].set_ylim(min(y_values) - padding, max(y_values) + padding)
                         axes[i].axis('off')
@@ -1332,19 +1346,19 @@ class App(QMainWindow):
                             if self.frame >= edge_frame and edge_frame != -1:
                                 parent_pos = all_positions[parent]
                                 child_pos = all_positions[child]
-                                edge_alpha = min((self.frame - edge_frame) / 10, 1)  # Slower fade-in
+                                edge_alpha = min((self.frame - edge_frame) / 10, 1)
                                 axes[0].plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
-                                        'gray', linewidth=2, zorder=1, alpha=edge_alpha)
+                                        'gray', linewidth=2.5, zorder=1, alpha=edge_alpha)
                     
-                    # Draw nodes
+                    # Draw nodes with enhanced size
                     for node in nodes_to_show:
-                        draw_node(node, all_positions[node], G, axes[0])
+                        draw_node(node, all_positions[node], G, axes[0], size_multiplier=1.8)
                     
-                    # Set axis limits and appearance
+                    # Set axis limits
                     x_values = [all_positions[n][0] for n in nodes_to_show if n in all_positions]
                     y_values = [all_positions[n][1] for n in nodes_to_show if n in all_positions]
                     if x_values and y_values:
-                        padding = 0.2
+                        padding = 0.3
                         axes[0].set_xlim(min(x_values) - padding, max(x_values) + padding)
                         axes[0].set_ylim(min(y_values) - padding, max(y_values) + padding)
                     axes[0].axis('off')
@@ -1357,31 +1371,31 @@ class App(QMainWindow):
                 canvas.draw()
             
             # Function to draw a node with appropriate morphology and animation
-            def draw_node(node_id, position, graph, ax):
+            def draw_node(node_id, position, graph, ax, size_multiplier=1.0):
                 x, y = position
                 morphology = graph.nodes[node_id].get('morphology', 'Healthy')
                 divides = graph.nodes[node_id].get('divides', False)
                 phase = self.node_states[node_id]['animation_phase']
                 
-                # Determine level for sizing (root is level 0)
+                # Determine level for sizing
                 try:
                     root = [n for n in graph.nodes() if graph.in_degree(n) == 0][0]
                     level = len(nx.shortest_path(graph, root, node_id)) - 1
                 except:
                     level = 0
                 
-                # Base size based on level (larger for earlier generations)
-                base_width = 0.09 if level <= 2 else 0.07
-                base_height = 0.04 if level <= 2 else 0.03
+                # Base size based on level - increase all sizes with multiplier
+                base_width = (0.14 if level <= 2 else 0.11) * size_multiplier
+                base_height = (0.06 if level <= 2 else 0.045) * size_multiplier
                 
                 # Initial bounce effect for all nodes
-                bounce = 1 + 0.2 * np.sin(np.pi * min(phase / 10, 1))  # Slower bounce effect
+                bounce = 1 + 0.2 * np.sin(np.pi * min(phase / 10, 1))
                 width = base_width * bounce
                 height = base_height * bounce
                 
                 # Reduce size for "divided" cells
                 if morphology == 'Divided':
-                    base_width *= 0.6  # Make divided cells smaller
+                    base_width *= 0.6
                     base_height *= 0.6
                     width = base_width * bounce
                     height = base_height * bounce
@@ -1389,7 +1403,7 @@ class App(QMainWindow):
                 # Handle different cell types with animations
                 if morphology == 'Healthy':
                     # Pulsing effect for healthy cells
-                    pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)  # Slower pulsing every 40 frames
+                    pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)
                     width *= pulse
                     height *= pulse
                     rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
@@ -1400,18 +1414,18 @@ class App(QMainWindow):
                     
                     # Draw nucleoids for larger nodes
                     if level <= 2:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * pulse, 0.02 * pulse,
+                        ellipse1 = Ellipse((x-0.02, y), 0.04 * pulse, 0.025 * pulse,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * pulse, 0.02 * pulse,
+                        ellipse2 = Ellipse((x+0.02, y), 0.04 * pulse, 0.025 * pulse,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
                 
                 elif morphology == 'Elongated':
                     # Elongation animation
-                    elongation = min(phase / 10, 1)  # Slower elongation over 10 frames
-                    width = base_width * (1 + 0.5 * elongation)  # Stretch horizontally
-                    height = base_height * (1 - 0.2 * elongation)  # Slightly compress vertically
+                    elongation = min(phase / 10, 1)
+                    width = base_width * (1 + 0.5 * elongation)
+                    height = base_height * (1 - 0.2 * elongation)
                     rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
                                         boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
                                         facecolor=morphology_colors[morphology], 
@@ -1420,16 +1434,16 @@ class App(QMainWindow):
                     
                     # Draw nucleoids for larger elongated cells
                     if level <= 2:
-                        ellipse1 = Ellipse((x-0.02 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
+                        ellipse1 = Ellipse((x-0.025 * (1 + 0.5 * elongation), y), 0.04 * (1 + 0.5 * elongation), 0.025,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.02 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
+                        ellipse2 = Ellipse((x+0.025 * (1 + 0.5 * elongation), y), 0.04 * (1 + 0.5 * elongation), 0.025,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
                 
                 elif morphology == 'Divided':
                     # Divided cell with pop effect
-                    pop = 1 + 0.1 * np.sin(2 * np.pi * min(phase / 10, 1))  # Pop effect over 10 frames
+                    pop = 1 + 0.1 * np.sin(2 * np.pi * min(phase / 10, 1))
                     width *= pop
                     height *= pop
                     rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
@@ -1440,16 +1454,16 @@ class App(QMainWindow):
                     
                     # Smaller nucleoids for divided cells
                     if level <= 2:
-                        ellipse1 = Ellipse((x-0.0075, y), 0.015 * pop, 0.01 * pop,
+                        ellipse1 = Ellipse((x-0.01, y), 0.02 * pop, 0.012 * pop,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.0075, y), 0.015 * pop, 0.01 * pop,
+                        ellipse2 = Ellipse((x+0.01, y), 0.02 * pop, 0.012 * pop,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
                 
                 elif morphology == 'Deformed':
                     # Deformation animation with wobble effect
-                    wobble = 0.05 * np.sin(2 * np.pi * phase / 20)  # Slower wobble every 20 frames
+                    wobble = 0.05 * np.sin(2 * np.pi * phase / 20)
                     width = base_width * (1 + wobble)
                     height = base_height * (1 - wobble)
                     
@@ -1461,9 +1475,9 @@ class App(QMainWindow):
                     
                     # Wobbling nucleoids for deformed cells
                     if level <= 2:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
+                        ellipse1 = Ellipse((x-0.02, y), 0.04 * (1 + wobble), 0.025 * (1 - wobble),
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
+                        ellipse2 = Ellipse((x+0.02, y), 0.04 * (1 + wobble), 0.025 * (1 - wobble),
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
@@ -1476,40 +1490,43 @@ class App(QMainWindow):
                                         edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                 
-                # Add node ID with fade-in effect
-                label_y = y + (0.03 if level <= 2 else 0.025)
-                label_fontsize = 10 if level <= 2 else 8
-                if morphology == 'Divided':
-                    label_fontsize = 8 if level <= 2 else 6
+                # Add node ID with fade-in effect - larger font size
+                label_y = y + (0.04 if level <= 2 else 0.035)
+                label_fontsize = (12 if level <= 2 else 10) if morphology != 'Divided' else (10 if level <= 2 else 8)
                 
                 # Fade in the label
-                label_alpha = min(phase / 10, 1)  # Fade in over 10 frames
+                label_alpha = min(phase / 10, 1)
                 label = ax.text(x, label_y, f"ID:{node_id}", ha='center', va='center', 
                             fontsize=label_fontsize, zorder=4, color='white', 
                             fontweight='bold', alpha=label_alpha)
             
             # Create legend for morphology types
-            ax = axes[0]  # Use first axis for legend
-            legend_elements = [
-                plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Healthy'],
-                        label='Healthy', markersize=10),
-                plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Divided'],
-                        label='Divided', markersize=8),
-                plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Elongated'],
-                        label='Elongated', markersize=10),
-                plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Deformed'],
-                        label='Deformed', markersize=10)
-            ]
-            ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
+            if len(axes) > 0:
+                # Use first axis for legend
+                legend_elements = [
+                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Healthy'],
+                            label='Healthy', markersize=12),
+                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Divided'],
+                            label='Divided', markersize=9),
+                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Elongated'],
+                            label='Elongated', markersize=12),
+                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Deformed'],
+                            label='Deformed', markersize=12)
+                ]
+                axes[0].legend(handles=legend_elements, loc='upper right', fontsize=10)
             
             # Set up animation using QTimer
             self.timer = QTimer()
             self.timer.timeout.connect(update_animation)
             self.timer.start(200)  # Update every 200ms (5 FPS)
             
-            canvas.figure.tight_layout()
+            # Add tight layout with extra padding
+            canvas.figure.tight_layout(pad=3.0)
             canvas.draw()
 
+            # Make sure the figure fits in the parent window
+            canvas.setMinimumHeight(800)  # Increase the minimum height
+            
         except Exception as e:
             print(f"Error in lineage tree: {e}")
             import traceback
@@ -1520,7 +1537,6 @@ class App(QMainWindow):
             canvas.draw()
 
         return G
-    
     
     def update_animation(self, G, pos, axes, canvas):
         """
@@ -2079,13 +2095,6 @@ class App(QMainWindow):
         viz_layout.addWidget(viz_type)
         layout.addLayout(viz_layout)
 
-        # Original info label
-        info_label = QLabel(
-            "Select a visualization option below. Cell lineage trees show parent-child relationships.\n"
-            "Red nodes indicate cells that divide further, blue nodes are cells that don't divide.\n\n"
-            "In morphology view, cells are drawn with shapes corresponding to their morphological class.")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
 
         # Cell selection options (same as original)
         selection_layout = QHBoxLayout()
@@ -2113,44 +2122,6 @@ class App(QMainWindow):
         top_radio.toggled.connect(update_combo_state)
         cell_radio.toggled.connect(update_combo_state)
 
-        # Morphology legend (initially hidden)
-        legend_widget = QWidget()
-        legend_layout = QVBoxLayout(legend_widget)
-        legend_title = QLabel("<b>Morphology Shapes:</b>")
-        legend_layout.addWidget(legend_title)
-
-        # Add descriptions for each morphology type
-        morphology_description = {
-            "Healthy": "Regular rod-shaped bacteria",
-            "Divided": "Recently divided, smaller cells",
-            "Elongated": "Extended rod shape, preparing to divide",
-            "Deformed": "Irregular shape, potential stress response",
-            "Artifact": "Very small objects, possible segmentation errors"
-        }
-
-        # Create a table layout for the legend
-        for morph_class, description in morphology_description.items():
-            color = self.morphology_colors.get(morph_class, (128, 128, 128))
-            row_layout = QHBoxLayout()
-
-            # Color square
-            color_label = QLabel()
-            color_label.setFixedSize(16, 16)
-            color_label.setStyleSheet(
-                f"background-color: rgb({color[0]}, {color[1]}, {color[2]}); border: 1px solid black;")
-            row_layout.addWidget(color_label)
-
-            # Text description
-            text_label = QLabel(f"<b>{morph_class}:</b> {description}")
-            row_layout.addWidget(text_label)
-            row_layout.addStretch()
-
-            legend_layout.addLayout(row_layout)
-
-        legend_layout.addStretch()
-        legend_widget.setVisible(False)  # Initially hidden
-        layout.addWidget(legend_widget)
-
         # Canvas for the visualization (same as original)
         from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
@@ -2176,25 +2147,34 @@ class App(QMainWindow):
 
             # Choose visualization based on combo box selection
             if viz_type.currentText() == "Morphology-Enhanced Tree":
-                # Show morphology legend
-                legend_widget.setVisible(True)
                 # Use the morphology visualization
                 self.visualize_morphology_lineage_tree(
                     self.lineage_tracks, canvas, selected_cell)
             else:
-                # Hide morphology legend
-                legend_widget.setVisible(False)
                 # Use the standard visualization
                 self.create_lineage_tree(
                     self.lineage_tracks, canvas, root_cell_id=selected_cell)
 
         def save_visualization():
             output_path, _ = QFileDialog.getSaveFileName(
-                dialog, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)")
+                dialog, "Save Lineage Tree", "", "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)")
             if output_path:
+                # Use a higher DPI for better image quality
                 figure.savefig(output_path, dpi=300, bbox_inches='tight')
                 QMessageBox.information(
                     dialog, "Success", f"Lineage tree saved to {output_path}")
+                    
+        def maximize_dialog():
+            """Toggle between normal and maximized window state"""
+            if dialog.isMaximized():
+                dialog.showNormal()
+            else:
+                dialog.showMaximized()
+        
+        # Add a maximize button
+        maximize_button = QPushButton("Maximize Window")
+        maximize_button.clicked.connect(maximize_dialog)
+        button_layout.addWidget(maximize_button)
 
         # Connect signals
         view_button.clicked.connect(create_visualization)
