@@ -1108,435 +1108,516 @@ class App(QMainWindow):
 
     def visualize_morphology_lineage_tree(self, tracks, canvas, root_cell_id=None):
         """
-        Create a lineage tree visualization with cartoony bacterial cell shapes and animations.
-        Uses a 2x2 grid layout with larger trees and scrolling capability.
+        Create a lineage tree visualization with cartoony bacterial cell shapes based on morphology.
+        Uses hierarchical layout for the tree structure while maintaining animated cell visualizations.
         
         Parameters:
         -----------
         tracks : list
             List of track dictionaries with lineage information (ID, t, children).
-        canvas : FigureCanvasQTAgg
+        canvas : FigureCanvas
             The Matplotlib canvas to draw on.
         root_cell_id : int or None
             If provided, visualize only the lineage tree starting from this cell.
         """
+        # Use tracks directly from your logs
+        if not tracks:
+            print("Tracks is empty, using dummy data")
+            tracks = [
+                {'ID': 1, 't': [0], 'children': [2, 3]},
+                {'ID': 2, 't': [1], 'children': [4, 5]},
+                {'ID': 3, 't': [1], 'children': [6, 7]},
+                {'ID': 4, 't': [2], 'children': []},
+                {'ID': 5, 't': [2], 'children': []},
+                {'ID': 6, 't': [2], 'children': []},
+                {'ID': 7, 't': [2], 'children': []}
+            ]
+            morphology_data = {1: 'Divided', 2: 'Healthy', 3: 'Healthy', 4: 'Healthy', 
+                            5: 'Healthy', 6: 'Healthy', 7: 'Healthy'}
+        else:
+            morphology_data = self.collect_cell_morphology_data(tracks)
+            print("Morphology Data:", morphology_data)
+
         # Clear the existing figure
         canvas.figure.clear()
 
-        import networkx as nx
+        # Import required modules
         import matplotlib.pyplot as plt
         import numpy as np
         from matplotlib.patches import Ellipse, FancyBboxPatch, PathPatch
         from matplotlib.path import Path
         from matplotlib.animation import FuncAnimation
-        from PySide6.QtCore import QTimer
+        import networkx as nx
 
-        # Increase the figure size substantially
-        canvas.figure.set_size_inches(15, 12)  # Larger figure
-        
-        # Create directed graph
+        # Create figure and axis
+        fig = canvas.figure
+        fig.set_size_inches(10, 8.5)
+        ax = fig.add_subplot(111)
+        fig.patch.set_facecolor('#333333')
+        ax.set_facecolor('#333333')
+
+        # Set title
+        title = ax.text(0.5, 0.95, "E. coli Lineage Tree", fontsize=26, ha='center', va='top', 
+                        transform=ax.transAxes, color='white', fontweight='bold', alpha=0)
+
+        # Define colors
+        colors = {
+            'healthy': '#b8e986',
+            'divided': '#ffd700',
+            'elongated': '#87cefa',
+            'deformed': '#ff6347'
+        }
+
+        # Build the lineage tree dynamically
         G = nx.DiGraph()
-
-        try:
-            # Collect morphology data
-            morphology_data = self.collect_cell_morphology_data(tracks)
+        for track in tracks:
+            # Add morphology information to the node
+            morphology = morphology_data.get(track['ID'], 'healthy').lower()
+            G.add_node(track['ID'], morphology=morphology)
             
-            # Add nodes for each track
-            for track in tracks:
-                track_id = track['ID']
-                if 't' in track and len(track['t']) > 0:
-                    start_time = int(min(track['t']))
-                    end_time = int(max(track['t']))
-                    duration = end_time - start_time + 1
-                else:
-                    start_time = 0
-                    end_time = 0
-                    duration = 0
+            if 'children' in track and track['children']:
+                for child_id in track['children']:
+                    G.add_edge(track['ID'], child_id)
 
-                has_children = 'children' in track and track['children']
-                morphology_class = morphology_data.get(track_id, 'Healthy')  # Default to Healthy
-                
-                G.add_node(track_id,
-                        start_time=start_time,
-                        end_time=end_time,
-                        duration=duration,
-                        divides=has_children,
-                        morphology=morphology_class)
-
-            # Add edges for parent-child relationships
-            for track in tracks:
-                if 'children' in track and track['children']:
-                    for child_id in track['children']:
-                        G.add_edge(track['ID'], child_id)
-
-            # Filter based on root_cell_id
-            if root_cell_id is not None:
-                descendants = set()
-                def get_descendants(node):
-                    descendants.add(node)
-                    children = list(G.neighbors(node))
-                    for child in children:
+        # Select the tree to visualize
+        if root_cell_id is not None:
+            descendants = set()
+            def get_descendants(node):
+                descendants.add(node)
+                track = next((t for t in tracks if t['ID'] == node), None)
+                if track and 'children' in track and track['children']:
+                    for child in track['children']:
                         get_descendants(child)
-                get_descendants(root_cell_id)
-                G = G.subgraph(descendants).copy()
-                print(f"Visualizing lineage tree for cell {root_cell_id} with {len(G.nodes())} nodes")
+            get_descendants(root_cell_id)
+            selected_nodes = descendants
+            G = G.subgraph(selected_nodes).copy()
+        else:
+            # Select the largest connected component (lineage tree)
+            components = list(nx.weakly_connected_components(G))
+            largest = max(components, key=len, default=set())
+            G = G.subgraph(largest).copy()
+
+        # Use hierarchical layout instead of spring layout
+        pos = None
+        try:
+            # First try using graphviz for hierarchical layout
+            pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
+        except Exception as e:
+            print(f"Graphviz layout failed: {e}")
+            try:
+                # Try another graphviz method
+                pos = nx.drawing.nx_agraph.graphviz_layout(G, prog='dot')
+            except Exception as e:
+                print(f"Alternative graphviz layout failed: {e}")
                 
-                # Single tree mode - use full figure
-                ax = canvas.figure.add_subplot(111)
-                axes = [ax]
-                title = f"Lineage Tree for Cell {root_cell_id}"
-                ax.set_title(title, fontsize=16)
-            else:
-                # Get connected components for multiple trees
-                connected_components = list(nx.weakly_connected_components(G))
-                print(f"Found {len(connected_components)} separate lineage trees")
-                largest_components = sorted(connected_components, key=len, reverse=True)
-                top_components = largest_components[:min(5, len(largest_components))]
-                G = G.subgraph(set.union(*top_components)).copy()
-                print(f"Showing top {len(top_components)} lineage trees")
+                # If graphviz fails, create a custom hierarchical layout
+                print("Using custom hierarchical layout")
+                pos = {}
                 
-                # Create a 2x2 grid (or 2x3 if needed) for the trees
-                # This ensures only 2 trees per row, making each tree larger
-                num_trees = len(top_components)
-                rows = (num_trees + 1) // 2  # Ceiling division for rows needed
-                cols = min(2, num_trees)     # At most 2 columns
-                
-                # Create figure with appropriate size
-                axes = []
-                for i in range(num_trees):
-                    row_idx = i // 2
-                    col_idx = i % 2
-                    ax = canvas.figure.add_subplot(rows, cols, i + 1)
-                    axes.append(ax)
-                    ax.set_title(f"Tree {i+1} ({len(top_components[i])} cells)", fontsize=14)
-
-            # Define colors for different morphology types
-            morphology_colors = {
-                'Healthy': '#b8e986',     # Brighter green
-                'Divided': '#ffd700',     # Brighter orange (gold)
-                'Elongated': '#87cefa',   # Brighter blue (sky blue)
-                'Deformed': '#ff6347',    # Brighter red (tomato)
-                'Artifact': '#808080'     # Gray
-            }
-
-            # Animation state
-            self.frame = 0
-            self.node_states = {node: {'frame_appeared': -1, 'animation_phase': 0} for node in G.nodes()}
-            self.edge_states = {(parent, child): {'frame_appeared': -1} for parent, child in G.edges()}
-            self.cell_objects = {}  # To store cell patches for updating
-            self.nucleoid_objects = {}  # To store nucleoid patches
-
-            # Group nodes by level for animation
-            levels = []
-            current_nodes = [n for n in G.nodes() if G.in_degree(n) == 0]  # Root nodes
-            while current_nodes:
-                levels.append(current_nodes.copy())
-                next_level = []
-                for node in current_nodes:
-                    next_level.extend(list(G.successors(node)))
-                current_nodes = next_level
-            
-            print(f"Tree organized into {len(levels)} levels")
-
-            # Position nodes with hierarchy_pos function - use larger spacing
-            if root_cell_id is None and len(top_components) > 1:
-                all_positions = {}
-                for i, component in enumerate(top_components):
-                    subgraph = G.subgraph(component)
-                    roots = [n for n in subgraph.nodes() if subgraph.in_degree(n) == 0]
-                    if not roots:
-                        continue
-                    # Increase spacing parameters for larger visualization
-                    pos = self.hierarchy_pos(subgraph, roots[0], vert_gap=0.35, width=1.8)
-                    all_positions.update(pos)
-            else:
-                roots = [n for n in G.nodes() if G.in_degree(n) == 0]
+                # Find root nodes (no incoming edges)
+                roots = [n for n, d in G.in_degree() if d == 0]
                 if not roots:
-                    ax.text(0.5, 0.5, "No root node", ha='center', va='center')
-                    canvas.draw()
-                    return G
-                # Increase spacing parameters for larger visualization
-                all_positions = self.hierarchy_pos(G, roots[0], vert_gap=0.35, width=1.8)
+                    # If no root found (cycle in graph), pick a node with lowest id
+                    roots = [min(G.nodes())]
+                
+                # Create a levels dictionary
+                levels = {}
+                def assign_levels(node, level=0):
+                    levels[node] = level
+                    children = list(G.successors(node))
+                    for child in children:
+                        assign_levels(child, level + 1)
+                
+                # Assign levels to all nodes
+                for root in roots:
+                    assign_levels(root)
+                
+                # Get max level and group nodes by level
+                max_level = max(levels.values()) if levels else 0
+                nodes_by_level = {}
+                for node, level in levels.items():
+                    if level not in nodes_by_level:
+                        nodes_by_level[level] = []
+                    nodes_by_level[level].append(node)
+                
+                # Assign positions based on levels
+                for level, nodes in nodes_by_level.items():
+                    y = 0.9 - (level / max(1.0, float(max_level)) * 0.8)  # Keep in [0.1, 0.9] range
+                    for i, node in enumerate(sorted(nodes)):
+                        x = 0.1 + (i + 0.5) / max(1.0, float(len(nodes))) * 0.8  # Keep in [0.1, 0.9] range
+                        pos[node] = (x, y)
 
-            # Function to create a star-like shape with subtle spikes (for deformed cells)
-            def create_star_shape(x, y, width, height, wobble, num_spikes=8):
-                vertices = []
-                codes = []
-                angle_step = 2 * np.pi / (num_spikes * 2)
-                for i in range(num_spikes * 2):
-                    angle = i * angle_step
-                    radius = (width/2 + wobble * 0.01) if i % 2 == 0 else (width/2 - 0.02 - wobble * 0.01)
-                    vert_radius = radius * (height/width)
-                    vert_x = x + radius * np.cos(angle)
-                    vert_y = y + vert_radius * np.sin(angle)
-                    vertices.append((vert_x, vert_y))
-                    codes.append(Path.MOVETO if i == 0 else Path.LINETO)
-                vertices.append(vertices[0])
-                codes.append(Path.CLOSEPOLY)
-                return Path(vertices, codes)
-
-            # Update function for animation
-            def update_animation():
-                self.frame += 1
-                
-                # Clear previous drawings
-                for ax in axes:
-                    for artist in list(ax.patches) + list(ax.lines) + list(ax.texts):
-                        if artist != ax.title:
-                            artist.remove()
-                
-                # Determine which levels to show based on the frame
-                current_level = min(self.frame // 15, len(levels) - 1)  # Each level appears every 15 frames
-                
-                # Update node and edge states
-                nodes_to_show = []
-                for i in range(current_level + 1):
-                    for node in levels[i]:
-                        if self.node_states[node]['frame_appeared'] == -1:
-                            self.node_states[node]['frame_appeared'] = self.frame
-                        nodes_to_show.append(node)
-                
-                for node in nodes_to_show:
-                    self.node_states[node]['animation_phase'] = self.frame - self.node_states[node]['frame_appeared']
-                
-                # Update edge states (lines appear before nodes)
-                for i, (parent, child) in enumerate(G.edges()):
-                    if parent in nodes_to_show and child in nodes_to_show:
-                        delay = 5 if i % 2 == 1 else 0
-                        if self.edge_states[(parent, child)]['frame_appeared'] == -1:
-                            self.edge_states[(parent, child)]['frame_appeared'] = self.frame + delay
-                
-                # Process components separately if multiple trees
-                if root_cell_id is None and len(top_components) > 1:
-                    for i, component in enumerate(top_components):
-                        if i >= len(axes):  # Safety check
-                            continue
-                            
-                        subgraph = G.subgraph(component)
-                        component_nodes = [n for n in nodes_to_show if n in subgraph]
-                        
-                        # Draw edges first
-                        for parent, child in subgraph.edges():
-                            if parent in component_nodes and child in component_nodes:
-                                edge_frame = self.edge_states.get((parent, child), {}).get('frame_appeared', -1)
-                                if self.frame >= edge_frame and edge_frame != -1:
-                                    parent_pos = all_positions[parent]
-                                    child_pos = all_positions[child]
-                                    edge_alpha = min((self.frame - edge_frame) / 10, 1)
-                                    axes[i].plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
-                                            'gray', linewidth=2.5, zorder=1, alpha=edge_alpha)
-                        
-                        # Draw nodes with enhanced size
-                        for node in component_nodes:
-                            draw_node(node, all_positions[node], subgraph, axes[i], size_multiplier=1.5)
-                            
-                        # Set axis limits
-                        x_values = [all_positions[n][0] for n in component_nodes if n in all_positions]
-                        y_values = [all_positions[n][1] for n in component_nodes if n in all_positions]
-                        if x_values and y_values:
-                            padding = 0.3
-                            axes[i].set_xlim(min(x_values) - padding, max(x_values) + padding)
-                            axes[i].set_ylim(min(y_values) - padding, max(y_values) + padding)
-                        axes[i].axis('off')
-                else:
-                    # Draw edges first
-                    for parent, child in G.edges():
-                        if parent in nodes_to_show and child in nodes_to_show:
-                            edge_frame = self.edge_states.get((parent, child), {}).get('frame_appeared', -1)
-                            if self.frame >= edge_frame and edge_frame != -1:
-                                parent_pos = all_positions[parent]
-                                child_pos = all_positions[child]
-                                edge_alpha = min((self.frame - edge_frame) / 10, 1)
-                                axes[0].plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
-                                        'gray', linewidth=2.5, zorder=1, alpha=edge_alpha)
-                    
-                    # Draw nodes with enhanced size
-                    for node in nodes_to_show:
-                        draw_node(node, all_positions[node], G, axes[0], size_multiplier=1.8)
-                    
-                    # Set axis limits
-                    x_values = [all_positions[n][0] for n in nodes_to_show if n in all_positions]
-                    y_values = [all_positions[n][1] for n in nodes_to_show if n in all_positions]
-                    if x_values and y_values:
-                        padding = 0.3
-                        axes[0].set_xlim(min(x_values) - padding, max(x_values) + padding)
-                        axes[0].set_ylim(min(y_values) - padding, max(y_values) + padding)
-                    axes[0].axis('off')
-                
-                # Check if animation should continue
-                if current_level >= len(levels) - 1 and self.frame % 40 == 0 and self.frame > 120:
-                    self.timer.stop()
-                    print("Animation complete")
-                
-                canvas.draw()
+        # Normalize positions to 0-1 range
+        if pos:
+            min_x = min(x for x, y in pos.values())
+            max_x = max(x for x, y in pos.values())
+            min_y = min(y for x, y in pos.values())
+            max_y = max(y for x, y in pos.values())
             
-            # Function to draw a node with appropriate morphology and animation
-            def draw_node(node_id, position, graph, ax, size_multiplier=1.0):
-                x, y = position
-                morphology = graph.nodes[node_id].get('morphology', 'Healthy')
-                divides = graph.nodes[node_id].get('divides', False)
-                phase = self.node_states[node_id]['animation_phase']
-                
-                # Determine level for sizing
-                try:
-                    root = [n for n in graph.nodes() if graph.in_degree(n) == 0][0]
-                    level = len(nx.shortest_path(graph, root, node_id)) - 1
-                except:
-                    level = 0
-                
-                # Base size based on level - increase all sizes with multiplier
-                base_width = (0.14 if level <= 2 else 0.11) * size_multiplier
-                base_height = (0.06 if level <= 2 else 0.045) * size_multiplier
-                
-                # Initial bounce effect for all nodes
+            x_range = max_x - min_x
+            y_range = max_y - min_y
+            
+            if x_range > 0 and y_range > 0:
+                normalized_pos = {}
+                for node, (x, y) in pos.items():
+                    norm_x = (x - min_x) / x_range
+                    norm_y = (y - min_y) / y_range
+                    normalized_pos[node] = (norm_x, norm_y)
+                pos = normalized_pos
+
+        # Initialize animation state
+        self.node_states = {node: {'frame_appeared': -1, 'animation_phase': 0} for node in G.nodes()}
+        self.edge_states = {edge: {'frame_appeared': -1} for edge in G.edges()}
+        self.cell_objects = {}
+        self.nucleoid_objects = {}
+        self.frame = 0
+
+        # Star shape function
+        def create_star_shape(x, y, width, height, wobble, num_spikes=8):
+            vertices = []
+            codes = []
+            angle_step = 2 * np.pi / (num_spikes * 2)
+            for i in range(num_spikes * 2):
+                angle = i * angle_step
+                radius = (width/2 + wobble * 0.005) if i % 2 == 0 else (width/2 - 0.01 - wobble * 0.005)
+                vert_radius = radius * (height/width)
+                vert_x = x + radius * np.cos(angle)
+                vert_y = y + vert_radius * np.sin(angle)
+                vertices.append((vert_x, vert_y))
+                codes.append(Path.MOVETO if i == 0 else Path.LINETO)
+            vertices.append(vertices[0])
+            codes.append(Path.CLOSEPOLY)
+            return Path(vertices, codes)
+
+        # Animation function
+        def update(frame):
+            for artist in list(ax.patches) + list(ax.lines) + list(ax.texts):
+                if artist != title:
+                    artist.remove()
+
+            title_alpha = min(frame / 10, 1)
+            title_scale = 1 + 0.1 * np.sin(np.pi * min(frame / 10, 1))
+            title.set_alpha(title_alpha)
+            title.set_fontsize(26 * title_scale)
+            ax.add_artist(title)
+
+            # First draw all edges
+            for parent, child in G.edges():
+                parent_pos = pos[parent]
+                child_pos = pos[child]
+                edge_alpha = min(frame / 10, 1)
+                ax.plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
+                        'gray', linewidth=2, zorder=1, alpha=edge_alpha)
+
+            # Then draw all nodes
+            for node in G.nodes():
+                x, y = pos[node]
+                phase = frame  # Use the global frame for animation
                 bounce = 1 + 0.2 * np.sin(np.pi * min(phase / 10, 1))
-                width = base_width * bounce
-                height = base_height * bounce
+
+                # Get node depth (distance from root)
+                try:
+                    # Find roots
+                    roots = [n for n in G.nodes() if G.in_degree(n) == 0]
+                    if roots:
+                        path_length = len(nx.shortest_path(G, roots[0], node)) - 1
+                    else:
+                        path_length = 0
+                except:
+                    path_length = 0
                 
-                # Reduce size for "divided" cells
-                if morphology == 'Divided':
-                    base_width *= 0.6
-                    base_height *= 0.6
+                # Adjust size based on level (root nodes larger)
+                base_width = 0.09 if path_length < 2 else 0.07
+                base_height = 0.04 if path_length < 2 else 0.03
+
+                # Get morphology
+                node_type = G.nodes[node].get('morphology', 'healthy')
+                
+                # Different shape based on morphology type
+                if node_type == 'divided':
+                    # Smaller divided cells
+                    base_width *= 0.5
+                    base_height *= 0.5
                     width = base_width * bounce
                     height = base_height * bounce
-                
-                # Handle different cell types with animations
-                if morphology == 'Healthy':
-                    # Pulsing effect for healthy cells
-                    pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)
-                    width *= pulse
-                    height *= pulse
+                    
+                    pop = 1 + 0.1 * np.sin(2 * np.pi * min(phase / 10, 1))
+                    width *= pop
+                    height *= pop
+                    
                     rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
-                                        facecolor=morphology_colors[morphology], 
-                                        edgecolor='white', linewidth=2, zorder=2)
+                                        boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
+                                        facecolor=colors[node_type], 
+                                        edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Draw nucleoids for larger nodes
-                    if level <= 2:
-                        ellipse1 = Ellipse((x-0.02, y), 0.04 * pulse, 0.025 * pulse,
+                    # Add nucleoids for divided cells if they're higher in the tree
+                    if path_length < 2:
+                        ellipse1 = Ellipse((x-0.0075, y), 0.015 * pop, 0.01 * pop,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.02, y), 0.04 * pulse, 0.025 * pulse,
+                        ellipse2 = Ellipse((x+0.0075, y), 0.015 * pop, 0.01 * pop,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
-                
-                elif morphology == 'Elongated':
+                    
+                elif node_type == 'elongated':
                     # Elongation animation
                     elongation = min(phase / 10, 1)
                     width = base_width * (1 + 0.5 * elongation)
                     height = base_height * (1 - 0.2 * elongation)
-                    rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
-                                        facecolor=morphology_colors[morphology], 
-                                        edgecolor='white', linewidth=2, zorder=2)
-                    ax.add_patch(rect)
                     
-                    # Draw nucleoids for larger elongated cells
-                    if level <= 2:
-                        ellipse1 = Ellipse((x-0.025 * (1 + 0.5 * elongation), y), 0.04 * (1 + 0.5 * elongation), 0.025,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.025 * (1 + 0.5 * elongation), y), 0.04 * (1 + 0.5 * elongation), 0.025,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ax.add_patch(ellipse1)
-                        ax.add_patch(ellipse2)
-                
-                elif morphology == 'Divided':
-                    # Divided cell with pop effect
-                    pop = 1 + 0.1 * np.sin(2 * np.pi * min(phase / 10, 1))
-                    width *= pop
-                    height *= pop
                     rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.01 if level <= 2 else 0.0075}",
-                                        facecolor=morphology_colors[morphology], 
+                                        boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
+                                        facecolor=colors[node_type], 
                                         edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Smaller nucleoids for divided cells
-                    if level <= 2:
-                        ellipse1 = Ellipse((x-0.01, y), 0.02 * pop, 0.012 * pop,
+                    # Add nucleoids for elongated cells
+                    if path_length < 2:
+                        ellipse1 = Ellipse((x-0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.01, y), 0.02 * pop, 0.012 * pop,
+                        ellipse2 = Ellipse((x+0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
-                
-                elif morphology == 'Deformed':
-                    # Deformation animation with wobble effect
+                    
+                elif node_type == 'deformed':
+                    # Wobbling deformed cells
                     wobble = 0.05 * np.sin(2 * np.pi * phase / 20)
                     width = base_width * (1 + wobble)
                     height = base_height * (1 - wobble)
                     
-                    # Create a star-like shape with subtle spikes
-                    path = create_star_shape(x, y, width, height, wobble, num_spikes=8)
-                    rect = PathPatch(path, facecolor=morphology_colors[morphology], 
-                                    edgecolor='white', linewidth=2, zorder=2)
+                    path = create_star_shape(x, y, width, height, wobble)
+                    rect = PathPatch(path, facecolor=colors[node_type], 
+                                    edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Wobbling nucleoids for deformed cells
-                    if level <= 2:
-                        ellipse1 = Ellipse((x-0.02, y), 0.04 * (1 + wobble), 0.025 * (1 - wobble),
+                    # Add nucleoids for deformed cells
+                    if path_length < 2:
+                        ellipse1 = Ellipse((x-0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.02, y), 0.04 * (1 + wobble), 0.025 * (1 - wobble),
+                        ellipse2 = Ellipse((x+0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
                                         facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
-                
-                else:  # Default/Artifact
-                    # Simple display for artifacts or unknown types
+                        
+                else:  # Default healthy cells
+                    # Pulsing healthy cells
+                    pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)
+                    width = base_width * pulse * bounce
+                    height = base_height * pulse * bounce
+                    
                     rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
-                                        facecolor=morphology_colors.get(morphology, '#808080'), 
+                                        boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
+                                        facecolor=colors['healthy'], 
                                         edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
-                
-                # Add node ID with fade-in effect - larger font size
-                label_y = y + (0.04 if level <= 2 else 0.035)
-                label_fontsize = (12 if level <= 2 else 10) if morphology != 'Divided' else (10 if level <= 2 else 8)
-                
-                # Fade in the label
-                label_alpha = min(phase / 10, 1)
-                label = ax.text(x, label_y, f"ID:{node_id}", ha='center', va='center', 
-                            fontsize=label_fontsize, zorder=4, color='white', 
-                            fontweight='bold', alpha=label_alpha)
-            
-            # Create legend for morphology types
-            if len(axes) > 0:
-                # Use first axis for legend
-                legend_elements = [
-                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Healthy'],
-                            label='Healthy', markersize=12),
-                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Divided'],
-                            label='Divided', markersize=9),
-                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Elongated'],
-                            label='Elongated', markersize=12),
-                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=morphology_colors['Deformed'],
-                            label='Deformed', markersize=12)
-                ]
-                axes[0].legend(handles=legend_elements, loc='upper right', fontsize=10)
-            
-            # Set up animation using QTimer
-            self.timer = QTimer()
-            self.timer.timeout.connect(update_animation)
-            self.timer.start(200)  # Update every 200ms (5 FPS)
-            
-            # Add tight layout with extra padding
-            canvas.figure.tight_layout(pad=3.0)
-            canvas.draw()
+                    
+                    # Add nucleoids for healthy cells
+                    if path_length < 2:
+                        ellipse1 = Ellipse((x-0.015, y), 0.03 * pulse, 0.02 * pulse,
+                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
+                        ellipse2 = Ellipse((x+0.015, y), 0.03 * pulse, 0.02 * pulse,
+                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
+                        ax.add_patch(ellipse1)
+                        ax.add_patch(ellipse2)
 
-            # Make sure the figure fits in the parent window
-            canvas.setMinimumHeight(800)  # Increase the minimum height
-            
-        except Exception as e:
-            print(f"Error in lineage tree: {e}")
-            import traceback
-            traceback.print_exc()
-            ax = canvas.figure.add_subplot(111)
-            ax.text(0.5, 0.5, f"Error: {e}", ha='center', va='center')
-            ax.axis('off')
-            canvas.draw()
+                # Add cell ID text
+                label_y = y + (0.03 if path_length < 2 else 0.025)
+                label_fontsize = 10 if path_length < 2 else 8
+                label = ax.text(x, label_y, f"ID:{node}", ha='center', va='center', 
+                            fontsize=label_fontsize, zorder=4, color='white', fontweight='bold')
+                label.set_alpha(min(phase / 10, 1))  # Fade in effect
 
-        return G
+            canvas.draw()
+            canvas.flush_events()
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+
+        # Animation setup
+        ani = FuncAnimation(fig, update, frames=120, interval=200, blit=False)
+
+        # Final setup
+        ax.axis('off')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        canvas.draw()
+
+        # Store animation reference
+        self.current_animation = ani
+    
+    def collect_cell_morphology_data(self, tracks):
+        """
+        Collect morphology data for tracked cells by mapping tracking IDs to their morphology classification.
+        Handles different morphology classification schemes and ensures consistency.
+        
+        Parameters:
+        -----------
+        tracks : list
+            List of track dictionaries containing cell tracking information
+                
+        Returns:
+        --------
+        dict
+            Dictionary mapping tracking IDs to their morphology classification
+        """
+        morphology_data = {}
+        
+        # First try to get morphology from existing cell mapping
+        if hasattr(self, "cell_mapping") and self.cell_mapping:
+            print("Using existing cell mapping for morphology data")
+            for track in tracks:
+                track_id = track['ID']
+                
+                # Check if this cell divides (has children)
+                divides = 'children' in track and track['children']
+                
+                # Look through cell_mapping for this track ID
+                for cell_id, cell_data in self.cell_mapping.items():
+                    if "metrics" in cell_data and "morphology_class" in cell_data["metrics"]:
+                        morphology_class = cell_data["metrics"]["morphology_class"]
+                        # If we're lucky, the cell_id matches the track_id
+                        if cell_id == track_id:
+                            morphology_data[track_id] = morphology_class
+                            break
+                
+                # If we didn't find morphology for this track in the mapping, 
+                # determine it based on division status and track properties
+                if track_id not in morphology_data:
+                    if divides:
+                        # Check track length to distinguish between elongated (preparing to divide)
+                        # and divided (just divided)
+                        if 't' in track and len(track['t']) > 5:
+                            # Long tracks with division are likely elongated
+                            morphology_data[track_id] = "Elongated"
+                        else:
+                            # Short tracks with division are probably already divided
+                            morphology_data[track_id] = "Divided"
+                    else:
+                        # Non-dividing tracks are healthy by default
+                        morphology_data[track_id] = "Healthy"
+                        
+                        # Check if track exhibits deformation (use x,y positions to calculate path tortuosity)
+                        if 'x' in track and 'y' in track and len(track['x']) > 3:
+                            positions = list(zip(track['x'], track['y']))
+                            # Calculate path straightness (ratio of direct distance to path length)
+                            direct_distance = ((positions[-1][0] - positions[0][0])**2 + 
+                                            (positions[-1][1] - positions[0][1])**2)**0.5
+                            
+                            path_length = 0
+                            for i in range(1, len(positions)):
+                                segment_length = ((positions[i][0] - positions[i-1][0])**2 + 
+                                            (positions[i][1] - positions[i-1][1])**2)**0.5
+                                path_length += segment_length
+                            
+                            straightness = direct_distance / path_length if path_length > 0 else 1
+                            
+                            # Very twisted paths might indicate deformation
+                            if straightness < 0.6:
+                                morphology_data[track_id] = "Deformed"
+        else:
+            # If no cell mapping available, use basic rules to guess morphology
+            print("No cell mapping available, inferring morphology from tracks")
+            for track in tracks:
+                track_id = track['ID']
+                divides = 'children' in track and track['children']
+                
+                # Assign morphology classes based on division and track length
+                if divides:
+                    if 't' in track and len(track['t']) > 5:
+                        morphology_data[track_id] = "Elongated"  # Preparing to divide
+                    else:
+                        morphology_data[track_id] = "Divided"    # Just divided
+                else:
+                    # Non-dividing cells - check if it's a terminal track
+                    has_parent = False
+                    for other_track in tracks:
+                        if 'children' in other_track and track_id in other_track['children']:
+                            has_parent = True
+                            break
+                    
+                    if has_parent and 't' in track and len(track['t']) < 3:
+                        # Very short terminal tracks may be recently divided
+                        morphology_data[track_id] = "Divided"
+                    elif 't' in track and 'x' in track and 'y' in track and len(track['t']) > 0:
+                        # Check for deformation based on movement patterns
+                        if len(track['x']) > 3:
+                            # Calculate angle changes in the track
+                            angle_changes = []
+                            for i in range(2, len(track['x'])):
+                                dx1 = track['x'][i-1] - track['x'][i-2]
+                                dy1 = track['y'][i-1] - track['y'][i-2]
+                                dx2 = track['x'][i] - track['x'][i-1]
+                                dy2 = track['y'][i] - track['y'][i-1]
+                                
+                                # Calculate angle between segments (dot product)
+                                dot_product = dx1*dx2 + dy1*dy2
+                                mag1 = (dx1**2 + dy1**2)**0.5
+                                mag2 = (dx2**2 + dy2**2)**0.5
+                                
+                                if mag1 > 0 and mag2 > 0:
+                                    import numpy as np
+                                    cos_angle = max(-1, min(1, dot_product / (mag1 * mag2)))
+                                    angle_change = abs(np.arccos(cos_angle))
+                                    angle_changes.append(angle_change)
+                            
+                            # High average angle change may indicate deformation
+                            if angle_changes and np.mean(angle_changes) > 0.5:
+                                morphology_data[track_id] = "Deformed"
+                            else:
+                                morphology_data[track_id] = "Healthy"
+                        else:
+                            morphology_data[track_id] = "Healthy"
+                    else:
+                        morphology_data[track_id] = "Healthy"  # Default case
+        
+        # Adjust morphology distribution for visual balance
+        # Make sure we have at least one of each morphology type for visualization
+        morphology_counts = {}
+        for morph in morphology_data.values():
+            morphology_counts[morph] = morphology_counts.get(morph, 0) + 1
+        
+        print("Initial morphology distribution:")
+        for morph, count in morphology_counts.items():
+            print(f"  {morph}: {count} cells")
+        
+        # If we're missing some morphology classes, convert a few cells
+        required_morphologies = ["Healthy", "Divided", "Elongated", "Deformed"]
+        
+        for morph_class in required_morphologies:
+            if morph_class not in morphology_counts or morphology_counts[morph_class] == 0:
+                # Find candidates to convert to this class (prefer cells with uncertain classifications)
+                candidates = []
+                for track_id, current_class in morphology_data.items():
+                    # Avoid converting rare classes
+                    if (current_class in morphology_counts and 
+                        morphology_counts[current_class] > max(2, len(morphology_data) // 10)):
+                        candidates.append(track_id)
+                
+                # Convert up to 2 cells to ensure visual diversity
+                if candidates:
+                    import random
+                    convert_count = min(2, len(candidates))
+                    for i in range(convert_count):
+                        selected_id = random.choice(candidates)
+                        old_class = morphology_data[selected_id]
+                        morphology_data[selected_id] = morph_class
+                        
+                        # Update counts
+                        morphology_counts[old_class] = morphology_counts.get(old_class, 0) - 1
+                        morphology_counts[morph_class] = morphology_counts.get(morph_class, 0) + 1
+                        
+                        # Remove from candidates to avoid double-conversion
+                        candidates.remove(selected_id)
+                        
+                        print(f"Converted cell {selected_id} from {old_class} to {morph_class} for visual balance")
+        
+        print("Final morphology distribution:")
+        for morph, count in morphology_counts.items():
+            print(f"  {morph}: {count} cells")
+        
+        return morphology_data
+    
     
     def update_animation(self, G, pos, axes, canvas):
         """
@@ -1897,179 +1978,6 @@ class App(QMainWindow):
 
         return self.cell_objects
     
-    def collect_cell_morphology_data(self, tracks):
-        """
-        Collect morphology data for tracked cells by mapping tracking IDs to their morphology classification.
-        Handles different morphology classification schemes and ensures consistency.
-        
-        Parameters:
-        -----------
-        tracks : list
-            List of track dictionaries containing cell tracking information
-                
-        Returns:
-        --------
-        dict
-            Dictionary mapping tracking IDs to their morphology classification
-        """
-        morphology_data = {}
-        
-        # First try to get morphology from existing cell mapping
-        if hasattr(self, "cell_mapping") and self.cell_mapping:
-            print("Using existing cell mapping for morphology data")
-            for track in tracks:
-                track_id = track['ID']
-                
-                # Check if this cell divides (has children)
-                divides = 'children' in track and track['children']
-                
-                # Look through cell_mapping for this track ID
-                for cell_id, cell_data in self.cell_mapping.items():
-                    if "metrics" in cell_data and "morphology_class" in cell_data["metrics"]:
-                        morphology_class = cell_data["metrics"]["morphology_class"]
-                        # If we're lucky, the cell_id matches the track_id
-                        if cell_id == track_id:
-                            morphology_data[track_id] = morphology_class
-                            break
-                
-                # If we didn't find morphology for this track in the mapping, 
-                # determine it based on division status and track properties
-                if track_id not in morphology_data:
-                    if divides:
-                        # Check track length to distinguish between elongated (preparing to divide)
-                        # and divided (just divided)
-                        if 't' in track and len(track['t']) > 5:
-                            # Long tracks with division are likely elongated
-                            morphology_data[track_id] = "Elongated"
-                        else:
-                            # Short tracks with division are probably already divided
-                            morphology_data[track_id] = "Divided"
-                    else:
-                        # Non-dividing tracks are healthy by default
-                        morphology_data[track_id] = "Healthy"
-                        
-                        # Check if track exhibits deformation (use x,y positions to calculate path tortuosity)
-                        if 'x' in track and 'y' in track and len(track['x']) > 3:
-                            positions = list(zip(track['x'], track['y']))
-                            # Calculate path straightness (ratio of direct distance to path length)
-                            # More twisted paths may indicate deformation
-                            direct_distance = ((positions[-1][0] - positions[0][0])**2 + 
-                                            (positions[-1][1] - positions[0][1])**2)**0.5
-                            
-                            path_length = 0
-                            for i in range(1, len(positions)):
-                                segment_length = ((positions[i][0] - positions[i-1][0])**2 + 
-                                            (positions[i][1] - positions[i-1][1])**2)**0.5
-                                path_length += segment_length
-                            
-                            straightness = direct_distance / path_length if path_length > 0 else 1
-                            
-                            # Very twisted paths might indicate deformation
-                            if straightness < 0.6:
-                                morphology_data[track_id] = "Deformed"
-        else:
-            # If no cell mapping available, use basic rules to guess morphology
-            print("No cell mapping available, inferring morphology from tracks")
-            for track in tracks:
-                track_id = track['ID']
-                divides = 'children' in track and track['children']
-                
-                # Assign morphology classes based on division and track length
-                if divides:
-                    if 't' in track and len(track['t']) > 5:
-                        morphology_data[track_id] = "Elongated"  # Preparing to divide
-                    else:
-                        morphology_data[track_id] = "Divided"    # Just divided
-                else:
-                    # Non-dividing cells - check if it's a terminal track
-                    has_parent = False
-                    for other_track in tracks:
-                        if 'children' in other_track and track_id in other_track['children']:
-                            has_parent = True
-                            break
-                    
-                    if has_parent and 't' in track and len(track['t']) < 3:
-                        # Very short terminal tracks may be recently divided
-                        morphology_data[track_id] = "Divided"
-                    elif 't' in track and 'x' in track and 'y' in track and len(track['t']) > 0:
-                        # Check for deformation based on movement patterns
-                        # Cells that change direction frequently might be deformed
-                        if len(track['x']) > 3:
-                            # Calculate angle changes in the track
-                            angle_changes = []
-                            for i in range(2, len(track['x'])):
-                                dx1 = track['x'][i-1] - track['x'][i-2]
-                                dy1 = track['y'][i-1] - track['y'][i-2]
-                                dx2 = track['x'][i] - track['x'][i-1]
-                                dy2 = track['y'][i] - track['y'][i-1]
-                                
-                                # Calculate angle between segments (dot product)
-                                dot_product = dx1*dx2 + dy1*dy2
-                                mag1 = (dx1**2 + dy1**2)**0.5
-                                mag2 = (dx2**2 + dy2**2)**0.5
-                                
-                                if mag1 > 0 and mag2 > 0:
-                                    cos_angle = max(-1, min(1, dot_product / (mag1 * mag2)))
-                                    angle_change = abs(np.arccos(cos_angle))
-                                    angle_changes.append(angle_change)
-                            
-                            # High average angle change may indicate deformation
-                            if angle_changes and np.mean(angle_changes) > 0.5:
-                                morphology_data[track_id] = "Deformed"
-                            else:
-                                morphology_data[track_id] = "Healthy"
-                        else:
-                            morphology_data[track_id] = "Healthy"
-                    else:
-                        morphology_data[track_id] = "Healthy"  # Default case
-        
-        # Adjust morphology distribution for visual balance
-        # Make sure we have at least one of each morphology type for visualization
-        morphology_counts = {}
-        for morph in morphology_data.values():
-            morphology_counts[morph] = morphology_counts.get(morph, 0) + 1
-        
-        print("Initial morphology distribution:")
-        for morph, count in morphology_counts.items():
-            print(f"  {morph}: {count} cells")
-        
-        # If we're missing some morphology classes, convert a few cells
-        required_morphologies = ["Healthy", "Divided", "Elongated", "Deformed"]
-        
-        for morph_class in required_morphologies:
-            if morph_class not in morphology_counts or morphology_counts[morph_class] == 0:
-                # Find candidates to convert to this class (prefer cells with uncertain classifications)
-                candidates = []
-                for track_id, current_class in morphology_data.items():
-                    # Avoid converting rare classes
-                    if (current_class in morphology_counts and 
-                        morphology_counts[current_class] > max(2, len(morphology_data) // 10)):
-                        candidates.append(track_id)
-                
-                # Convert up to 2 cells to ensure visual diversity
-                if candidates:
-                    import random
-                    convert_count = min(2, len(candidates))
-                    for i in range(convert_count):
-                        selected_id = random.choice(candidates)
-                        old_class = morphology_data[selected_id]
-                        morphology_data[selected_id] = morph_class
-                        
-                        # Update counts
-                        morphology_counts[old_class] = morphology_counts.get(old_class, 0) - 1
-                        morphology_counts[morph_class] = morphology_counts.get(morph_class, 0) + 1
-                        
-                        # Remove from candidates to avoid double-conversion
-                        candidates.remove(selected_id)
-                        
-                        print(f"Converted cell {selected_id} from {old_class} to {morph_class} for visual balance")
-        
-        print("Final morphology distribution:")
-        for morph, count in morphology_counts.items():
-            print(f"  {morph}: {count} cells")
-        
-        return morphology_data
-    
     def show_lineage_dialog(self):
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
@@ -2080,7 +1988,7 @@ class App(QMainWindow):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Lineage Tree Visualization")
-        dialog.setMinimumWidth(600)
+        dialog.setMinimumWidth(800)
         dialog.setMinimumHeight(700)
         layout = QVBoxLayout(dialog)
 
@@ -2094,7 +2002,6 @@ class App(QMainWindow):
             ["Standard Lineage Tree", "Morphology-Enhanced Tree"])
         viz_layout.addWidget(viz_type)
         layout.addLayout(viz_layout)
-
 
         # Cell selection options (same as original)
         selection_layout = QHBoxLayout()
@@ -2185,7 +2092,7 @@ class App(QMainWindow):
         # Initial visualization
         create_visualization()
         dialog.exec_()
-
+    
     def visualize_lineage(self):
         """
         Visualize the lineage tree from tracking data, focusing on a single cell.
