@@ -456,11 +456,10 @@ class App(QMainWindow):
                     colored_image = cv2.cvtColor(
                         image_data, cv2.COLOR_GRAY2BGR)
                 elif c == 1:  # mCherry - red
-                    colored_image[:, :, 2] = image_data  # Red channel
+                    colored_image[:, :, 0] = image_data  # Red channel
                 elif c == 2:  # YFP - yellow/green
                     colored_image[:, :, 1] = image_data  # Green channel
-                    colored_image[:, :, 2] = image_data * \
-                        0.5  # Add red to make it yellow
+                    colored_image[:, :, 0] = image_data  # Add red to make it yellow
                 image_data = colored_image
                 image_format = QImage.Format_RGB888
             else:
@@ -4140,13 +4139,37 @@ class App(QMainWindow):
             return
 
         selected_ps = self.get_selected_ps()
-        p = selected_ps[0]
         c = int(self.channel_combo.currentText())
         rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
         t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
 
-        fluo, timestamp = analyze_fluorescence_singlecell(
-            self.image_data.segmentation_cache[t_s:t_e, p, 0], self.image_data.data[t_s:t_e, p, c], rpu)
+        # Initialize lists for combined data
+        combined_fluo = []
+        combined_timestamp = []
+
+        # Process each selected position
+        for p in selected_ps:
+            fluo, timestamp = analyze_fluorescence_singlecell(
+                self.image_data.segmentation_cache[t_s:t_e, p, 0], 
+                self.image_data.data[t_s:t_e, p, c], 
+                rpu)
+            combined_fluo.append(fluo)
+            combined_timestamp.append(timestamp)
+
+        # Handle combined_fluo as a list of lists
+        all_fluo_data = []
+        all_timestamp_data = []
+
+        # Iterate through each position's data
+        for pos_idx, (fluo_list, timestamp_list) in enumerate(zip(combined_fluo, combined_timestamp)):
+            for t_idx, (t, fluo_values) in enumerate(zip(timestamp_list, fluo_list)):
+                for f in fluo_values:
+                    all_fluo_data.append(f)
+                    all_timestamp_data.append(t)
+
+        # Convert to numpy arrays for efficient processing
+        all_fluo_data = np.array(all_fluo_data)
+        all_timestamp_data = np.array(all_timestamp_data)
 
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)
@@ -4156,16 +4179,10 @@ class App(QMainWindow):
         fluo_mean = []
         fluo_std = []
 
-        # Each fluo is an array of the fluorescence under each bacteria
-        #
-        # timestamp = [0, 1, 2]
-        # fluo = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
-        # 1 2 3
-        #           1    2    3
-        #                     1    2   3
-
-        # Copy timestamp for each fluorescence observation
-        for t, fluo_data in zip(timestamp, fluo):
+        # Calculate mean and std for each timestamp
+        unique_timestamps = np.unique(all_timestamp_data)
+        for t in unique_timestamps:
+            fluo_data = all_fluo_data[all_timestamp_data == t]
             fluo_mean.append(np.mean(fluo_data))
             fluo_std.append(np.std(fluo_data))
             for f in fluo_data:
@@ -4175,12 +4192,13 @@ class App(QMainWindow):
         fluo_mean = np.array(fluo_mean)
         fluo_std = np.array(fluo_std)
 
-        # Randomly select up to 30 timepoints from plot_fluo and plot_timestamp
+        npoints = 500
+        # Randomly select up to npoints points for plotting
         points = np.array(list(zip(plot_timestamp, plot_fluo)))
-        if len(points) > 200:
+        if len(points) > npoints:
             points = points[np.random.choice(
-                points.shape[0], 200, replace=False)]
-        plot_timestamp, plot_fluo = zip(*points)
+                points.shape[0], npoints, replace=False)]
+            plot_timestamp, plot_fluo = zip(*points)
 
         ax.scatter(
             plot_timestamp,
@@ -4188,17 +4206,16 @@ class App(QMainWindow):
             color='blue',
             alpha=0.5,
             marker='+')
-        ax.plot(timestamp, fluo_mean, color='red', label='Mean')
+        ax.plot(unique_timestamps, fluo_mean, color='red', label='Mean')
         ax.fill_between(
-            timestamp,
-            fluo_mean -
-            fluo_std,
-            fluo_mean +
-            fluo_std,
+            unique_timestamps,
+            fluo_mean - fluo_std,
+            fluo_mean + fluo_std,
             color='red',
             alpha=0.2,
             label='Std Dev')
-        ax.set_title(f'Fluorescence signal for Position P={p}')
+        ax.set_title(f'Fluorescence signal for Positions {selected_ps}')
         ax.set_xlabel('T')
         ax.set_ylabel('Cell activity in RPUs')
         self.population_canvas.draw()
+
