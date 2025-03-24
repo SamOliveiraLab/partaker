@@ -1156,9 +1156,8 @@ class App(QMainWindow):
         fig.patch.set_facecolor('#333333')
         ax.set_facecolor('#333333')
 
-        # Set title
-        title = ax.text(0.5, 0.95, "E. coli Lineage Tree", fontsize=26, ha='center', va='top', 
-                        transform=ax.transAxes, color='white', fontweight='bold', alpha=0)
+        # No title text
+        title = None
 
         # Define colors
         colors = {
@@ -1247,7 +1246,7 @@ class App(QMainWindow):
                         x = 0.1 + (i + 0.5) / max(1.0, float(len(nodes))) * 0.8  # Keep in [0.1, 0.9] range
                         pos[node] = (x, y)
 
-        # Normalize positions to 0-1 range
+        # Normalize and center positions for better visibility
         if pos:
             min_x = min(x for x, y in pos.values())
             max_x = max(x for x, y in pos.values())
@@ -1257,11 +1256,17 @@ class App(QMainWindow):
             x_range = max_x - min_x
             y_range = max_y - min_y
             
+            # Add padding to ensure all nodes are visible
+            padding = 0.15
+            x_target_range = 1.0 - (2 * padding)
+            y_target_range = 1.0 - (2 * padding)
+            
             if x_range > 0 and y_range > 0:
                 normalized_pos = {}
                 for node, (x, y) in pos.items():
-                    norm_x = (x - min_x) / x_range
-                    norm_y = (y - min_y) / y_range
+                    # Normalize to 0-1 range with padding
+                    norm_x = padding + ((x - min_x) / x_range) * x_target_range
+                    norm_y = padding + ((y - min_y) / y_range) * y_target_range
                     normalized_pos[node] = (norm_x, norm_y)
                 pos = normalized_pos
 
@@ -1295,11 +1300,7 @@ class App(QMainWindow):
                 if artist != title:
                     artist.remove()
 
-            title_alpha = min(frame / 10, 1)
-            title_scale = 1 + 0.1 * np.sin(np.pi * min(frame / 10, 1))
-            title.set_alpha(title_alpha)
-            title.set_fontsize(26 * title_scale)
-            ax.add_artist(title)
+            # No title animation
 
             # First draw all edges
             for parent, child in G.edges():
@@ -1351,14 +1352,7 @@ class App(QMainWindow):
                                         edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Add nucleoids for divided cells if they're higher in the tree
-                    if path_length < 2:
-                        ellipse1 = Ellipse((x-0.0075, y), 0.015 * pop, 0.01 * pop,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.0075, y), 0.015 * pop, 0.01 * pop,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ax.add_patch(ellipse1)
-                        ax.add_patch(ellipse2)
+                    # No nucleoids
                     
                 elif node_type == 'elongated':
                     # Elongation animation
@@ -1372,14 +1366,7 @@ class App(QMainWindow):
                                         edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Add nucleoids for elongated cells
-                    if path_length < 2:
-                        ellipse1 = Ellipse((x-0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ax.add_patch(ellipse1)
-                        ax.add_patch(ellipse2)
+                    # No nucleoids
                     
                 elif node_type == 'deformed':
                     # Wobbling deformed cells
@@ -1392,14 +1379,7 @@ class App(QMainWindow):
                                     edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Add nucleoids for deformed cells
-                    if path_length < 2:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ax.add_patch(ellipse1)
-                        ax.add_patch(ellipse2)
+                    # No nucleoids
                         
                 else:  # Default healthy cells
                     # Pulsing healthy cells
@@ -1413,14 +1393,7 @@ class App(QMainWindow):
                                         edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(rect)
                     
-                    # Add nucleoids for healthy cells
-                    if path_length < 2:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * pulse, 0.02 * pulse,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * pulse, 0.02 * pulse,
-                                        facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ax.add_patch(ellipse1)
-                        ax.add_patch(ellipse2)
+                    # No nucleoids
 
                 # Add cell ID text
                 label_y = y + (0.03 if path_length < 2 else 0.025)
@@ -1437,14 +1410,58 @@ class App(QMainWindow):
         # Animation setup
         ani = FuncAnimation(fig, update, frames=120, interval=200, blit=False)
 
+        # Dynamic adjustment to ensure all cells are visible
+        def adjust_view():
+            # Get current axis limits
+            x_min, x_max = ax.get_xlim()
+            y_min, y_max = ax.get_ylim()
+            
+            # Get all artist positions to determine actual bounds
+            all_positions = []
+            for artist in ax.patches:
+                if isinstance(artist, FancyBboxPatch):
+                    bbox = artist.get_bbox()
+                    all_positions.extend([(bbox.x0, bbox.y0), (bbox.x1, bbox.y1)])
+                elif isinstance(artist, PathPatch):
+                    path = artist.get_path()
+                    vertices = path.vertices
+                    for vertex in vertices:
+                        all_positions.append(vertex)
+            
+            if all_positions:
+                # Determine actual bounds of all content
+                min_x = min(p[0] for p in all_positions)
+                max_x = max(p[0] for p in all_positions)
+                min_y = min(p[1] for p in all_positions)
+                max_y = max(p[1] for p in all_positions)
+                
+                # Add padding
+                padding = 0.1
+                min_x -= padding
+                max_x += padding
+                min_y -= padding
+                max_y += padding
+                
+                # Update limits
+                ax.set_xlim(min_x, max_x)
+                ax.set_ylim(min_y, max_y)
+        
         # Final setup
         ax.axis('off')
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
+        
+        # Add callback to adjust view after first draw
+        def on_first_draw(event):
+            adjust_view()
+            canvas.mpl_disconnect(cid)
+        
+        cid = canvas.mpl_connect('draw_event', on_first_draw)
         canvas.draw()
 
         # Store animation reference
         self.current_animation = ani
+    
     
     def collect_cell_morphology_data(self, tracks):
         """
