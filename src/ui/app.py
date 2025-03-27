@@ -1120,6 +1120,13 @@ class App(QMainWindow):
         root_cell_id : int or None
             If provided, visualize only the lineage tree starting from this cell.
         """
+        
+        # Clear the existing figure and stop any ongoing animations
+        canvas.figure.clear()
+        if hasattr(self, 'current_animation') and self.current_animation:
+            self.current_animation.event_source.stop()
+            del self.current_animation
+        
         # Use tracks directly from your logs
         if not tracks:
             print("Tracks is empty, using dummy data")
@@ -2047,6 +2054,7 @@ class App(QMainWindow):
 
         return self.cell_objects
     
+    
     def show_lineage_dialog(self):
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
@@ -2105,7 +2113,25 @@ class App(QMainWindow):
         canvas = FigureCanvas(figure)
         layout.addWidget(canvas)
 
-        # Buttons (same as original)
+        # NEW: Navigation layout for previous/next buttons
+        nav_layout = QHBoxLayout()
+        prev_button = QPushButton("Previous Tree")
+        next_button = QPushButton("Next Tree")
+        
+        # Add a label to show current tree number
+        tree_counter_label = QLabel("Tree 1/1")
+        tree_counter_label.setAlignment(Qt.AlignCenter)
+        
+        nav_layout.addWidget(prev_button)
+        nav_layout.addWidget(tree_counter_label)
+        nav_layout.addWidget(next_button)
+        layout.addLayout(nav_layout)
+
+        # Add variables to track current tree index and available trees
+        current_tree_index = [0]  # Use list to allow modification inside closures
+        available_trees = []  # Will store the list of trees
+
+        # Original buttons
         button_layout = QHBoxLayout()
         view_button = QPushButton("Visualize")
         save_button = QPushButton("Save")
@@ -2120,16 +2146,110 @@ class App(QMainWindow):
             if cell_radio.isChecked() and cell_combo.currentText():
                 selected_cell = int(
                     cell_combo.currentText().replace("Cell ", ""))
+                current_tree_index[0] = 0  # Reset index when showing specific cell
+                
+            # Handle tree identification - this is common code for both visualization types
+            if top_radio.isChecked():
+                # Get all trees by analyzing connected components
+                import networkx as nx
+                G = nx.DiGraph()
+                
+                # Build the graph
+                for track in self.lineage_tracks:
+                    G.add_node(track['ID'])
+                    if 'children' in track and track['children']:
+                        for child_id in track['children']:
+                            G.add_edge(track['ID'], child_id)
+                
+                # Find connected components (these are our trees)
+                connected_components = list(nx.weakly_connected_components(G))
+                # Sort by size (largest first)
+                available_trees.clear()
+                available_trees.extend(sorted(connected_components, key=len, reverse=True)[:5])
+                
+                # Make sure current index is valid
+                if not available_trees:
+                    current_tree_index[0] = 0
+                elif current_tree_index[0] >= len(available_trees):
+                    current_tree_index[0] = 0
+                
+                # Get root of current tree
+                if available_trees:
+                    tree_nodes = list(available_trees[current_tree_index[0]])
+                    
+                    # Find root nodes (no parents in this tree)
+                    root_candidates = []
+                    for node in tree_nodes:
+                        is_root = True
+                        for _, child in G.in_edges(node):
+                            if child in tree_nodes:
+                                is_root = False
+                                break
+                        if is_root:
+                            root_candidates.append(node)
+                    
+                    # If no clear root, use the earliest appearing cell (lowest ID typically)
+                    if root_candidates:
+                        root_cell_id = min(root_candidates)
+                    else:
+                        root_cell_id = min(tree_nodes)
+                        
+                    # Update counter display
+                    tree_counter_label.setText(f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
+                else:
+                    root_cell_id = None
+                    tree_counter_label.setText("Tree 0/0")
+                    
+                # Enable/disable navigation buttons
+                prev_button.setEnabled(len(available_trees) > 1)
+                next_button.setEnabled(len(available_trees) > 1)
+            else:
+                # Specific cell mode
+                root_cell_id = selected_cell
+                available_trees.clear() 
+                tree_counter_label.setText("Cell Lineage")
+                
+                # Disable navigation buttons in cell-specific mode
+                prev_button.setEnabled(False)
+                next_button.setEnabled(False)
 
             # Choose visualization based on combo box selection
             if viz_type.currentText() == "Morphology-Enhanced Tree":
-                # Use the morphology visualization
+                # Use the morphology visualization with the selected root
                 self.visualize_morphology_lineage_tree(
-                    self.lineage_tracks, canvas, selected_cell)
+                    self.lineage_tracks, canvas, root_cell_id)
             else:
-                # Use the standard visualization
+                # Use the standard visualization with the selected root
                 self.create_lineage_tree(
-                    self.lineage_tracks, canvas, root_cell_id=selected_cell)
+                    self.lineage_tracks, canvas, root_cell_id=root_cell_id)
+
+        def go_to_next_tree():
+            if not available_trees or len(available_trees) <= 1:
+                return
+                
+            # Move to next tree
+            current_tree_index[0] = (current_tree_index[0] + 1) % len(available_trees)
+            
+            # Show activity indicator
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                create_visualization()
+            finally:
+                QApplication.restoreOverrideCursor()
+        
+        def go_to_previous_tree():
+            if not available_trees or len(available_trees) <= 1:
+                return
+                
+            # Move to previous tree
+            current_tree_index[0] = (current_tree_index[0] - 1) % len(available_trees)
+            
+            # Show activity indicator
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                create_visualization()
+            finally:
+                QApplication.restoreOverrideCursor()
 
         def save_visualization():
             output_path, _ = QFileDialog.getSaveFileName(
@@ -2157,6 +2277,10 @@ class App(QMainWindow):
         save_button.clicked.connect(save_visualization)
         close_button.clicked.connect(dialog.close)
         viz_type.currentIndexChanged.connect(create_visualization)
+        
+        # Connect navigation buttons
+        next_button.clicked.connect(go_to_next_tree)
+        prev_button.clicked.connect(go_to_previous_tree)
 
         # Initial visualization
         create_visualization()
