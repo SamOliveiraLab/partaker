@@ -1196,6 +1196,28 @@ class App(QMainWindow):
             largest = max(components, key=len, default=set())
             G = G.subgraph(largest).copy()
 
+        
+        # Group nodes by level for sequential animation
+        levels = []
+        # Find the root node (node with no incoming edges)
+        roots = [n for n, d in G.in_degree() if d == 0]
+        if not roots:
+            roots = [min(G.nodes())]  # Default to node with lowest ID if no root found
+
+        # Use BFS to build levels
+        visited = set()
+        current_level = roots
+        while current_level:
+            levels.append(current_level.copy())  # Add current level to levels
+            next_level = []
+            for node in current_level:
+                visited.add(node)
+                for child in G.successors(node):
+                    if child not in visited and child not in next_level:
+                        next_level.append(child)
+            current_level = next_level
+
+        
         # Use hierarchical layout instead of spring layout
         pos = None
         try:
@@ -1220,9 +1242,9 @@ class App(QMainWindow):
                     roots = [min(G.nodes())]
                 
                 # Create a levels dictionary
-                levels = {}
+                levels_dict = {}
                 def assign_levels(node, level=0):
-                    levels[node] = level
+                    levels_dict[node] = level
                     children = list(G.successors(node))
                     for child in children:
                         assign_levels(child, level + 1)
@@ -1232,9 +1254,9 @@ class App(QMainWindow):
                     assign_levels(root)
                 
                 # Get max level and group nodes by level
-                max_level = max(levels.values()) if levels else 0
+                max_level = max(levels_dict.values()) if levels_dict else 0
                 nodes_by_level = {}
-                for node, level in levels.items():
+                for node, level in levels_dict.items():
                     if level not in nodes_by_level:
                         nodes_by_level[level] = []
                     nodes_by_level[level].append(node)
@@ -1294,129 +1316,151 @@ class App(QMainWindow):
             codes.append(Path.CLOSEPOLY)
             return Path(vertices, codes)
 
-        # Animation function
+        
         def update(frame):
             for artist in list(ax.patches) + list(ax.lines) + list(ax.texts):
                 if artist != title:
                     artist.remove()
 
-            # No title animation
+            # Determine which levels to show based on the frame
+            current_level = min(frame // 20, len(levels) - 1)  # Each level appears every 20 frames
+            nodes_to_show = []
+            for i in range(current_level + 1):
+                nodes_to_show.extend(levels[i])
 
-            # First draw all edges
+            # Update node states
+            for node_id in nodes_to_show:
+                if self.node_states[node_id]['frame_appeared'] == -1:
+                    self.node_states[node_id]['frame_appeared'] = frame
+                self.node_states[node_id]['animation_phase'] = frame - self.node_states[node_id]['frame_appeared']
+
+            # Update edge states (lines appear before nodes)
             for parent, child in G.edges():
-                parent_pos = pos[parent]
-                child_pos = pos[child]
-                edge_alpha = min(frame / 10, 1)
-                ax.plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
-                        'gray', linewidth=2, zorder=1, alpha=edge_alpha)
-
-            # Then draw all nodes
-            for node in G.nodes():
-                x, y = pos[node]
-                phase = frame  # Use the global frame for animation
-                bounce = 1 + 0.2 * np.sin(np.pi * min(phase / 10, 1))
-
-                # Get node depth (distance from root)
-                try:
-                    # Find roots
-                    roots = [n for n in G.nodes() if G.in_degree(n) == 0]
-                    if roots:
-                        path_length = len(nx.shortest_path(G, roots[0], node)) - 1
-                    else:
-                        path_length = 0
-                except:
-                    path_length = 0
-                
-                # Adjust size based on level (root nodes larger)
-                base_width = 0.09 if path_length < 2 else 0.07
-                base_height = 0.04 if path_length < 2 else 0.03
-
-                # Get morphology
-                node_type = G.nodes[node].get('morphology', 'healthy')
-                
-                # Different shape based on morphology type
-                if node_type == 'divided':
-                    # Smaller divided cells
-                    base_width *= 0.5
-                    base_height *= 0.5
-                    width = base_width * bounce
-                    height = base_height * bounce
+                if parent in nodes_to_show and child in nodes_to_show:
+                    # Prioritize edges based on index in edges list to create sequential appearance
+                    parent_edges = [e for e in G.edges() if e[0] == parent]
+                    is_second_edge = parent_edges.index((parent, child)) > 0
+                    delay = 5 if is_second_edge else 0  # Delay the second line by 5 frames
                     
-                    pop = 1 + 0.1 * np.sin(2 * np.pi * min(phase / 10, 1))
-                    width *= pop
-                    height *= pop
-                    
-                    rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
-                                        facecolor=colors[node_type], 
-                                        edgecolor='white', linewidth=1, zorder=2)
-                    ax.add_patch(rect)
-                    
-                    # No nucleoids
-                    
-                elif node_type == 'elongated':
-                    # Elongation animation
-                    elongation = min(phase / 10, 1)
-                    width = base_width * (1 + 0.5 * elongation)
-                    height = base_height * (1 - 0.2 * elongation)
-                    
-                    rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
-                                        facecolor=colors[node_type], 
-                                        edgecolor='white', linewidth=1, zorder=2)
-                    ax.add_patch(rect)
-                    
-                    # No nucleoids
-                    
-                elif node_type == 'deformed':
-                    # Wobbling deformed cells
-                    wobble = 0.05 * np.sin(2 * np.pi * phase / 20)
-                    width = base_width * (1 + wobble)
-                    height = base_height * (1 - wobble)
-                    
-                    path = create_star_shape(x, y, width, height, wobble)
-                    rect = PathPatch(path, facecolor=colors[node_type], 
-                                    edgecolor='white', linewidth=1, zorder=2)
-                    ax.add_patch(rect)
-                    
-                    # No nucleoids
+                    if self.edge_states[(parent, child)]['frame_appeared'] == -1:
+                        # Make edge appear 5 frames before the child node
+                        level_of_parent = next(i for i, level in enumerate(levels) if parent in level)
+                        level_of_child = next(i for i, level in enumerate(levels) if child in level)
+                        is_different_level = level_of_parent != level_of_child
                         
-                else:  # Default healthy cells
-                    # Pulsing healthy cells
-                    pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)
-                    width = base_width * pulse * bounce
-                    height = base_height * pulse * bounce
+                        if is_different_level:
+                            # Edge should appear before child node
+                            parent_frame = self.node_states[parent]['frame_appeared']
+                            if parent_frame >= 0:
+                                self.edge_states[(parent, child)]['frame_appeared'] = parent_frame + 10 + delay
+                        else:
+                            # For edges between nodes in the same level
+                            self.edge_states[(parent, child)]['frame_appeared'] = frame
+
+            # Draw edges (lines) first
+            for parent, child in G.edges():
+                edge_frame = self.edge_states[(parent, child)]['frame_appeared']
+                if edge_frame >= 0 and frame >= edge_frame:
+                    parent_pos = pos[parent]
+                    child_pos = pos[child]
+                    edge_alpha = min((frame - edge_frame) / 10, 1)  # Fade-in over 10 frames
+                    ax.plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
+                            'gray', linewidth=2, zorder=1, alpha=edge_alpha)
+
+            # Draw nodes with cartoony animations (after lines)
+            for node_id in nodes_to_show:
+                if self.node_states[node_id]['frame_appeared'] >= 0 and frame >= self.node_states[node_id]['frame_appeared']:
+                    x, y = pos[node_id]
+                    phase = self.node_states[node_id]['animation_phase']
+                    bounce = 1 + 0.2 * np.sin(np.pi * min(phase / 10, 1))  # Bounce over 10 frames
+
+                    # Get node depth (distance from root)
+                    try:
+                        # Find roots
+                        roots = [n for n in G.nodes() if G.in_degree(n) == 0]
+                        if roots:
+                            path_length = len(nx.shortest_path(G, roots[0], node_id)) - 1
+                        else:
+                            path_length = 0
+                    except:
+                        path_length = 0
                     
-                    rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
-                                        boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
-                                        facecolor=colors['healthy'], 
+                    # Adjust size based on level (root nodes larger)
+                    base_width = 0.09 if path_length < 2 else 0.07
+                    base_height = 0.04 if path_length < 2 else 0.03
+
+                    # Get morphology
+                    node_type = G.nodes[node_id].get('morphology', 'healthy')
+                    
+                    # Different shape based on morphology type
+                    if node_type == 'divided':
+                        # Smaller divided cells
+                        base_width *= 0.5
+                        base_height *= 0.5
+                        width = base_width * bounce
+                        height = base_height * bounce
+                        
+                        pop = 1 + 0.1 * np.sin(2 * np.pi * min(phase / 10, 1))
+                        width *= pop
+                        height *= pop
+                        
+                        rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
+                                            boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
+                                            facecolor=colors[node_type], 
+                                            edgecolor='white', linewidth=1, zorder=2)
+                        ax.add_patch(rect)
+                        
+                        # No nucleoids
+                        
+                    elif node_type == 'elongated':
+                        # Elongation animation
+                        elongation = min(phase / 10, 1)
+                        width = base_width * (1 + 0.5 * elongation)
+                        height = base_height * (1 - 0.2 * elongation)
+                        
+                        rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
+                                            boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
+                                            facecolor=colors[node_type], 
+                                            edgecolor='white', linewidth=1, zorder=2)
+                        ax.add_patch(rect)
+                        
+                        # No nucleoids
+                        
+                    elif node_type == 'deformed':
+                        # Wobbling deformed cells
+                        wobble = 0.05 * np.sin(2 * np.pi * phase / 20)
+                        width = base_width * (1 + wobble)
+                        height = base_height * (1 - wobble)
+                        
+                        path = create_star_shape(x, y, width, height, wobble)
+                        rect = PathPatch(path, facecolor=colors[node_type], 
                                         edgecolor='white', linewidth=1, zorder=2)
-                    ax.add_patch(rect)
-                    
-                    # No nucleoids
+                        ax.add_patch(rect)
+                        
+                        # No nucleoids
+                            
+                    else:  # Default healthy cells
+                        # Pulsing healthy cells
+                        pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)
+                        width = base_width * pulse * bounce
+                        height = base_height * pulse * bounce
+                        
+                        rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
+                                            boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
+                                            facecolor=colors['healthy'], 
+                                            edgecolor='white', linewidth=1, zorder=2)
+                        ax.add_patch(rect)
+                        
+                        # No nucleoids
 
-                # Add cell ID text
-                label_y = y + (0.03 if path_length < 2 else 0.025)
-                label_fontsize = 10 if path_length < 2 else 8
-                label = ax.text(x, label_y, f"ID:{node}", ha='center', va='center', 
-                            fontsize=label_fontsize, zorder=4, color='white', fontweight='bold')
-                label.set_alpha(min(phase / 10, 1))  # Fade in effect
+                    # Add cell ID text
+                    label_y = y + (0.03 if path_length < 2 else 0.025)
+                    label_fontsize = 10 if path_length < 2 else 8
+                    label = ax.text(x, label_y, f"ID:{node_id}", ha='center', va='center', 
+                                fontsize=label_fontsize, zorder=4, color='white', fontweight='bold')
+                    label.set_alpha(min(phase / 10, 1))  # Fade in effect
 
-            canvas.draw()
-            canvas.flush_events()
-            from PySide6.QtWidgets import QApplication
-            QApplication.processEvents()
-
-        # Animation setup
-        ani = FuncAnimation(fig, update, frames=120, interval=200, blit=False)
-
-        # Dynamic adjustment to ensure all cells are visible
-        def adjust_view():
-            # Get current axis limits
-            x_min, x_max = ax.get_xlim()
-            y_min, y_max = ax.get_ylim()
-            
-            # Get all artist positions to determine actual bounds
+            # Dynamic adjustment to ensure all cells are visible (moved from adjust_view)
             all_positions = []
             for artist in ax.patches:
                 if isinstance(artist, FancyBboxPatch):
@@ -1428,6 +1472,12 @@ class App(QMainWindow):
                     for vertex in vertices:
                         all_positions.append(vertex)
             
+            # Include text positions (for labels)
+            for artist in ax.texts:
+                if artist != title:
+                    x, y = artist.get_position()
+                    all_positions.append((x, y))
+
             if all_positions:
                 # Determine actual bounds of all content
                 min_x = min(p[0] for p in all_positions)
@@ -1445,18 +1495,20 @@ class App(QMainWindow):
                 # Update limits
                 ax.set_xlim(min_x, max_x)
                 ax.set_ylim(min_y, max_y)
-        
+
+            canvas.draw()
+            canvas.flush_events()
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+
+        # Animation setup
+        ani = FuncAnimation(fig, update, frames=120, interval=200, blit=False)
+
         # Final setup
         ax.axis('off')
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         
-        # Add callback to adjust view after first draw
-        def on_first_draw(event):
-            adjust_view()
-            canvas.mpl_disconnect(cid)
-        
-        cid = canvas.mpl_connect('draw_event', on_first_draw)
         canvas.draw()
 
         # Store animation reference
