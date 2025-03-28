@@ -16,4 +16,5 @@ if __name__ == '__main__':
     app.setApplicationName('Partaker')
     tabWidgetApp = App()
     tabWidgetApp.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec()
+)

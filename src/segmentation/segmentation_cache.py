@@ -7,14 +7,13 @@ import h5py
 import numpy as np
 
 from .segmentation_models import SegmentationModels
-
+# from .losses import pixelwise_weighted_binary_crossentropy_seg
 
 class SegmentationCache:
     def __init__(self, nd2_data):
         self.nd2_data = nd2_data
         self.mmap_arrays_idx = {}
         self.model_name = None
-        self.seg = SegmentationModels()
 
     def with_model(self, model_name):
         self.model_name = model_name
@@ -56,21 +55,6 @@ class SegmentationCache:
                     nd2_shape = self.nd2_data.shape
                     nd2_group.attrs['shape'] = json.dumps(nd2_shape)
 
-            # For the segmentation model, store the name or parameters
-            if hasattr(self.seg, 'get_state'):
-                # If seg has a get_state method, use it
-                seg_state = self.seg.get_state()
-                f.create_dataset(
-                    'seg_state', data=np.void(
-                        pickle.dumps(seg_state)))
-            elif hasattr(self.seg, '__dict__'):
-                # Fallback: try to pickle seg's dict
-                seg_dict = {k: v for k, v in self.seg.__dict__.items()
-                            if not k.startswith('_')}
-                f.create_dataset(
-                    'seg_dict', data=np.void(
-                        pickle.dumps(seg_dict)))
-
     @classmethod
     def load(cls, file_path, nd2_data=None):
         """Load cache state from an HDF5 file"""
@@ -91,18 +75,6 @@ class SegmentationCache:
                     index_list = [tuple(_index) for _index in index_list]
                     index_set = set(index_list)
                     cache.mmap_arrays_idx[model_name] = (array, index_set)
-
-            cache.seg = SegmentationModels()
-
-            # Load segmentation model state if available
-            if 'seg_state' in f:
-                seg_state = pickle.loads(f['seg_state'][()])
-                if hasattr(cache.seg, 'set_state'):
-                    cache.seg.set_state(seg_state)
-            elif 'seg_dict' in f:
-                seg_dict = pickle.loads(f['seg_dict'][()])
-                for key, value in seg_dict.items():
-                    setattr(cache.seg, key, value)
 
         return cache
 
@@ -287,7 +259,7 @@ class SegmentationCache:
 
         try:
             frame = self.nd2_data[idx].compute()
-            segmented_frame = self.seg.segment_images(
+            segmented_frame = SegmentationModels().segment_images(
                 [frame], mode=self.model_name)[0]
 
             if hasattr(self, 'binary_mask') and self.binary_mask is not None:

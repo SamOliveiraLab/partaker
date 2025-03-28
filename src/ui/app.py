@@ -4155,6 +4155,24 @@ class App(QMainWindow):
                 rpu)
             combined_fluo.append(fluo)
             combined_timestamp.append(timestamp)
+        
+        # TEST: parallel
+        # import concurrent.futures
+
+        # # Process each selected position in parallel
+        # def process_position(p):
+        #     fluo, timestamp = analyze_fluorescence_singlecell(
+        #         self.image_data.segmentation_cache[t_s:t_e, p, 0], 
+        #         self.image_data.data[t_s:t_e, p, c], 
+        #         rpu)
+        #     return fluo, timestamp
+
+        # with concurrent.futures.ThreadPoolExecutor() as executor:
+        #     results = list(executor.map(process_position, selected_ps))
+
+        # # Combine results
+        # combined_fluo = [result[0] for result in results]
+        # combined_timestamp = [result[1] for result in results]
 
         # Handle combined_fluo as a list of lists
         all_fluo_data = []

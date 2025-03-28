@@ -125,9 +125,9 @@ def analyze_fluorescence_singlecell_sequential(
         if len(result) == 0:
             continue
 
-        plt.figure(figsize=(12, 10))
-        plt.hist(result, bins=100)
-        plt.show()
+        # plt.figure(figsize=(12, 10))
+        # plt.hist(result, bins=100)
+        # plt.show()
 
         timestamps.append(i)
         results.append(result)
