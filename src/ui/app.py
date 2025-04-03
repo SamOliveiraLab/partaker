@@ -624,7 +624,7 @@ class App(QMainWindow):
         self.motility_button = QPushButton("Analyze Cell Motility")
         self.motility_button.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold;")
-        self.motility_button.clicked.connect(self.analyze_motility)
+        self.motility_button.clicked.connect(self.analyze_cell_motility)
         tracking_buttons_layout.addWidget(self.motility_button)
 
         # Inner Tabs for Plots
@@ -633,7 +633,7 @@ class App(QMainWindow):
 
         self.plot_tabs.addTab(
             self.morphology_fractions_tab,
-            "Morphology Fractions")
+            "Morphology Fractions & Lineage Tracking")
         layout.addWidget(self.plot_tabs)
 
         # Plot for Morphology Fractions
@@ -1712,11 +1712,10 @@ class App(QMainWindow):
                 f"Failed to visualize lineage tree: {str(e)}"
             )
 
-    def analyze_motility(self):
+    def analyze_cell_motility(self):
         """
-        Analyze cell motility and display results with option to use all tracks or filtered tracks.
+        Analyze cell motility using the enhanced model and display visualizations.
         """
-        # Check if any tracking data is available
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
                 self,
@@ -1725,7 +1724,6 @@ class App(QMainWindow):
             return
 
         # Ask user which set of tracks to use - with custom button text
-        from PySide6.QtWidgets import QMessageBox
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Motility Analysis Options")
         msg_box.setText("Which tracks would you like to analyze?")
@@ -1758,93 +1756,252 @@ class App(QMainWindow):
                 self, "Error", f"No {track_type} tracks available.")
             return
 
-        # Import the motility analysis functions from tracking.py
-        from tracking import calculate_motility_index, plot_motility_gauge
-
-        # Calculate motility index and detailed metrics
-        motility_index, detailed_metrics = calculate_motility_index(
-            tracks_to_analyze)
-
-        # Store the results for later reference
-        self.motility_results = {
-            "motility_index": motility_index,
-            "detailed_metrics": detailed_metrics,
-            "track_type": track_type,
-            "environment_type": "MC"  # or "MCM" - you'll need to set this based on your data
-        }
-
-        # Create visualization
-        self.figure_morphology_fractions.clear()
-        fig = self.figure_morphology_fractions
-
-        # Create a 2x2 grid
-        grid = fig.add_gridspec(2, 2)
-
-        # 1. Display motility index with gauge-like visualization
-        ax1 = fig.add_subplot(grid[0, 0])
-        plot_motility_gauge(ax1, motility_index)
-
-        # 2. Histogram of displacements
-        ax2 = fig.add_subplot(grid[0, 1])
-        displacements = [m["net_displacement"]
-                         for m in detailed_metrics["individual_metrics"]]
-        ax2.hist(displacements, bins=10, color='skyblue', edgecolor='black')
-        ax2.set_title("Cell Displacements")
-        ax2.set_xlabel("Displacement (pixels)")
-        ax2.set_ylabel("Count")
-
-        # 3. Plot trajectories (similar to your current visualization)
-        ax3 = fig.add_subplot(grid[1, 0])
-        for track in tracks_to_analyze:
-            x_coords = track['x']
-            y_coords = track['y']
-            ax3.plot(x_coords, y_coords, marker='o', markersize=2, linewidth=1)
-
-            # Mark start and end points
-            if len(x_coords) > 0:
-                ax3.plot(x_coords[0], y_coords[0], 'o', markersize=5)
-                ax3.plot(x_coords[-1], y_coords[-1], 's', markersize=5)
-
-        ax3.set_title("Cell Trajectories")
-        ax3.set_xlabel("X Coordinate")
-        ax3.set_ylabel("Y Coordinate")
-
-        # 4. Motion metrics summary
-        ax4 = fig.add_subplot(grid[1, 1])
-        ax4.axis('off')
-
-        # Create a summary text
-        summary_text = (
-            f"Motility Analysis Summary\n\n"
-            f"Motility Index: {motility_index:.1f}\n\n"
-            f"Average Displacement: {detailed_metrics['average_displacement']:.1f} px\n"
-            f"Average Velocity: {detailed_metrics['average_velocity']:.2f} px/frame\n"
-            f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n"
-            f"Movement Directness: {1/detailed_metrics['average_tortuosity']:.2f}\n\n"
-            f"Population Variability:\n"
-            f"Displacement (cv): {detailed_metrics['cv_displacement']:.2f}\n"
-            f"Velocity (cv): {detailed_metrics['cv_velocity']:.2f}\n\n"
-            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks")
-
-        ax4.text(0.05, 0.95, summary_text, va='top', ha='left', fontsize=9)
-
-        fig.tight_layout()
-        self.canvas_morphology_fractions.draw()
-
-        # Show summary in a message box
-        QMessageBox.information(
-            self, "Motility Analysis", f"Motility Analysis Complete\n\n"
-            f"Motility Index: {motility_index:.1f}\n"
-            f"This index represents overall cell movement activity.\n"
-            f"Higher values indicate greater movement freedom.\n\n"
-            f"Average Displacement: {detailed_metrics['average_displacement']:.1f} pixels\n"
-            f"Average Velocity: {detailed_metrics['average_velocity']:.2f} pixels/frame\n"
-            f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n\n"
-            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks\n\n"
-            f"These metrics quantify cell movement behavior in the current environment.")
-
-        return motility_index, detailed_metrics, track_type
-
+        # Show progress dialog
+        progress = QProgressDialog(
+            "Analyzing cell motility...", "Cancel", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
+        
+        # Get chamber dimensions if available
+        chamber_dimensions = None
+        try:
+            if hasattr(self, "image_data") and hasattr(self.image_data, "data"):
+                # Try to get dimensions from actual image shape
+                if self.image_data.is_nd2:
+                    # For ND2 files, the dimensions might be organized differently
+                    if len(self.image_data.data.shape) >= 4:
+                        # For 4D+ data (T, P, C, H, W)
+                        height = self.image_data.data.shape[-2]
+                        width = self.image_data.data.shape[-1]
+                        chamber_dimensions = (width, height)
+                else:
+                    # For other image types
+                    height, width = self.image_data.data.shape[1:3]
+                    chamber_dimensions = (width, height)
+                
+                # Validate dimensions (make sure they're reasonable)
+                if chamber_dimensions and (chamber_dimensions[0] < 10 or chamber_dimensions[1] < 10):
+                    print(f"Invalid chamber dimensions: {chamber_dimensions}, using defaults")
+                    chamber_dimensions = (1392, 1040)  # Default dimensions
+                else:
+                    print(f"Using chamber dimensions: {chamber_dimensions}")
+            else:
+                # Use default dimensions
+                chamber_dimensions = (1392, 1040)  # Default dimensions from your code
+                print(f"Using default chamber dimensions: {chamber_dimensions}")
+        except Exception as e:
+            print(f"Error determining chamber dimensions: {e}")
+            chamber_dimensions = (1392, 1040)  # Default dimensions
+        
+        try:
+            # First step: Calculate enhanced motility metrics
+            progress.setValue(10)
+            progress.setLabelText("Calculating motility metrics...")
+            QApplication.processEvents()
+            
+            from tracking import enhanced_motility_index, visualize_motility_map, visualize_motility_metrics, analyze_motility_by_region
+            
+            motility_metrics = enhanced_motility_index(tracks_to_analyze, chamber_dimensions)
+            
+            progress.setValue(40)
+            progress.setLabelText("Creating motility visualizations...")
+            QApplication.processEvents()
+            
+            # Create a dialog to display results
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Cell Motility Analysis")
+            dialog.setMinimumWidth(1200)
+            dialog.setMinimumHeight(800)
+            layout = QVBoxLayout(dialog)
+            
+            # Create a tab widget to show different visualizations
+            tab_widget = QTabWidget()
+            
+            # Tab 1: Motility Map
+            map_tab = QWidget()
+            map_layout = QVBoxLayout(map_tab)
+            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+            
+            # Generate motility map figure
+            map_fig, _ = visualize_motility_map(tracks_to_analyze, chamber_dimensions, motility_metrics)
+            map_canvas = FigureCanvas(map_fig)
+            map_layout.addWidget(map_canvas)
+            
+            # Tab 2: Detailed Metrics
+            metrics_tab = QWidget()
+            metrics_layout = QVBoxLayout(metrics_tab)
+            
+            # Generate metrics visualization
+            metrics_fig = visualize_motility_metrics(motility_metrics)
+            metrics_canvas = FigureCanvas(metrics_fig)
+            metrics_layout.addWidget(metrics_canvas)
+            
+            # Tab 3: Regional Analysis
+            region_tab = QWidget()
+            region_layout = QVBoxLayout(region_tab)
+            
+            # Generate regional analysis if chamber dimensions are available
+            if chamber_dimensions:
+                progress.setValue(70)
+                progress.setLabelText("Analyzing regional variations...")
+                QApplication.processEvents()
+                
+                regional_analysis, region_fig = analyze_motility_by_region(
+                    tracks_to_analyze, chamber_dimensions, motility_metrics)
+                
+                region_canvas = FigureCanvas(region_fig)
+                region_layout.addWidget(region_canvas)
+            else:
+                # If no chamber dimensions, show a message
+                region_label = QLabel("Chamber dimensions not available for regional analysis.")
+                region_label.setAlignment(Qt.AlignCenter)
+                region_layout.addWidget(region_label)
+            
+            # Add tabs to tab widget
+            tab_widget.addTab(map_tab, "Motility Map")
+            tab_widget.addTab(metrics_tab, "Detailed Metrics")
+            tab_widget.addTab(region_tab, "Regional Analysis")
+            
+            # Add summary at the top
+            summary_text = (
+                f"<h3>Motility Analysis Summary</h3>"
+                f"<p><b>Population Average Motility Index:</b> {motility_metrics['population_avg_motility']:.1f}/100</p>"
+                f"<p><b>Motility Heterogeneity:</b> {motility_metrics['population_heterogeneity']:.2f}</p>"
+                f"<p><b>Sample Size:</b> {motility_metrics['sample_size']} cells</p>"
+                f"<p>Analysis based on {track_type} tracks.</p>"
+            )
+            summary_label = QLabel(summary_text)
+            summary_label.setTextFormat(Qt.RichText)
+            summary_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(summary_label)
+            
+            # Add tab widget to layout
+            layout.addWidget(tab_widget)
+            
+            # Add buttons at the bottom
+            button_layout = QHBoxLayout()
+            export_button = QPushButton("Export Results")
+            close_button = QPushButton("Close")
+            button_layout.addWidget(export_button)
+            button_layout.addWidget(close_button)
+            layout.addLayout(button_layout)
+            
+            # Define export function
+            def export_results():
+                export_dialog = QDialog(dialog)
+                export_dialog.setWindowTitle("Export Options")
+                export_layout = QVBoxLayout(export_dialog)
+                
+                export_label = QLabel("Select export options:")
+                export_layout.addWidget(export_label)
+                
+                # Checkboxes for different exports
+                export_map = QCheckBox("Export Motility Map")
+                export_map.setChecked(True)
+                export_layout.addWidget(export_map)
+                
+                export_metrics = QCheckBox("Export Detailed Metrics Plot")
+                export_metrics.setChecked(True)
+                export_layout.addWidget(export_metrics)
+                
+                export_regional = QCheckBox("Export Regional Analysis")
+                export_regional.setChecked(chamber_dimensions is not None)
+                export_regional.setEnabled(chamber_dimensions is not None)
+                export_layout.addWidget(export_regional)
+                
+                export_csv = QCheckBox("Export Metrics as CSV")
+                export_csv.setChecked(True)
+                export_layout.addWidget(export_csv)
+                
+                # Add buttons
+                export_buttons = QDialogButtonBox(
+                    QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                export_buttons.accepted.connect(export_dialog.accept)
+                export_buttons.rejected.connect(export_dialog.reject)
+                export_layout.addWidget(export_buttons)
+                
+                # Show dialog
+                if export_dialog.exec() == QDialog.Accepted:
+                    # Get save path
+                    save_path, _ = QFileDialog.getSaveFileName(
+                        export_dialog, "Save Results", "", "All Files (*)")
+                    
+                    if save_path:
+                        # Remove extension if present
+                        base_path = save_path.replace(".png", "").replace(".csv", "")
+                        
+                        # Export selected items
+                        if export_map.isChecked():
+                            map_fig.savefig(f"{base_path}_motility_map.png", dpi=300, bbox_inches='tight')
+                        
+                        if export_metrics.isChecked():
+                            metrics_fig.savefig(f"{base_path}_detailed_metrics.png", dpi=300, bbox_inches='tight')
+                        
+                        if export_regional.isChecked() and chamber_dimensions:
+                            region_fig.savefig(f"{base_path}_regional_analysis.png", dpi=300, bbox_inches='tight')
+                        
+                        if export_csv.isChecked():
+                            import pandas as pd
+                            # Convert individual metrics to DataFrame
+                            metrics_df = pd.DataFrame(motility_metrics['individual_metrics'])
+                            metrics_df.to_csv(f"{base_path}_motility_metrics.csv", index=False)
+                        
+                        QMessageBox.information(
+                            export_dialog, "Export Complete", 
+                            f"Results exported to {base_path}_*.png/csv")
+            
+            # Connect buttons
+            export_button.clicked.connect(export_results)
+            close_button.clicked.connect(dialog.close)
+            
+            progress.setValue(100)
+            progress.close()
+            
+            # Store the results for later reference
+            self.motility_results = {
+                "motility_metrics": motility_metrics,
+                "track_type": track_type
+            }
+            
+            # Update the plot in the main UI to show motility map
+            self.figure_morphology_fractions.clear()
+            ax = self.figure_morphology_fractions.add_subplot(111)
+            
+            # Create a simpler version of the motility map
+            for track in tracks_to_analyze:
+                track_id = track.get('ID', -1)
+                # Find the motility index for this track
+                metric = next((m for m in motility_metrics['individual_metrics'] 
+                            if m['track_id'] == track_id), None)
+                
+                if metric:
+                    mi = metric['motility_index']
+                    # Use a colormap from blue (low) to red (high)
+                    color = plt.cm.coolwarm(mi/100)
+                    ax.plot(track['x'], track['y'], '-', color=color, linewidth=1, alpha=0.7)
+            
+            ax.set_title(f"Cell Motility Map (Population Avg: {motility_metrics['population_avg_motility']:.1f})")
+            ax.set_xlabel("X Coordinate")
+            ax.set_ylabel("Y Coordinate")
+            
+            # Add a colorbar
+            sm = plt.cm.ScalarMappable(cmap=plt.cm.coolwarm, norm=plt.Normalize(0, 100))
+            sm.set_array([])
+            cbar = plt.colorbar(sm, ax=ax)
+            cbar.set_label("Motility Index")
+            
+            self.canvas_morphology_fractions.draw()
+            
+            # Show the dialog
+            dialog.exec_()
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            progress.close()
+            QMessageBox.warning(self, "Analysis Error", f"Error analyzing motility: {str(e)}")
+    
+    
     def process_morphology_time_series(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
