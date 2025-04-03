@@ -40,6 +40,7 @@ from .roisel import PolygonROISelector
 from .about import AboutDialog
 from lineage_visualization import LineageVisualization
 
+
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
     finished = Signal(object)  # Finished with results
@@ -137,8 +138,9 @@ class App(QMainWindow):
             key: (color[2] / 255, color[1] / 255, color[0] / 255)
             for key, color in self.morphology_colors.items()
         }
-        
-        self.lineage_visualizer = LineageVisualization(self.morphology_colors_rgb)
+
+        self.lineage_visualizer = LineageVisualization(
+            self.morphology_colors_rgb)
 
         # Initialize the processed_images list to store images for export
         self.processed_images = []
@@ -461,7 +463,8 @@ class App(QMainWindow):
                     colored_image[:, :, 0] = image_data  # Red channel
                 elif c == 2:  # YFP - yellow/green
                     colored_image[:, :, 1] = image_data  # Green channel
-                    colored_image[:, :, 0] = image_data  # Add red to make it yellow
+                    # Add red to make it yellow
+                    colored_image[:, :, 0] = image_data
                 image_data = colored_image
                 image_format = QImage.Format_RGB888
             else:
@@ -649,7 +652,6 @@ class App(QMainWindow):
         self.segment_button.clicked.connect(
             self.process_morphology_time_series)
 
-    
     def visualize_tracking(self, tracks):
         """
         Visualizes the tracked cells as trajectories over time.
@@ -890,13 +892,11 @@ class App(QMainWindow):
                 self,
                 "Tracking Error",
                 f"Failed to track cells with lineage: {str(e)}")
-            
-       
-    
+
     def show_timepoint_lineage_comparison(self):
         """
         Display both time zero and time last lineage trees side by side for comparison.
-        Uses cartoony bacterial cell visualization with proper morphology colors.
+        Uses consistent morphology classification for accurate comparison.
         """
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
@@ -915,123 +915,142 @@ class App(QMainWindow):
         # Cell selection options
         selection_layout = QHBoxLayout()
         option_group = QButtonGroup(dialog)
-        
+
         top_radio = QRadioButton("Top Largest Lineage Tree")
         top_radio.setChecked(True)
         option_group.addButton(top_radio)
         selection_layout.addWidget(top_radio)
-        
+
         cell_radio = QRadioButton("Specific Cell Lineage:")
         option_group.addButton(cell_radio)
         selection_layout.addWidget(cell_radio)
-        
+
         cell_combo = QComboBox()
         cell_combo.setEnabled(False)
         selection_layout.addWidget(cell_combo)
-        
+
         # Find dividing cells for the combo box
-        dividing_cells = [track['ID'] for track in self.lineage_tracks if track.get('children', [])]
+        dividing_cells = [track['ID']
+                          for track in self.lineage_tracks if track.get('children', [])]
         dividing_cells.sort()
         for cell_id in dividing_cells:
             cell_combo.addItem(f"Cell {cell_id}")
-        
+
         # Enable/disable combo box based on radio selection
         def update_combo_state():
             cell_combo.setEnabled(cell_radio.isChecked())
-        
+
         top_radio.toggled.connect(update_combo_state)
         cell_radio.toggled.connect(update_combo_state)
-        
+
         layout.addLayout(selection_layout)
 
         # Create a horizontal layout for the two trees
         trees_layout = QHBoxLayout()
-        
+
         # Time zero tree
         time_zero_widget = QWidget()
         time_zero_layout = QVBoxLayout(time_zero_widget)
         time_zero_label = QLabel("Time Zero (First Appearance)")
         time_zero_label.setAlignment(Qt.AlignCenter)
         time_zero_layout.addWidget(time_zero_label)
-        
+
         from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
-        
+
         time_zero_figure = Figure(figsize=(5, 8), tight_layout=True)
         time_zero_canvas = FigureCanvas(time_zero_figure)
         time_zero_layout.addWidget(time_zero_canvas)
-        
+
         # Time last tree
         time_last_widget = QWidget()
         time_last_layout = QVBoxLayout(time_last_widget)
         time_last_label = QLabel("Time Last (Before Division)")
         time_last_label.setAlignment(Qt.AlignCenter)
         time_last_layout.addWidget(time_last_label)
-        
+
         time_last_figure = Figure(figsize=(5, 8), tight_layout=True)
         time_last_canvas = FigureCanvas(time_last_figure)
         time_last_layout.addWidget(time_last_canvas)
-        
+
         # Add widgets to the trees layout
         trees_layout.addWidget(time_zero_widget)
         trees_layout.addWidget(time_last_widget)
-        
+
         # Add trees layout to main layout
         layout.addLayout(trees_layout)
-        
-        # Add metrics display
-        metrics_label = QLabel("Diversity Metrics")
-        metrics_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(metrics_label)
-        
+
         # Create navigation area for previous/next tree
         nav_layout = QHBoxLayout()
         prev_button = QPushButton("Previous Tree")
         tree_counter_label = QLabel("Tree 1/1")
         tree_counter_label.setAlignment(Qt.AlignCenter)
         next_button = QPushButton("Next Tree")
-        
+
         nav_layout.addWidget(prev_button)
         nav_layout.addWidget(tree_counter_label)
         nav_layout.addWidget(next_button)
         layout.addLayout(nav_layout)
-        
+
         # Buttons
         button_layout = QHBoxLayout()
         view_button = QPushButton("Generate Visualization")
         save_button = QPushButton("Save Images")
         close_button = QPushButton("Close")
-        
+
         button_layout.addWidget(view_button)
         button_layout.addWidget(save_button)
         button_layout.addWidget(close_button)
-        
+
+        # Add export button to the buttons layout
+        export_data_button = QPushButton("Export Classification Data")
+        export_data_button.clicked.connect(
+            lambda: self.lineage_visualizer.export_morphology_classifications(dialog))
+        button_layout.addWidget(export_data_button)
+
         layout.addLayout(button_layout)
-        
+
         # Store state for tree navigation
         current_tree_index = [0]  # Using a list for mutable reference
         available_trees = []      # Will store tree components
-        
+
         # Function to generate the visualizations
         def generate_visualizations():
             # Get selected cell ID if applicable
             selected_cell = None
             if cell_radio.isChecked() and cell_combo.currentText():
-                selected_cell = int(cell_combo.currentText().replace("Cell ", ""))
+                selected_cell = int(
+                    cell_combo.currentText().replace("Cell ", ""))
                 current_tree_index[0] = 0  # Reset index for specific cell
-                
+
             # Show progress while generating
-            progress = QProgressDialog("Generating visualizations...", "Cancel", 0, 100, dialog)
+            progress = QProgressDialog(
+                "Generating visualizations...", "Cancel", 0, 100, dialog)
             progress.setWindowModality(Qt.WindowModal)
+            progress.setValue(0)
             progress.show()
-            
+            QApplication.processEvents()
+
             try:
+                # First, precompute all morphology classifications
+                progress.setLabelText(
+                    "Precomputing morphology classifications...")
+                progress.setValue(10)
+                QApplication.processEvents()
+
+                # Precompute morphology for consistent classification
+                self.lineage_visualizer.precompute_morphology_classifications(
+                    self.lineage_tracks)
+
+                progress.setValue(30)
+                QApplication.processEvents()
+
                 # If using top trees mode, find all connected components
                 if top_radio.isChecked():
                     # Create a graph to find connected components
                     import networkx as nx
                     G = nx.DiGraph()
-                    
+
                     # Add nodes and edges
                     for track in self.lineage_tracks:
                         track_id = track['ID']
@@ -1039,43 +1058,48 @@ class App(QMainWindow):
                         if 'children' in track and track['children']:
                             for child_id in track['children']:
                                 G.add_edge(track_id, child_id)
-                    
+
                     # Find all connected components
                     components = list(nx.weakly_connected_components(G))
                     # Sort by size (largest first)
                     available_trees.clear()
-                    available_trees.extend(sorted(components, key=len, reverse=True)[:5])  # Top 5 largest
-                    
+                    available_trees.extend(sorted(components, key=len, reverse=True)[
+                                           :5])  # Top 5 largest
+
                     # Make sure current index is valid
                     if not available_trees:
-                        QMessageBox.warning(dialog, "Error", "No valid lineage trees found")
+                        QMessageBox.warning(
+                            dialog, "Error", "No valid lineage trees found")
                         progress.close()
                         return
-                        
+
                     if current_tree_index[0] >= len(available_trees):
                         current_tree_index[0] = 0
-                    
+
                     # Get root of current tree for visualization
                     tree_nodes = list(available_trees[current_tree_index[0]])
-                    
+
                     # Find the root node of this tree (node with no parent in this tree)
                     root_candidates = []
                     for node in tree_nodes:
                         is_root = True
                         for track in self.lineage_tracks:
                             if 'children' in track and node in track['children']:
-                                if track['ID'] in tree_nodes:  # Only consider parents in same tree
+                                # Only consider parents in same tree
+                                if track['ID'] in tree_nodes:
                                     is_root = False
                                     break
                         if is_root:
                             root_candidates.append(node)
-                    
+
                     # Use first root found or smallest ID if no clear root
-                    root_cell_id = root_candidates[0] if root_candidates else min(tree_nodes)
-                    
+                    root_cell_id = root_candidates[0] if root_candidates else min(
+                        tree_nodes)
+
                     # Update tree counter
-                    tree_counter_label.setText(f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
-                    
+                    tree_counter_label.setText(
+                        f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
+
                     # Enable navigation buttons if we have multiple trees
                     prev_button.setEnabled(len(available_trees) > 1)
                     next_button.setEnabled(len(available_trees) > 1)
@@ -1086,65 +1110,63 @@ class App(QMainWindow):
                     prev_button.setEnabled(False)
                     next_button.setEnabled(False)
                     tree_counter_label.setText("Custom Tree")
-                
+
                 # Generate time zero tree with cartoony style
-                progress.setValue(20)
+                progress.setLabelText("Generating Time Zero visualization...")
+                progress.setValue(50)
                 QApplication.processEvents()
-                print(f"Generating cartoony Time Zero tree for root cell {root_cell_id}...")
+
                 self.lineage_visualizer.create_cartoony_lineage_comparison(
-                    self.lineage_tracks, time_zero_canvas, 
+                    self.lineage_tracks, time_zero_canvas,
                     root_cell_id=root_cell_id, time_point="first")
-                
+
                 # Generate time last tree with cartoony style
-                progress.setValue(60)
+                progress.setLabelText("Generating Time Last visualization...")
+                progress.setValue(70)
                 QApplication.processEvents()
-                print(f"Generating cartoony Time Last tree for root cell {root_cell_id}...")
+
                 self.lineage_visualizer.create_cartoony_lineage_comparison(
-                    self.lineage_tracks, time_last_canvas, 
+                    self.lineage_tracks, time_last_canvas,
                     root_cell_id=root_cell_id, time_point="last")
-                
+
                 # Calculate diversity metrics
+                progress.setLabelText("Calculating diversity metrics...")
                 progress.setValue(90)
                 QApplication.processEvents()
-                metrics = self.lineage_visualizer.calculate_diversity_metrics(self.lineage_tracks)
-                
-                # Update metrics display
-                metrics_text = (
-                    f"<b>Diversity Metrics:</b><br>"
-                    f"Internal Diversity: {metrics['internal_diversity']:.2f} "
-                    f"({metrics['internal_changes']}/{metrics['total_cells_with_data']} cells changed)<br>"
-                    f"Generational Robustness: {metrics['robustness']:.2f} "
-                    f"({metrics['generational_matches']}/{metrics['total_parent_child_pairs']} parent-child pairs matched)"
-                )
-                metrics_label.setText(metrics_text)
-                
+
+                metrics = self.lineage_visualizer.calculate_diversity_metrics(
+                    self.lineage_tracks)
+
                 progress.setValue(100)
-                
+
             except Exception as e:
-                QMessageBox.warning(dialog, "Error", f"Error generating visualization: {str(e)}")
+                QMessageBox.warning(
+                    dialog, "Error", f"Error generating visualization: {str(e)}")
                 print(f"Visualization error: {e}")
                 import traceback
                 traceback.print_exc()
             finally:
                 progress.close()
-        
+
         # Navigation functions
         def go_to_next_tree():
             if not available_trees or len(available_trees) <= 1:
                 return
-                
+
             # Move to next tree
-            current_tree_index[0] = (current_tree_index[0] + 1) % len(available_trees)
+            current_tree_index[0] = (
+                current_tree_index[0] + 1) % len(available_trees)
             generate_visualizations()
-        
+
         def go_to_previous_tree():
             if not available_trees or len(available_trees) <= 1:
                 return
-                
+
             # Move to previous tree
-            current_tree_index[0] = (current_tree_index[0] - 1) % len(available_trees)
+            current_tree_index[0] = (
+                current_tree_index[0] - 1) % len(available_trees)
             generate_visualizations()
-        
+
         # Function to save images
         def save_images():
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1152,36 +1174,41 @@ class App(QMainWindow):
             if save_path:
                 # Extract base path without extension
                 base_path = save_path.replace(".png", "")
-                
+
                 # Get current tree info for filename
-                tree_info = f"tree{current_tree_index[0]+1}" if top_radio.isChecked() else f"cell{selected_cell}"
-                
+                tree_info = ""
+                if top_radio.isChecked():
+                    tree_info = f"tree{current_tree_index[0]+1}"
+                else:
+                    tree_info = f"cell{cell_combo.currentText().replace('Cell ', '')}"
+
                 # Save time zero tree
                 time_zero_path = f"{base_path}_{tree_info}_time_zero.png"
-                time_zero_figure.savefig(time_zero_path, dpi=300, bbox_inches='tight')
-                
+                time_zero_figure.savefig(
+                    time_zero_path, dpi=300, bbox_inches='tight')
+
                 # Save time last tree
                 time_last_path = f"{base_path}_{tree_info}_time_last.png"
-                time_last_figure.savefig(time_last_path, dpi=300, bbox_inches='tight')
-                
+                time_last_figure.savefig(
+                    time_last_path, dpi=300, bbox_inches='tight')
+
                 QMessageBox.information(
-                    dialog, "Save Complete", 
+                    dialog, "Save Complete",
                     f"Images saved as:\n{time_zero_path}\n{time_last_path}")
-        
+
         # Connect button signals
         view_button.clicked.connect(generate_visualizations)
         save_button.clicked.connect(save_images)
         close_button.clicked.connect(dialog.close)
         prev_button.clicked.connect(go_to_previous_tree)
         next_button.clicked.connect(go_to_next_tree)
-        
+
         # Initial generation
         generate_visualizations()
-        
+
         # Show the dialog
         dialog.exec_()
-    
-    
+
     def show_lineage_dialog(self):
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
@@ -1244,18 +1271,19 @@ class App(QMainWindow):
         nav_layout = QHBoxLayout()
         prev_button = QPushButton("Previous Tree")
         next_button = QPushButton("Next Tree")
-        
+
         # Add a label to show current tree number
         tree_counter_label = QLabel("Tree 1/1")
         tree_counter_label.setAlignment(Qt.AlignCenter)
-        
+
         nav_layout.addWidget(prev_button)
         nav_layout.addWidget(tree_counter_label)
         nav_layout.addWidget(next_button)
         layout.addLayout(nav_layout)
 
         # Add variables to track current tree index and available trees
-        current_tree_index = [0]  # Use list to allow modification inside closures
+        # Use list to allow modification inside closures
+        current_tree_index = [0]
         available_trees = []  # Will store the list of trees
 
         # Original buttons
@@ -1266,12 +1294,13 @@ class App(QMainWindow):
         button_layout.addWidget(view_button)
         button_layout.addWidget(save_button)
         button_layout.addWidget(close_button)
-        
+
         # Add this button to your existing lineage dialog
         comparison_button = QPushButton("Compare Time Zero vs Time Last")
-        comparison_button.clicked.connect(self.show_timepoint_lineage_comparison)
+        comparison_button.clicked.connect(
+            self.show_timepoint_lineage_comparison)
         button_layout.addWidget(comparison_button)
-        
+
         layout.addLayout(button_layout)
 
         def create_visualization():
@@ -1279,37 +1308,39 @@ class App(QMainWindow):
             if cell_radio.isChecked() and cell_combo.currentText():
                 selected_cell = int(
                     cell_combo.currentText().replace("Cell ", ""))
-                current_tree_index[0] = 0  # Reset index when showing specific cell
-                
+                # Reset index when showing specific cell
+                current_tree_index[0] = 0
+
             # Handle tree identification - this is common code for both visualization types
             if top_radio.isChecked():
                 # Get all trees by analyzing connected components
                 import networkx as nx
                 G = nx.DiGraph()
-                
+
                 # Build the graph
                 for track in self.lineage_tracks:
                     G.add_node(track['ID'])
                     if 'children' in track and track['children']:
                         for child_id in track['children']:
                             G.add_edge(track['ID'], child_id)
-                
+
                 # Find connected components (these are our trees)
                 connected_components = list(nx.weakly_connected_components(G))
                 # Sort by size (largest first)
                 available_trees.clear()
-                available_trees.extend(sorted(connected_components, key=len, reverse=True)[:5])
-                
+                available_trees.extend(
+                    sorted(connected_components, key=len, reverse=True)[:5])
+
                 # Make sure current index is valid
                 if not available_trees:
                     current_tree_index[0] = 0
                 elif current_tree_index[0] >= len(available_trees):
                     current_tree_index[0] = 0
-                
+
                 # Get root of current tree
                 if available_trees:
                     tree_nodes = list(available_trees[current_tree_index[0]])
-                    
+
                     # Find root nodes (no parents in this tree)
                     root_candidates = []
                     for node in tree_nodes:
@@ -1320,28 +1351,29 @@ class App(QMainWindow):
                                 break
                         if is_root:
                             root_candidates.append(node)
-                    
+
                     # If no clear root, use the earliest appearing cell (lowest ID typically)
                     if root_candidates:
                         root_cell_id = min(root_candidates)
                     else:
                         root_cell_id = min(tree_nodes)
-                        
+
                     # Update counter display
-                    tree_counter_label.setText(f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
+                    tree_counter_label.setText(
+                        f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
                 else:
                     root_cell_id = None
                     tree_counter_label.setText("Tree 0/0")
-                    
+
                 # Enable/disable navigation buttons
                 prev_button.setEnabled(len(available_trees) > 1)
                 next_button.setEnabled(len(available_trees) > 1)
             else:
                 # Specific cell mode
                 root_cell_id = selected_cell
-                available_trees.clear() 
+                available_trees.clear()
                 tree_counter_label.setText("Cell Lineage")
-                
+
                 # Disable navigation buttons in cell-specific mode
                 prev_button.setEnabled(False)
                 next_button.setEnabled(False)
@@ -1353,29 +1385,32 @@ class App(QMainWindow):
                     self.lineage_tracks, canvas, root_cell_id)
             else:
                 # Use the standard visualization with the selected root
-                self.lineage_visualizer.create_lineage_tree(self.lineage_tracks, canvas, root_cell_id=root_cell_id)
+                self.lineage_visualizer.create_lineage_tree(
+                    self.lineage_tracks, canvas, root_cell_id=root_cell_id)
 
         def go_to_next_tree():
             if not available_trees or len(available_trees) <= 1:
                 return
-                
+
             # Move to next tree
-            current_tree_index[0] = (current_tree_index[0] + 1) % len(available_trees)
-            
+            current_tree_index[0] = (
+                current_tree_index[0] + 1) % len(available_trees)
+
             # Show activity indicator
             QApplication.setOverrideCursor(Qt.WaitCursor)
             try:
                 create_visualization()
             finally:
                 QApplication.restoreOverrideCursor()
-        
+
         def go_to_previous_tree():
             if not available_trees or len(available_trees) <= 1:
                 return
-                
+
             # Move to previous tree
-            current_tree_index[0] = (current_tree_index[0] - 1) % len(available_trees)
-            
+            current_tree_index[0] = (
+                current_tree_index[0] - 1) % len(available_trees)
+
             # Show activity indicator
             QApplication.setOverrideCursor(Qt.WaitCursor)
             try:
@@ -1391,14 +1426,14 @@ class App(QMainWindow):
                 figure.savefig(output_path, dpi=300, bbox_inches='tight')
                 QMessageBox.information(
                     dialog, "Success", f"Lineage tree saved to {output_path}")
-                    
+
         def maximize_dialog():
             """Toggle between normal and maximized window state"""
             if dialog.isMaximized():
                 dialog.showNormal()
             else:
                 dialog.showMaximized()
-        
+
         # Add a maximize button
         maximize_button = QPushButton("Maximize Window")
         maximize_button.clicked.connect(maximize_dialog)
@@ -1409,7 +1444,7 @@ class App(QMainWindow):
         save_button.clicked.connect(save_visualization)
         close_button.clicked.connect(dialog.close)
         viz_type.currentIndexChanged.connect(create_visualization)
-        
+
         # Connect navigation buttons
         next_button.clicked.connect(go_to_next_tree)
         prev_button.clicked.connect(go_to_previous_tree)
@@ -1417,7 +1452,7 @@ class App(QMainWindow):
         # Initial visualization
         create_visualization()
         dialog.exec_()
-    
+
     def visualize_lineage(self):
         """
         Visualize the lineage tree from tracking data, focusing on a single cell.
@@ -1664,7 +1699,6 @@ class App(QMainWindow):
             # Save if path provided
             if output_path:
                 plt.savefig(output_path, dpi=300, bbox_inches='tight')
-                print(f"Saved lineage tree to {output_path}")
 
             plt.tight_layout()
             plt.show()
@@ -1678,7 +1712,6 @@ class App(QMainWindow):
                 f"Failed to visualize lineage tree: {str(e)}"
             )
 
-    
     def analyze_motility(self):
         """
         Analyze cell motility and display results with option to use all tracks or filtered tracks.
@@ -1917,8 +1950,6 @@ class App(QMainWindow):
                     ).to_dict()
                     total_cells = len(metrics_df)
 
-                    # Print diagnostics for this frame
-                    print(f"Frame {t}: Total cells = {total_cells}")
                     for morph_class, count in class_counts.items():
                         print(
                             f"  {morph_class}: {count} cells ({count/total_cells*100:.1f}%)")
@@ -2229,8 +2260,6 @@ class App(QMainWindow):
 
         self.update_annotation_scatter()
 
-        print(f"[SUCCESS] Annotated image displayed for T={t}, P={p}, C={c}")
-
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
@@ -2403,7 +2432,6 @@ class App(QMainWindow):
             QFileDialog.ShowDirsOnly        # Option to show only directories
         )
         if folder_path:
-            print(f"Project will be saved to folder: {folder_path}")
             self.image_data.save(folder_path)
 
     def load_from_folder(self):
@@ -4243,20 +4271,20 @@ class App(QMainWindow):
         # Process each selected position
         for p in selected_ps:
             fluo, timestamp = analyze_fluorescence_singlecell(
-                self.image_data.segmentation_cache[t_s:t_e, p, 0], 
-                self.image_data.data[t_s:t_e, p, c], 
+                self.image_data.segmentation_cache[t_s:t_e, p, 0],
+                self.image_data.data[t_s:t_e, p, c],
                 rpu)
             combined_fluo.append(fluo)
             combined_timestamp.append(timestamp)
-        
+
         # TEST: parallel
         # import concurrent.futures
 
         # # Process each selected position in parallel
         # def process_position(p):
         #     fluo, timestamp = analyze_fluorescence_singlecell(
-        #         self.image_data.segmentation_cache[t_s:t_e, p, 0], 
-        #         self.image_data.data[t_s:t_e, p, c], 
+        #         self.image_data.segmentation_cache[t_s:t_e, p, 0],
+        #         self.image_data.data[t_s:t_e, p, c],
         #         rpu)
         #     return fluo, timestamp
 
@@ -4329,4 +4357,3 @@ class App(QMainWindow):
         ax.set_xlabel('T')
         ax.set_ylabel('Cell activity in RPUs')
         self.population_canvas.draw()
-
