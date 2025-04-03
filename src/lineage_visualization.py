@@ -1347,10 +1347,11 @@ class LineageVisualization:
         if progress_callback:
             progress_callback(100)
 
-    # Add this new method to lineage_visualization.py
-    def create_timepoint_lineage_tree(self, tracks, canvas, root_cell_id=None, time_point="last"):
+    
+    def create_cartoony_lineage_comparison(self, tracks, canvas, root_cell_id=None, time_point="last"):
         """
-        Create a lineage tree visualization showing cells at specific time points in their lifecycle.
+        Create a cartoony lineage tree visualization showing cells at specific time points with shapes
+        that better represent bacterial morphology.
         
         Parameters:
         -----------
@@ -1364,13 +1365,19 @@ class LineageVisualization:
             'first' to show cells at their first appearance time
             'last' to show cells right before division
         """
-        # Clear the existing figure
+        print(f"Creating cartoony {time_point} time point lineage tree...")
+        
+        # Clear the existing figure and stop any ongoing animations
         canvas.figure.clear()
+        if hasattr(self, 'current_animation') and self.current_animation:
+            self.current_animation.event_source.stop()
+            del self.current_animation
         
         # Create network graph
+        import networkx as nx
         G = nx.DiGraph()
         
-        # Add nodes with time-specific data
+        # Process tracks
         for track in tracks:
             track_id = track['ID']
             
@@ -1385,7 +1392,7 @@ class LineageVisualization:
                     
                 reference_time = track['t'][reference_time_idx]
                 
-                # Get morphology at the reference time if available
+                # Get morphology at the reference time
                 morphology = self.get_morphology_at_time(track, reference_time)
                 
                 # Add node with attributes
@@ -1400,121 +1407,300 @@ class LineageVisualization:
                     G.add_edge(track_id, child_id)
         
         # Filter based on root_cell_id if provided
-            if root_cell_id is not None:
-                descendants = set()
-
-                def get_descendants(node):
+        if root_cell_id is not None:
+            descendants = set()
+            def get_descendants(node):
+                if node in G.nodes():
                     descendants.add(node)
-                    if G.nodes[node]['divides']:
-                        for child in G.neighbors(node):
-                            get_descendants(child)
-                get_descendants(root_cell_id)
-                G = G.subgraph(descendants).copy()
-                print(
-                    f"Visualizing lineage tree for cell {root_cell_id} with {len(G.nodes())} nodes")
+                    for child in G.successors(node):
+                        get_descendants(child)
+            
+            get_descendants(root_cell_id)
+            G = G.subgraph(descendants).copy()
+            print(f"Filtered tree to root {root_cell_id} with {len(G.nodes())} descendants")
+        
+        # Create figure and axis
+        fig = canvas.figure
+        fig.set_size_inches(10, 8.5)
+        ax = fig.add_subplot(111)
+        fig.patch.set_facecolor('#333333')  # Dark background
+        ax.set_facecolor('#333333')
+        
+        # No title text in main plot - will use figure title instead
+        title = None
+        
+        # Define colors to match your second image
+        colors = {
+            'Healthy': '#b8e986',    # Green
+            'Divided': '#ffd700',    # Yellow
+            'Elongated': '#87cefa',  # Blue
+            'Deformed': '#ff6347'    # Red
+        }
+        
+        # Find root nodes
+        roots = [n for n in G.nodes() if G.in_degree(n) == 0]
+        if not roots:
+            print("No root node found, using minimum ID as root")
+            if G.nodes():
+                roots = [min(G.nodes())]
             else:
-                # Find connected components and take top 5
-                connected_components = list(nx.weakly_connected_components(G))
-                print(
-                    f"Found {len(connected_components)} separate lineage trees")
-                largest_components = sorted(
-                    connected_components, key=len, reverse=True)
-                top_components = largest_components[:min(
-                    5, len(largest_components))]
-                G = G.subgraph(set.union(*top_components)).copy()
-                print(f"Showing top {len(top_components)} lineage trees")
+                ax.text(0.5, 0.5, "No valid nodes in tree", ha='center', va='center', color='white')
+                ax.axis('off')
+                canvas.draw()
+                return G
+        
+        # Use hierarchical layout for the tree
+        pos = None
+        try:
+            # Try using graphviz for hierarchical layout
+            pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
+        except Exception as e:
+            print(f"Graphviz layout failed: {e}")
+            try:
+                # Try another graphviz method
+                pos = nx.drawing.nx_agraph.graphviz_layout(G, prog='dot')
+            except Exception as e:
+                print(f"Alternative graphviz layout failed: {e}")
+                
+                # If graphviz fails, create a custom hierarchical layout
+                print("Using custom hierarchical layout")
+                pos = {}
+                
+                # Create a levels dictionary
+                levels_dict = {}
+                def assign_levels(node, level=0):
+                    levels_dict[node] = level
+                    children = list(G.successors(node))
+                    for child in children:
+                        assign_levels(child, level + 1)
+                
+                # Assign levels to all nodes
+                for root in roots:
+                    assign_levels(root)
+                
+                # Get max level and group nodes by level
+                max_level = max(levels_dict.values()) if levels_dict else 0
+                nodes_by_level = {}
+                for node, level in levels_dict.items():
+                    if level not in nodes_by_level:
+                        nodes_by_level[level] = []
+                    nodes_by_level[level].append(node)
+                
+                # Assign positions based on levels
+                for level, nodes in nodes_by_level.items():
+                    y = 0.9 - (level / max(1.0, float(max_level)) * 0.8)  # Keep in [0.1, 0.9] range
+                    for i, node in enumerate(sorted(nodes)):
+                        x = 0.1 + (i + 0.5) / max(1.0, float(len(nodes))) * 0.8  # Keep in [0.1, 0.9] range
+                        pos[node] = (x, y)
+        
+        # Normalize and center positions for better visibility
+        if pos:
+            min_x = min(x for x, y in pos.values())
+            max_x = max(x for x, y in pos.values())
+            min_y = min(y for x, y in pos.values())
+            max_y = max(y for x, y in pos.values())
+            
+            x_range = max_x - min_x
+            y_range = max_y - min_y
+            
+            # Add padding
+            padding = 0.15
+            x_target_range = 1.0 - (2 * padding)
+            y_target_range = 1.0 - (2 * padding)
+            
+            if x_range > 0 and y_range > 0:
+                normalized_pos = {}
+                for node, (x, y) in pos.items():
+                    # Normalize to 0-1 range with padding
+                    norm_x = padding + ((x - min_x) / x_range) * x_target_range
+                    norm_y = padding + ((y - min_y) / y_range) * y_target_range
+                    normalized_pos[node] = (norm_x, norm_y)
+                pos = normalized_pos
+        
+        # Draw edges (lines) first
+        for parent, child in G.edges():
+            parent_pos = pos[parent]
+            child_pos = pos[child]
+            # Draw gray line
+            ax.plot([parent_pos[0], child_pos[0]], [parent_pos[1], child_pos[1]], 
+                    'gray', linewidth=2, zorder=1, alpha=0.7)
+        
+        # Initialize node objects dictionary
+        cell_objects = {}
+        from matplotlib.patches import Ellipse, FancyBboxPatch, PathPatch
+        from matplotlib.path import Path
+        import matplotlib.patches as mpatches
+        import numpy as np
+        
+        # Star shape function for deformed cells
+        def create_star_shape(x, y, width, height, wobble, num_spikes=8):
+            vertices = []
+            codes = []
+            angle_step = 2 * np.pi / (num_spikes * 2)
+            for i in range(num_spikes * 2):
+                angle = i * angle_step
+                radius = (width/2 + wobble * 0.005) if i % 2 == 0 else (width/2 - 0.01 - wobble * 0.005)
+                vert_radius = radius * (height/width)
+                vert_x = x + radius * np.cos(angle)
+                vert_y = y + vert_radius * np.sin(angle)
+                vertices.append((vert_x, vert_y))
+                codes.append(Path.MOVETO if i == 0 else Path.LINETO)
+            vertices.append(vertices[0])
+            codes.append(Path.CLOSEPOLY)
+            return Path(vertices, codes)
+        
+        # Draw nodes with cartoony bacterial shapes
+        for node_id in G.nodes():
+            x, y = pos[node_id]
+            node_type = G.nodes[node_id]['morphology']
+            
+            # Get node depth (distance from root)
+            try:
+                path_length = len(nx.shortest_path(G, roots[0], node_id)) - 1
+            except:
+                path_length = 0
+            
+            # Adjust size based on level (root nodes larger)
+            base_width = 0.09 if path_length < 2 else 0.07
+            base_height = 0.04 if path_length < 2 else 0.03
+            
+            # Different shape based on morphology type
+            if node_type == 'Divided':
+                # Smaller divided cells (yellow)
+                base_width *= 0.5
+                base_height *= 0.5
+                width = base_width
+                height = base_height
+                
+                rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
+                                    boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
+                                    facecolor=colors['Divided'], 
+                                    edgecolor='white', linewidth=1, zorder=2)
+                ax.add_patch(rect)
+                cell_objects[node_id] = rect
+                
+            elif node_type == 'Elongated':
+                # Elongated cells (blue)
+                width = base_width * 1.5  # More elongated
+                height = base_height * 0.8
+                
+                rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
+                                    boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
+                                    facecolor=colors['Elongated'], 
+                                    edgecolor='white', linewidth=1, zorder=2)
+                ax.add_patch(rect)
+                cell_objects[node_id] = rect
+                
+            elif node_type == 'Deformed':
+                # Irregular deformed cells (red)
+                wobble = 0.05
+                width = base_width * (1 + wobble)
+                height = base_height * (1 - wobble)
+                
+                path = create_star_shape(x, y, width, height, wobble)
+                rect = PathPatch(path, facecolor=colors['Deformed'], 
+                            edgecolor='white', linewidth=1, zorder=2)
+                ax.add_patch(rect)
+                cell_objects[node_id] = rect
+                
+            else:  # Default healthy cells (green)
+                width = base_width
+                height = base_height
+                
+                rect = FancyBboxPatch((x-width/2, y-height/2), width, height, 
+                                    boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
+                                    facecolor=colors['Healthy'], 
+                                    edgecolor='white', linewidth=1, zorder=2)
+                ax.add_patch(rect)
+                cell_objects[node_id] = rect
+                
+            # Add cell ID text
+            label_y = y + (0.03 if path_length < 2 else 0.025)
+            label_fontsize = 10 if path_length < 2 else 8
+            label = ax.text(x, label_y, f"ID:{node_id}", ha='center', va='center', 
+                        fontsize=label_fontsize, zorder=4, color='white', fontweight='bold')
 
-            # Add subplot
-            if root_cell_id is None and len(top_components) > 1:
-                axes = []
-                for i in range(len(top_components)):
-                    ax = canvas.figure.add_subplot(
-                        1, len(top_components), i + 1)
-                    axes.append(ax)
-            else:
-                ax = canvas.figure.add_subplot(111)
-                axes = [ax]
-
-            # Plot each component or single tree
-            if root_cell_id is None and len(top_components) > 1:
-                for i, component in enumerate(top_components):
-                    subgraph = G.subgraph(component)
-                    roots = [n for n in subgraph.nodes(
-                    ) if subgraph.in_degree(n) == 0]
-                    if not roots:
-                        axes[i].text(0.5, 0.5, "No root node",
-                                     ha='center', va='center')
-                        axes[i].axis('off')
-                        continue
-
-                    pos = self.hierarchy_pos(subgraph, roots[0])
-                    node_sizes = [100 + subgraph.nodes[n]
-                                  ['duration'] * 10 for n in subgraph.nodes()]
-                    node_colors = [
-                        'red' if subgraph.nodes[n]['divides'] else 'blue' for n in subgraph.nodes()]
-
-                    nx.draw_networkx_nodes(
-                        subgraph,
-                        pos,
-                        node_size=node_sizes,
-                        node_color=node_colors,
-                        alpha=0.8,
-                        ax=axes[i])
-                    nx.draw_networkx_edges(
-                        subgraph,
-                        pos,
-                        edge_color='black',
-                        arrows=True,
-                        arrowsize=15,
-                        ax=axes[i])
-                    nx.draw_networkx_labels(
-                        subgraph, pos, font_size=8, ax=axes[i])
-
-                    axes[i].set_title(f"Tree {i+1} ({len(component)} cells)")
-                    axes[i].axis('off')
-            else:
-                # Single tree (either specific cell or single component)
-                roots = [n for n in G.nodes() if G.in_degree(n) == 0]
-                if not roots:
-                    axes[0].text(0.5, 0.5, "No root node",
-                                 ha='center', va='center')
-                    axes[0].axis('off')
-                else:
-                    pos = self.hierarchy_pos(G, roots[0])
-                    node_sizes = [100 + G.nodes[n]
-                                  ['duration'] * 10 for n in G.nodes()]
-                    node_colors = ['red' if G.nodes[n]['divides'] else 'blue'
-                                   for n in G.nodes()]
-
-                    nx.draw_networkx_nodes(
-                        G,
-                        pos,
-                        node_size=node_sizes,
-                        node_color=node_colors,
-                        alpha=0.8,
-                        ax=axes[0])
-                    nx.draw_networkx_edges(
-                        G,
-                        pos,
-                        edge_color='black',
-                        arrows=True,
-                        arrowsize=15,
-                        ax=axes[0])
-                    nx.draw_networkx_labels(G, pos, font_size=8, ax=axes[0])
-
-                    title = f"Lineage Tree for Cell {root_cell_id}" if root_cell_id else "Largest Lineage Tree"
-                    axes[0].set_title(f"{title}\n({len(G.nodes())} cells)")
-                    axes[0].axis('off')
-
-            canvas.figure.tight_layout()
-            canvas.draw()
-
-
+        # Add legend
+        legend_elements = [
+            mpatches.Patch(facecolor=colors['Healthy'], edgecolor='white', label='Healthy'),
+            mpatches.Patch(facecolor=colors['Divided'], edgecolor='white', label='Divided'),
+            mpatches.Patch(facecolor=colors['Elongated'], edgecolor='white', label='Elongated'),
+            mpatches.Patch(facecolor=colors['Deformed'], edgecolor='white', label='Deformed')
+        ]
+        
+        legend = ax.legend(handles=legend_elements, loc='upper right', fontsize=8, 
+                        title=f"Morphology at {time_point} time", title_fontsize=9,
+                        frameon=True, facecolor='#444444', edgecolor='gray', labelcolor='white')
+        
+        # Title with cell count and time point
+        title_str = f"Lineage Tree for Cell {root_cell_id}\n({len(G.nodes())} cells)\nTime point: {time_point}"
+        ax.set_title(title_str, color='white', pad=20, fontsize=12)
+        
+        # Set view limits
+        ax.axis('off')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        
+        canvas.draw()
         return G
     
-    
-    
-    
+    def draw_timepoint_nodes(self, G, pos, ax, time_point):
+        """
+        Draw nodes with color based on morphology at the specified time point.
+        
+        Parameters:
+        -----------
+        G : networkx.DiGraph
+            Graph to visualize.
+        pos : dict
+            Dictionary of node positions.
+        ax : matplotlib.axes.Axes
+            Axis to draw on.
+        time_point : str
+            'first' or 'last', the time point being visualized.
+        """
+        import matplotlib.pyplot as plt
+        
+        # Draw edges first
+        nx.draw_networkx_edges(G, pos, ax=ax, edge_color='gray', 
+                            arrows=True, arrowsize=15, alpha=0.6)
+        
+        # Group nodes by morphology
+        morphology_groups = {}
+        for node, data in G.nodes(data=True):
+            morphology = data.get('morphology', 'Unknown')
+            if morphology not in morphology_groups:
+                morphology_groups[morphology] = []
+            morphology_groups[morphology].append(node)
+        
+        # Draw nodes by morphology group with consistent colors
+        for morphology, nodes in morphology_groups.items():
+            # Use the predefined colors from self.morphology_colors_rgb
+            color = self.morphology_colors_rgb.get(morphology, (0.5, 0.5, 0.5))  # Default to gray
+            
+            # Node size based on whether the cell divides
+            node_sizes = [300 if G.nodes[n].get('has_children', False) else 150 for n in nodes]
+            
+            # Draw this morphology group
+            nx.draw_networkx_nodes(G, pos, 
+                                nodelist=nodes,
+                                node_size=node_sizes,
+                                node_color=[color] * len(nodes),
+                                alpha=0.8,
+                                label=morphology,
+                                ax=ax)
+        
+        # Draw labels
+        nx.draw_networkx_labels(G, pos, font_size=8, ax=ax)
+        
+        # Add a legend
+        ax.legend(title=f"Morphology at {time_point} time")
+        
+        # Print stats for verification
+        print(f"Node counts by morphology in this view:")
+        for morphology, nodes in morphology_groups.items():
+            print(f"  {morphology}: {len(nodes)} cells")
+
     def get_morphology_at_time(self, track, time):
         """
         Get the morphology of a cell at a specific time point.
@@ -1531,29 +1717,37 @@ class LineageVisualization:
         str
             Morphology class at that time or None if unknown
         """
+        print(f"Getting morphology for track {track['ID']} at time {time}")
+        
         # First try to get from cell_mapping if available
         if hasattr(self, 'cell_mapping') and self.cell_mapping:
             # Find the cell_id that corresponds to this track_id at this time
             cell_id = None
             for cid, cell_data in self.cell_mapping.items():
-                if 'track_id' in cell_data and cell_data['track_id'] == track['ID'] and 'time' in cell_data and cell_data['time'] == time:
+                if ('track_id' in cell_data and cell_data['track_id'] == track['ID'] and 
+                    'time' in cell_data and cell_data['time'] == time):
                     cell_id = cid
+                    print(f"  Found matching cell_id: {cell_id}")
                     break
                     
             if cell_id and cell_id in self.cell_mapping and 'metrics' in self.cell_mapping[cell_id]:
-                return self.cell_mapping[cell_id]['metrics'].get('morphology_class', 'Unknown')
+                morphology = self.cell_mapping[cell_id]['metrics'].get('morphology_class', 'Unknown')
+                print(f"  Retrieved morphology from cell_mapping: {morphology}")
+                return morphology
         
         # If not available, infer from track properties
         if 'children' in track and track['children']:
             # If this time is the last time and it has children, it's likely dividing
             if time == track['t'][-1]:
+                print(f"  Inferred 'Divided' morphology (last frame with children)")
                 return "Divided"
             # If it has children but not at last time, it's preparing to divide
+            print(f"  Inferred 'Elongated' morphology (has children but not last frame)")
             return "Elongated"
         
         # Default case - healthy
+        print(f"  Using default 'Healthy' morphology")
         return "Healthy"
-
 
 
 
@@ -1571,6 +1765,8 @@ class LineageVisualization:
         dict
             Dictionary of diversity metrics
         """
+        print("Calculating diversity metrics for lineage tree...")
+        
         # Initialize counters
         internal_changes = 0
         total_cells_with_internal_data = 0
@@ -1583,8 +1779,11 @@ class LineageVisualization:
                 first_morphology = self.get_morphology_at_time(track, track['t'][0])
                 last_morphology = self.get_morphology_at_time(track, track['t'][-1])
                 
+                print(f"Track {track['ID']}: first morphology = {first_morphology}, last morphology = {last_morphology}")
+                
                 if first_morphology != last_morphology:
                     internal_changes += 1
+                    print(f"  Internal change detected in track {track['ID']}")
                 total_cells_with_internal_data += 1
         
         # Track morphology preservation across generations (robustness)
@@ -1596,17 +1795,22 @@ class LineageVisualization:
                     # Find child track
                     child_track = next((t for t in tracks if t['ID'] == child_id), None)
                     if child_track and 't' in child_track and len(child_track['t']) > 0:
-                        child_last_morphology = self.get_morphology_at_time(child_track, child_track['t'][-1])
+                        child_first_morphology = self.get_morphology_at_time(child_track, child_track['t'][0])
                         
-                        if parent_morphology == child_last_morphology:
+                        print(f"Parent {track['ID']} ({parent_morphology}) -> Child {child_id} ({child_first_morphology})")
+                        
+                        if parent_morphology == child_first_morphology:
                             generational_matches += 1
+                            print(f"  Generational match detected")
+                        else:
+                            print(f"  Generational mismatch detected")
                         total_parent_child_pairs += 1
         
         # Calculate metrics
         internal_diversity = internal_changes / total_cells_with_internal_data if total_cells_with_internal_data > 0 else 0
         robustness = generational_matches / total_parent_child_pairs if total_parent_child_pairs > 0 else 0
         
-        return {
+        metrics = {
             "internal_diversity": internal_diversity,
             "robustness": robustness,
             "internal_changes": internal_changes,
@@ -1614,3 +1818,11 @@ class LineageVisualization:
             "generational_matches": generational_matches,
             "total_parent_child_pairs": total_parent_child_pairs
         }
+        
+        print("Diversity metrics:")
+        print(f"  Internal diversity: {internal_diversity:.2f} ({internal_changes}/{total_cells_with_internal_data} cells changed)")
+        print(f"  Robustness: {robustness:.2f} ({generational_matches}/{total_parent_child_pairs} parent-child pairs matched)")
+        
+        return metrics
+    
+    
