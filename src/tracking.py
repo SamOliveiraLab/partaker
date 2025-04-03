@@ -8,6 +8,7 @@ from skimage.measure import label
 from scipy import stats
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
+from matplotlib.patches import Patch, Rectangle
 
 
 def track_cells(segmented_images):
