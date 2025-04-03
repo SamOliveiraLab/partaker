@@ -933,3 +933,97 @@ def plot_motility_gauge(ax, motility_index):
         ha='center',
         fontsize=16,
         fontweight='bold')
+
+
+
+def visualize_cell_regions(tracks, chamber_dimensions=(1392, 1040)):
+    """Visualize cell positions with color-coded regions."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.patches import Rectangle
+    
+    # Extract all x,y positions from tracks
+    all_x = []
+    all_y = []
+    for track in tracks:
+        all_x.extend(track['x'])
+        all_y.extend(track['y'])
+    
+    # Create figure
+    plt.figure(figsize=(12, 9))
+    
+    # Define region boundaries
+    width, height = chamber_dimensions
+    edge_margin = 50
+    corner_size = 100
+    right_channel_x = 1300
+    right_channel_width = 50
+    
+    # Create background for regions
+    # Corner regions
+    corner_color = 'mistyrose'
+    plt.gca().add_patch(Rectangle((0, 0), corner_size, corner_size, 
+                                 color=corner_color, alpha=0.3))  # Top-left
+    plt.gca().add_patch(Rectangle((0, height-corner_size), corner_size, corner_size, 
+                                 color=corner_color, alpha=0.3))  # Bottom-left
+    plt.gca().add_patch(Rectangle((width-corner_size, 0), corner_size, corner_size, 
+                                 color=corner_color, alpha=0.3))  # Top-right
+    plt.gca().add_patch(Rectangle((width-corner_size, height-corner_size), corner_size, corner_size, 
+                                 color=corner_color, alpha=0.3))  # Bottom-right
+    
+    # Edge regions (excluding corners)
+    edge_color = 'lightblue'
+    plt.gca().add_patch(Rectangle((0, corner_size), edge_margin, height-2*corner_size, 
+                                 color=edge_color, alpha=0.3))  # Left edge
+    plt.gca().add_patch(Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size, 
+                                 color=edge_color, alpha=0.3))  # Right edge
+    plt.gca().add_patch(Rectangle((corner_size, 0), width-2*corner_size, edge_margin, 
+                                 color=edge_color, alpha=0.3))  # Top edge
+    plt.gca().add_patch(Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin, 
+                                 color=edge_color, alpha=0.3))  # Bottom edge
+    
+    # Right channel
+    plt.gca().add_patch(Rectangle((right_channel_x, 0), right_channel_width, height, 
+                                 color='lightgreen', alpha=0.3))
+    
+    # Left edge (inlet)
+    plt.gca().add_patch(Rectangle((0, 0), edge_margin, height, 
+                                 color='lightyellow', alpha=0.3))
+    
+    # Create scatter plot of cell positions
+    plt.scatter(all_x, all_y, alpha=0.3, s=1, color='blue')
+    
+    # Add labels and title
+    plt.xlabel('X Position (pixels)')
+    plt.ylabel('Y Position (pixels)')
+    plt.title('Color-Coded Chamber Regions with Cell Positions')
+    
+    # Add region labels
+    plt.text(25, height/2, 'INLET', rotation=90, ha='center', va='center', fontsize=12)
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL', 
+             rotation=90, ha='center', va='center', fontsize=12)
+    plt.text(width/2, height/2, 'CENTER', ha='center', va='center', fontsize=14)
+    plt.text(corner_size/2, corner_size/2, 'CORNER', ha='center', va='center', fontsize=10)
+    plt.text(width-corner_size/2, height-corner_size/2, 'CORNER', ha='center', va='center', fontsize=10)
+    
+    # Add legend for regions
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='lightyellow', edgecolor='none', alpha=0.3, label='Inlet Region'),
+        Patch(facecolor='lightgreen', edgecolor='none', alpha=0.3, label='Right Channel'),
+        Patch(facecolor='mistyrose', edgecolor='none', alpha=0.3, label='Corner Regions'),
+        Patch(facecolor='lightblue', edgecolor='none', alpha=0.3, label='Edge Regions'),
+        Patch(facecolor='white', edgecolor='none', label='Center Region')
+    ]
+    plt.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, -0.15),
+              ncol=3, fontsize=10)
+    
+    # Add grid and set limits
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.xlim(0, width)
+    plt.ylim(0, height)
+    
+    # Save and show the color-coded plot
+    plt.tight_layout()
+    plt.savefig('color_coded_chamber_regions.png', dpi=300, bbox_inches='tight')
+    plt.show()
