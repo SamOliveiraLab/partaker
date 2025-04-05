@@ -1028,9 +1028,9 @@ def visualize_cell_regions(tracks, chamber_dimensions=(1392, 1040)):
     plt.ylim(0, height)
     
     # Save and show the color-coded plot
-    plt.tight_layout()
-    plt.savefig('color_coded_chamber_regions.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.tight_layout()
+    # plt.savefig('color_coded_chamber_regions.png', dpi=300, bbox_inches='tight')
+    # plt.show()
     
 
 def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_dimensions, motility_metrics=None):

@@ -1,5 +1,7 @@
 from pathlib import Path
 import sys
+import os
+import pickle
 
 import cv2
 import imageio.v3 as iio
@@ -822,6 +824,20 @@ class App(QMainWindow):
                 self, "Error", f"Failed to create tracking video: {str(e)}")
 
     def track_cells_with_lineage(self):
+        # Check if lineage data is already loaded
+        if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
+            # Skip tracking and go straight to visualization
+            print("Using previously loaded tracking data")
+            
+            reply = QMessageBox.question(
+                self, "Lineage Analysis",
+                "Would you like to visualize the cell lineage tree?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.show_lineage_dialog()
+            return
+    
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
         if not self.image_data.is_nd2:
@@ -911,6 +927,30 @@ class App(QMainWindow):
         dialog.setMinimumWidth(1200)
         dialog.setMinimumHeight(800)
         layout = QVBoxLayout(dialog)
+        
+        # Tab widget for additional visualizations
+        tab_widget = QTabWidget()
+
+        # Growth & Division tab (assuming growth_metrics needs to be calculated)
+        growth_tab = QWidget()
+        growth_layout = QVBoxLayout(growth_tab)
+        try:
+            # Calculate growth metrics if not already available
+            if not hasattr(self, "growth_metrics"):
+                self.growth_metrics = self.lineage_visualizer.calculate_growth_metrics(
+                    self.lineage_tracks)  # Assuming this method exists
+            growth_fig = self.lineage_visualizer.visualize_growth_and_division(
+                self.lineage_tracks, self.growth_metrics)
+            growth_canvas = FigureCanvas(growth_fig)
+            growth_layout.addWidget(growth_canvas)
+            tab_widget.addTab(growth_tab, "Growth & Division")
+        except AttributeError as e:
+            print(f"Error setting up Growth & Division tab: {e}")
+            # Skip adding the tab if there's an error
+
+        # Add tab widget to layout
+        layout.addWidget(tab_widget)
+        
 
         # Cell selection options
         selection_layout = QHBoxLayout()
@@ -2565,16 +2605,47 @@ class App(QMainWindow):
         about_dialog = AboutDialog()
         about_dialog.exec_()
 
+    
     def save_to_folder(self):
         folder_path = QFileDialog.getExistingDirectory(
             self,                           # Parent widget
             "Select Destination Folder",    # Dialog caption
-            # Default directory (empty starts in last used)
-            "",
+            "",                             # Default directory (empty starts in last used)
             QFileDialog.ShowDirsOnly        # Option to show only directories
         )
         if folder_path:
+            # Create directory if it doesn't exist
+            os.makedirs(folder_path, exist_ok=True)
+            
+            # Save ImageData using existing method
             self.image_data.save(folder_path)
+            
+            # Save tracking data if available
+            tracking_data = {}
+            has_tracking_data = False
+            
+            if hasattr(self, "tracked_cells") and self.tracked_cells is not None:
+                tracking_data["tracked_cells"] = self.tracked_cells
+                has_tracking_data = True
+                
+            if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
+                tracking_data["lineage_tracks"] = self.lineage_tracks
+                has_tracking_data = True
+                
+            if hasattr(self, "motility_results") and self.motility_results is not None:
+                tracking_data["motility_results"] = self.motility_results
+                has_tracking_data = True
+            
+            if has_tracking_data:
+                tracking_path = os.path.join(folder_path, "tracking_data.pkl")
+                with open(tracking_path, 'wb') as f:
+                    pickle.dump(tracking_data, f)
+            
+            QMessageBox.information(
+                self, "Save Complete", 
+                f"Project saved to {folder_path}" +
+                ("\nIncludes tracking data" if has_tracking_data else "")
+            )
 
     def load_from_folder(self):
         folder_path = QFileDialog.getExistingDirectory(
@@ -2585,11 +2656,62 @@ class App(QMainWindow):
         )
         if folder_path:
             print(f"Project loaded from folder: {folder_path}")
+            
+            # Load the main image data
             self.image_data = ImageData.load(folder_path)
+            
             # Update controls / app state
             if self.image_data.nd2_filename is not None:
                 self.init_controls_nd2(self.image_data.nd2_filename)
-
+            
+            # Check for tracking data
+            tracking_path = os.path.join(folder_path, "tracking_data.pkl")
+            has_tracking_data = False
+            
+            if os.path.exists(tracking_path):
+                try:
+                    with open(tracking_path, 'rb') as f:
+                        tracking_data = pickle.load(f)
+                    
+                    if "tracked_cells" in tracking_data and tracking_data["tracked_cells"]:
+                        self.tracked_cells = tracking_data["tracked_cells"]
+                        has_tracking_data = True
+                    
+                    if "lineage_tracks" in tracking_data and tracking_data["lineage_tracks"]:
+                        self.lineage_tracks = tracking_data["lineage_tracks"]
+                        has_tracking_data = True
+                    
+                    if "motility_results" in tracking_data and tracking_data["motility_results"]:
+                        self.motility_results = tracking_data["motility_results"]
+                        has_tracking_data = True
+                    
+                    # Update UI to reflect loaded tracking data
+                    if hasattr(self, "lineage_button") and self.lineage_tracks:
+                        self.lineage_button.setText("Visualize Lineage Tree (Loaded)")
+                        self.lineage_button.setStyleSheet("background-color: #4CAF50; color: white;")
+                    
+                    if hasattr(self, "overlay_video_button") and self.tracked_cells:
+                        self.overlay_video_button.setText("Tracking Video (Loaded)")
+                        self.overlay_video_button.setStyleSheet("background-color: #4CAF50; color: white;")
+                    
+                    if hasattr(self, "motility_button") and self.lineage_tracks:
+                        self.motility_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+                    
+                    # Update visualization if tracking data is loaded
+                    if hasattr(self, "tracked_cells") and self.tracked_cells:
+                        self.visualize_tracking(self.tracked_cells)
+                
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Warning", f"Error loading tracking data: {str(e)}"
+                    )
+            
+            QMessageBox.information(
+                self, "Project Loaded", 
+                f"Project loaded from {folder_path}" +
+                ("\nTracking data loaded successfully" if has_tracking_data else "")
+            )
+        
     def initMorphologyTab(self):
         layout = QVBoxLayout(self.morphologyTab)
 

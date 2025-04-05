@@ -1981,3 +1981,232 @@ class LineageVisualization:
                 parent_widget,
                 "Export Error",
                 f"Failed to export morphology data: {str(e)}")
+
+
+    def calculate_growth_and_division_metrics(tracks):
+        """
+        Calculate growth rate and division timing from tracking data.
+        
+        Parameters:
+        -----------
+        tracks : list
+            List of track dictionaries with lineage information.
+            
+        Returns:
+        --------
+        dict
+            Dictionary containing growth and division metrics.
+        """
+        division_times = []
+        growth_rates = []
+        
+        for track in tracks:
+            # Skip tracks that don't divide
+            if 'children' not in track or not track['children']:
+                continue
+                
+            # Get timestamps
+            if 't' in track and len(track['t']) > 0:
+                t_appearance = track['t'][0]
+                t_division = track['t'][-1]
+                
+                # Calculate division timing
+                dt = t_division - t_appearance
+                
+                # Skip very short tracks that might be tracking errors
+                if dt <= 0:
+                    continue
+                    
+                division_times.append(dt)
+                
+                # Calculate growth rate based on division time
+                # (assuming exponential growth with doubling)
+                growth_rate = np.log(2) / dt
+                growth_rates.append(growth_rate)
+        
+        # Calculate statistics
+        if division_times:
+            avg_division_time = np.mean(division_times)
+            std_division_time = np.std(division_times)
+            median_division_time = np.median(division_times)
+            
+            avg_growth_rate = np.mean(growth_rates)
+            std_growth_rate = np.std(growth_rates)
+        else:
+            avg_division_time = std_division_time = median_division_time = 0
+            avg_growth_rate = std_growth_rate = 0
+        
+        # Compile results
+        results = {
+            'division_times': division_times,
+            'growth_rates': growth_rates,
+            'avg_division_time': avg_division_time,
+            'std_division_time': std_division_time,
+            'median_division_time': median_division_time,
+            'avg_growth_rate': avg_growth_rate,
+            'std_growth_rate': std_growth_rate,
+            'total_dividing_cells': len(division_times)
+        }
+        
+        return results
+    
+    
+    
+    def visualize_growth_and_division(tracks, growth_metrics):
+        """
+        Create visualizations for growth and division timing data.
+        
+        Parameters:
+        -----------
+        tracks : list
+            List of track dictionaries with lineage information.
+        growth_metrics : dict
+            Output from calculate_growth_and_division_metrics function.
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        
+        # 1. Histogram of division times
+        axes[0, 0].hist(growth_metrics['division_times'], bins=20, color='skyblue', edgecolor='black')
+        axes[0, 0].set_title('Division Time Distribution')
+        axes[0, 0].set_xlabel('Time (frames)')
+        axes[0, 0].set_ylabel('Cell Count')
+        axes[0, 0].axvline(growth_metrics['avg_division_time'], color='red', 
+                        linestyle='--', label=f"Mean: {growth_metrics['avg_division_time']:.1f}")
+        axes[0, 0].axvline(growth_metrics['median_division_time'], color='green', 
+                        linestyle='--', label=f"Median: {growth_metrics['median_division_time']:.1f}")
+        axes[0, 0].legend()
+        
+        # 2. Histogram of growth rates
+        axes[0, 1].hist(growth_metrics['growth_rates'], bins=20, color='lightgreen', edgecolor='black')
+        axes[0, 1].set_title('Growth Rate Distribution')
+        axes[0, 1].set_xlabel('Growth Rate (ln(2)/division time)')
+        axes[0, 1].set_ylabel('Cell Count')
+        axes[0, 1].axvline(growth_metrics['avg_growth_rate'], color='red', 
+                        linestyle='--', label=f"Mean: {growth_metrics['avg_growth_rate']:.4f}")
+        axes[0, 1].legend()
+        
+        # 3. Division time by generation
+        # Create a lookup from track_id to division time
+        division_time_by_id = {}
+        for track in tracks:
+            if 'children' in track and track['children'] and 't' in track and len(track['t']) > 0:
+                dt = track['t'][-1] - track['t'][0]
+                if dt > 0:
+                    division_time_by_id[track['ID']] = dt
+        
+        # Calculate parent-child division time pairs
+        parent_child_division_pairs = []
+        for track in tracks:
+            if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
+                parent_dt = division_time_by_id[track['ID']]
+                
+                for child_id in track['children']:
+                    if child_id in division_time_by_id:
+                        child_dt = division_time_by_id[child_id]
+                        parent_child_division_pairs.append((parent_dt, child_dt))
+        
+        # Plot parent vs child division times
+        if parent_child_division_pairs:
+            parent_dts, child_dts = zip(*parent_child_division_pairs)
+            axes[1, 0].scatter(parent_dts, child_dts, alpha=0.7)
+            axes[1, 0].set_title('Division Time: Parent vs. Child')
+            axes[1, 0].set_xlabel('Parent Division Time')
+            axes[1, 0].set_ylabel('Child Division Time')
+            
+            # Add y=x reference line
+            min_val = min(min(parent_dts), min(child_dts))
+            max_val = max(max(parent_dts), max(child_dts))
+            axes[1, 0].plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
+            
+            # Calculate correlation
+            correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
+            axes[1, 0].text(0.05, 0.95, f"Correlation: {correlation:.2f}", 
+                        transform=axes[1, 0].transAxes, 
+                        verticalalignment='top')
+        
+        # 4. Summary statistics
+        axes[1, 1].axis('off')
+        summary = (
+            f"Growth & Division Summary\n\n"
+            f"Total dividing cells: {growth_metrics['total_dividing_cells']}\n\n"
+            f"Division Time:\n"
+            f"  Mean: {growth_metrics['avg_division_time']:.1f} frames\n"
+            f"  Std Dev: {growth_metrics['std_division_time']:.1f} frames\n"
+            f"  Median: {growth_metrics['median_division_time']:.1f} frames\n\n"
+            f"Growth Rate:\n"
+            f"  Mean: {growth_metrics['avg_growth_rate']:.4f}\n"
+            f"  Std Dev: {growth_metrics['std_growth_rate']:.4f}\n"
+        )
+        
+        if parent_child_division_pairs:
+            summary += f"\nParent-Child Division Time Correlation: {correlation:.2f}"
+        
+        axes[1, 1].text(0.05, 0.95, summary, transform=axes[1, 1].transAxes, 
+                    verticalalignment='top', horizontalalignment='left',
+                    fontfamily='monospace')
+        
+        plt.tight_layout()
+        return fig
+    
+    
+    
+    def calculate_division_robustness(tracks):
+        """
+        Calculate robustness metrics comparing division timing across generations.
+        
+        Parameters:
+        -----------
+        tracks : list
+            List of track dictionaries with lineage information.
+            
+        Returns:
+        --------
+        dict
+            Dictionary containing robustness metrics.
+        """
+        # Create a lookup from track_id to division time
+        division_time_by_id = {}
+        for track in tracks:
+            if 'children' in track and track['children'] and 't' in track and len(track['t']) > 0:
+                dt = track['t'][-1] - track['t'][0]
+                if dt > 0:
+                    division_time_by_id[track['ID']] = dt
+        
+        # Calculate parent-child division time pairs
+        parent_child_division_pairs = []
+        for track in tracks:
+            if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
+                parent_dt = division_time_by_id[track['ID']]
+                
+                for child_id in track['children']:
+                    if child_id in division_time_by_id:
+                        child_dt = division_time_by_id[child_id]
+                        parent_child_division_pairs.append((parent_dt, child_dt))
+        
+        if not parent_child_division_pairs:
+            return {
+                'robustness_score': 0,
+                'correlation': 0,
+                'mean_relative_error': 0,
+                'pairs_analyzed': 0
+            }
+        
+        # Unzip parent-child pairs
+        parent_dts, child_dts = zip(*parent_child_division_pairs)
+        
+        # Calculate correlation coefficient
+        correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
+        
+        # Calculate mean relative error
+        relative_errors = [abs(c - p) / p for p, c in parent_child_division_pairs]
+        mean_relative_error = np.mean(relative_errors)
+        
+        # Calculate robustness score (1 = perfect robustness, 0 = no robustness)
+        robustness_score = 1 - mean_relative_error
+        
+        return {
+            'robustness_score': robustness_score,
+            'correlation': correlation,
+            'mean_relative_error': mean_relative_error,
+            'pairs_analyzed': len(parent_child_division_pairs)
+        }
