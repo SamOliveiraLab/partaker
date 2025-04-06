@@ -1983,7 +1983,7 @@ class LineageVisualization:
                 f"Failed to export morphology data: {str(e)}")
 
 
-    def calculate_growth_and_division_metrics(tracks):
+    def calculate_growth_and_division_metrics(self, tracks):
         """
         Calculate growth rate and division timing from tracking data.
         
@@ -2052,7 +2052,7 @@ class LineageVisualization:
     
     
     
-    def visualize_growth_and_division(tracks, growth_metrics):
+    def visualize_growth_and_division(self, tracks, growth_metrics):
         """
         Create visualizations for growth and division timing data.
         

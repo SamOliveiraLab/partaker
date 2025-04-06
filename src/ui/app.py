@@ -828,7 +828,7 @@ class App(QMainWindow):
         if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
             # Skip tracking and go straight to visualization
             print("Using previously loaded tracking data")
-            
+
             reply = QMessageBox.question(
                 self, "Lineage Analysis",
                 "Would you like to visualize the cell lineage tree?",
@@ -837,7 +837,7 @@ class App(QMainWindow):
             if reply == QMessageBox.Yes:
                 self.show_lineage_dialog()
             return
-    
+
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
         if not self.image_data.is_nd2:
@@ -911,8 +911,8 @@ class App(QMainWindow):
 
     def show_timepoint_lineage_comparison(self):
         """
-        Display both time zero and time last lineage trees side by side for comparison.
-        Uses consistent morphology classification for accurate comparison.
+        Display both time zero and time last lineage trees side by side for comparison,
+        with a separate tab for growth and division analysis.
         """
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
@@ -927,32 +927,15 @@ class App(QMainWindow):
         dialog.setMinimumWidth(1200)
         dialog.setMinimumHeight(800)
         layout = QVBoxLayout(dialog)
-        
-        # Tab widget for additional visualizations
+
+        # Create tab widget for the two different analyses
         tab_widget = QTabWidget()
 
-        # Growth & Division tab (assuming growth_metrics needs to be calculated)
-        growth_tab = QWidget()
-        growth_layout = QVBoxLayout(growth_tab)
-        try:
-            # Calculate growth metrics if not already available
-            if not hasattr(self, "growth_metrics"):
-                self.growth_metrics = self.lineage_visualizer.calculate_growth_metrics(
-                    self.lineage_tracks)  # Assuming this method exists
-            growth_fig = self.lineage_visualizer.visualize_growth_and_division(
-                self.lineage_tracks, self.growth_metrics)
-            growth_canvas = FigureCanvas(growth_fig)
-            growth_layout.addWidget(growth_canvas)
-            tab_widget.addTab(growth_tab, "Growth & Division")
-        except AttributeError as e:
-            print(f"Error setting up Growth & Division tab: {e}")
-            # Skip adding the tab if there's an error
+        # First tab - Time comparison visualization
+        comparison_tab = QWidget()
+        comparison_layout = QVBoxLayout(comparison_tab)
 
-        # Add tab widget to layout
-        layout.addWidget(tab_widget)
-        
-
-        # Cell selection options
+        # Cell selection options for time comparison
         selection_layout = QHBoxLayout()
         option_group = QButtonGroup(dialog)
 
@@ -983,7 +966,7 @@ class App(QMainWindow):
         top_radio.toggled.connect(update_combo_state)
         cell_radio.toggled.connect(update_combo_state)
 
-        layout.addLayout(selection_layout)
+        comparison_layout.addLayout(selection_layout)
 
         # Create a horizontal layout for the two trees
         trees_layout = QHBoxLayout()
@@ -1017,8 +1000,8 @@ class App(QMainWindow):
         trees_layout.addWidget(time_zero_widget)
         trees_layout.addWidget(time_last_widget)
 
-        # Add trees layout to main layout
-        layout.addLayout(trees_layout)
+        # Add trees layout to comparison tab layout
+        comparison_layout.addLayout(trees_layout)
 
         # Create navigation area for previous/next tree
         nav_layout = QHBoxLayout()
@@ -1030,9 +1013,43 @@ class App(QMainWindow):
         nav_layout.addWidget(prev_button)
         nav_layout.addWidget(tree_counter_label)
         nav_layout.addWidget(next_button)
-        layout.addLayout(nav_layout)
+        comparison_layout.addLayout(nav_layout)
 
-        # Buttons
+        # Add the comparison tab to the tab widget
+        tab_widget.addTab(comparison_tab, "Time Comparison")
+
+        # Second tab - Growth & Division analysis
+        growth_tab = QWidget()
+        growth_layout = QVBoxLayout(growth_tab)
+
+        try:
+            # Calculate growth metrics if not already available
+            if not hasattr(self, "growth_metrics"):
+
+                self.growth_metrics = self.lineage_visualizer.calculate_growth_and_division_metrics(
+                    self.lineage_tracks)
+
+            growth_fig = self.lineage_visualizer.visualize_growth_and_division(
+                self.lineage_tracks, self.growth_metrics)
+            growth_canvas = FigureCanvas(growth_fig)
+            growth_layout.addWidget(growth_canvas)
+
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_label = QLabel(
+                f"Error creating growth visualization: {str(e)}")
+            error_label.setStyleSheet("color: red")
+            growth_layout.addWidget(error_label)
+
+        # Add the growth tab to the tab widget
+        tab_widget.addTab(growth_tab, "Growth & Division")
+
+        # Add tab widget to main layout
+        layout.addWidget(tab_widget)
+
+        # Add control buttons at the bottom
         button_layout = QHBoxLayout()
         view_button = QPushButton("Generate Visualization")
         save_button = QPushButton("Save Images")
@@ -1051,8 +1068,8 @@ class App(QMainWindow):
         layout.addLayout(button_layout)
 
         # Store state for tree navigation
-        current_tree_index = [0]  # Using a list for mutable reference
-        available_trees = []      # Will store tree components
+        current_tree_index = [0]
+        available_trees = []
 
         # Function to generate the visualizations
         def generate_visualizations():
@@ -1207,41 +1224,52 @@ class App(QMainWindow):
                 current_tree_index[0] - 1) % len(available_trees)
             generate_visualizations()
 
-        # Function to save images
-        def save_images():
-            save_path, _ = QFileDialog.getSaveFileName(
-                dialog, "Save Visualization", "", "PNG Files (*.png)")
-            if save_path:
-                # Extract base path without extension
-                base_path = save_path.replace(".png", "")
-
-                # Get current tree info for filename
-                tree_info = ""
-                if top_radio.isChecked():
-                    tree_info = f"tree{current_tree_index[0]+1}"
-                else:
-                    tree_info = f"cell{cell_combo.currentText().replace('Cell ', '')}"
-
-                # Save time zero tree
-                time_zero_path = f"{base_path}_{tree_info}_time_zero.png"
-                time_zero_figure.savefig(
-                    time_zero_path, dpi=300, bbox_inches='tight')
-
-                # Save time last tree
-                time_last_path = f"{base_path}_{tree_info}_time_last.png"
-                time_last_figure.savefig(
-                    time_last_path, dpi=300, bbox_inches='tight')
-
-                QMessageBox.information(
-                    dialog, "Save Complete",
-                    f"Images saved as:\n{time_zero_path}\n{time_last_path}")
-
         # Connect button signals
         view_button.clicked.connect(generate_visualizations)
-        save_button.clicked.connect(save_images)
+        save_button.clicked.connect(
+            lambda: save_images(tab_widget.currentIndex()))
         close_button.clicked.connect(dialog.close)
         prev_button.clicked.connect(go_to_previous_tree)
         next_button.clicked.connect(go_to_next_tree)
+
+        # Function to save images depending on which tab is active
+        def save_images(tab_index):
+            if tab_index == 0:  # Time Comparison tab
+                save_path, _ = QFileDialog.getSaveFileName(
+                    dialog, "Save Visualization", "", "PNG Files (*.png)")
+                if save_path:
+                    # Extract base path without extension
+                    base_path = save_path.replace(".png", "")
+
+                    # Get current tree info for filename
+                    tree_info = ""
+                    if top_radio.isChecked():
+                        tree_info = f"tree{current_tree_index[0]+1}"
+                    else:
+                        tree_info = f"cell{cell_combo.currentText().replace('Cell ', '')}"
+
+                    # Save time zero tree
+                    time_zero_path = f"{base_path}_{tree_info}_time_zero.png"
+                    time_zero_figure.savefig(
+                        time_zero_path, dpi=300, bbox_inches='tight')
+
+                    # Save time last tree
+                    time_last_path = f"{base_path}_{tree_info}_time_last.png"
+                    time_last_figure.savefig(
+                        time_last_path, dpi=300, bbox_inches='tight')
+
+                    QMessageBox.information(
+                        dialog, "Save Complete",
+                        f"Images saved as:\n{time_zero_path}\n{time_last_path}")
+
+            elif tab_index == 1:  # Growth & Division tab
+                save_path, _ = QFileDialog.getSaveFileName(
+                    dialog, "Save Growth Analysis", "", "PNG Files (*.png)")
+                if save_path:
+                    growth_fig.savefig(save_path, dpi=300, bbox_inches='tight')
+                    QMessageBox.information(
+                        dialog, "Save Complete",
+                        f"Growth analysis saved as:\n{save_path}")
 
         # Initial generation
         generate_visualizations()
@@ -1773,7 +1801,8 @@ class App(QMainWindow):
             "• All Tracks: Uses all detected cell tracks for a complete population analysis")
 
         # Create custom buttons
-        filtered_button = msg_box.addButton("Filtered Tracks", QMessageBox.ActionRole)
+        filtered_button = msg_box.addButton(
+            "Filtered Tracks", QMessageBox.ActionRole)
         all_button = msg_box.addButton("All Tracks", QMessageBox.ActionRole)
         cancel_button = msg_box.addButton(QMessageBox.Cancel)
 
@@ -1792,11 +1821,13 @@ class App(QMainWindow):
 
         # Check if selected tracks exist
         if not tracks_to_analyze:
-            QMessageBox.warning(self, "Error", f"No {track_type} tracks available.")
+            QMessageBox.warning(
+                self, "Error", f"No {track_type} tracks available.")
             return
 
         # Show progress dialog
-        progress = QProgressDialog("Analyzing cell motility...", "Cancel", 0, 100, self)
+        progress = QProgressDialog(
+            "Analyzing cell motility...", "Cancel", 0, 100, self)
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
 
@@ -1814,13 +1845,15 @@ class App(QMainWindow):
                     chamber_dimensions = (width, height)
 
                 if chamber_dimensions and (chamber_dimensions[0] < 10 or chamber_dimensions[1] < 10):
-                    print(f"Invalid chamber dimensions: {chamber_dimensions}, using defaults")
+                    print(
+                        f"Invalid chamber dimensions: {chamber_dimensions}, using defaults")
                     chamber_dimensions = (1392, 1040)
                 else:
                     print(f"Using chamber dimensions: {chamber_dimensions}")
             else:
                 chamber_dimensions = (1392, 1040)
-                print(f"Using default chamber dimensions: {chamber_dimensions}")
+                print(
+                    f"Using default chamber dimensions: {chamber_dimensions}")
         except Exception as e:
             print(f"Error determining chamber dimensions: {e}")
             chamber_dimensions = (1392, 1040)
@@ -1831,10 +1864,12 @@ class App(QMainWindow):
             progress.setLabelText("Calculating motility metrics...")
             QApplication.processEvents()
 
-            motility_metrics = enhanced_motility_index(tracks_to_analyze, chamber_dimensions)
+            motility_metrics = enhanced_motility_index(
+                tracks_to_analyze, chamber_dimensions)
 
             progress.setValue(50)
-            progress.setLabelText("Collecting cell positions for visualization...")
+            progress.setLabelText(
+                "Collecting cell positions for visualization...")
             QApplication.processEvents()
 
             # Collect all cell positions from segmentation data
@@ -1854,9 +1889,11 @@ class App(QMainWindow):
                 print(f"Error collecting cell positions: {e}")
                 all_cell_positions = []
                 for track in tracks_to_analyze:
-                    all_cell_positions.extend(list(zip(track['x'], track['y'])))
+                    all_cell_positions.extend(
+                        list(zip(track['x'], track['y'])))
 
-            print(f"Collected {len(all_cell_positions)} cell positions for visualization")
+            print(
+                f"Collected {len(all_cell_positions)} cell positions for visualization")
 
             # Create combined visualization tab
             progress.setValue(60)
@@ -1889,7 +1926,8 @@ class App(QMainWindow):
 
             map_tab = QWidget()
             map_layout = QVBoxLayout(map_tab)
-            map_fig, _ = visualize_motility_map(tracks_to_analyze, chamber_dimensions, motility_metrics)
+            map_fig, _ = visualize_motility_map(
+                tracks_to_analyze, chamber_dimensions, motility_metrics)
             map_canvas = FigureCanvas(map_fig)
             map_layout.addWidget(map_canvas)
 
@@ -1912,7 +1950,8 @@ class App(QMainWindow):
                 region_canvas = FigureCanvas(region_fig)
                 region_layout.addWidget(region_canvas)
             else:
-                region_label = QLabel("Chamber dimensions not available for regional analysis.")
+                region_label = QLabel(
+                    "Chamber dimensions not available for regional analysis.")
                 region_label.setAlignment(Qt.AlignCenter)
                 region_layout.addWidget(region_label)
 
@@ -1968,26 +2007,34 @@ class App(QMainWindow):
                 export_csv.setChecked(True)
                 export_layout.addWidget(export_csv)
 
-                export_buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                export_buttons = QDialogButtonBox(
+                    QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
                 export_buttons.accepted.connect(export_dialog.accept)
                 export_buttons.rejected.connect(export_dialog.reject)
                 export_layout.addWidget(export_buttons)
 
                 if export_dialog.exec() == QDialog.Accepted:
-                    save_path, _ = QFileDialog.getSaveFileName(export_dialog, "Save Results", "", "All Files (*)")
+                    save_path, _ = QFileDialog.getSaveFileName(
+                        export_dialog, "Save Results", "", "All Files (*)")
                     if save_path:
-                        base_path = save_path.replace(".png", "").replace(".csv", "")
+                        base_path = save_path.replace(
+                            ".png", "").replace(".csv", "")
                         if export_map.isChecked():
-                            map_fig.savefig(f"{base_path}_motility_map.png", dpi=300, bbox_inches='tight')
+                            map_fig.savefig(
+                                f"{base_path}_motility_map.png", dpi=300, bbox_inches='tight')
                         if export_metrics.isChecked():
-                            metrics_fig.savefig(f"{base_path}_detailed_metrics.png", dpi=300, bbox_inches='tight')
+                            metrics_fig.savefig(
+                                f"{base_path}_detailed_metrics.png", dpi=300, bbox_inches='tight')
                         if export_regional.isChecked() and chamber_dimensions:
-                            region_fig.savefig(f"{base_path}_regional_analysis.png", dpi=300, bbox_inches='tight')
+                            region_fig.savefig(
+                                f"{base_path}_regional_analysis.png", dpi=300, bbox_inches='tight')
                         if export_csv.isChecked():
-                            metrics_df = pd.DataFrame(motility_metrics['individual_metrics'])
-                            metrics_df.to_csv(f"{base_path}_motility_metrics.csv", index=False)
-                        QMessageBox.information(export_dialog, "Export Complete", 
-                                            f"Results exported to {base_path}_*.png/csv")
+                            metrics_df = pd.DataFrame(
+                                motility_metrics['individual_metrics'])
+                            metrics_df.to_csv(
+                                f"{base_path}_motility_metrics.csv", index=False)
+                        QMessageBox.information(export_dialog, "Export Complete",
+                                                f"Results exported to {base_path}_*.png/csv")
 
             export_button.clicked.connect(export_results)
             close_button.clicked.connect(dialog.close)
@@ -1996,24 +2043,28 @@ class App(QMainWindow):
             progress.close()
 
             # Store results
-            self.motility_results = {"motility_metrics": motility_metrics, "track_type": track_type}
+            self.motility_results = {
+                "motility_metrics": motility_metrics, "track_type": track_type}
 
             # Update main UI plot
             self.figure_morphology_fractions.clear()
             ax = self.figure_morphology_fractions.add_subplot(111)
             for track in tracks_to_analyze:
                 track_id = track.get('ID', -1)
-                metric = next((m for m in motility_metrics['individual_metrics'] 
-                            if m['track_id'] == track_id), None)
+                metric = next((m for m in motility_metrics['individual_metrics']
+                               if m['track_id'] == track_id), None)
                 if metric:
                     mi = metric['motility_index']
                     color = plt.cm.coolwarm(mi/100)
-                    ax.plot(track['x'], track['y'], '-', color=color, linewidth=1, alpha=0.7)
+                    ax.plot(track['x'], track['y'], '-',
+                            color=color, linewidth=1, alpha=0.7)
 
-            ax.set_title(f"Cell Motility Map (Population Avg: {motility_metrics['population_avg_motility']:.1f})")
+            ax.set_title(
+                f"Cell Motility Map (Population Avg: {motility_metrics['population_avg_motility']:.1f})")
             ax.set_xlabel("X Coordinate")
             ax.set_ylabel("Y Coordinate")
-            sm = plt.cm.ScalarMappable(cmap=plt.cm.coolwarm, norm=plt.Normalize(0, 100))
+            sm = plt.cm.ScalarMappable(
+                cmap=plt.cm.coolwarm, norm=plt.Normalize(0, 100))
             sm.set_array([])
             cbar = plt.colorbar(sm, ax=ax)
             cbar.set_label("Motility Index")
@@ -2025,8 +2076,9 @@ class App(QMainWindow):
             import traceback
             traceback.print_exc()
             progress.close()
-            QMessageBox.warning(self, "Analysis Error", f"Error analyzing motility: {str(e)}")
-    
+            QMessageBox.warning(self, "Analysis Error",
+                                f"Error analyzing motility: {str(e)}")
+
     def process_morphology_time_series(self):
         p = self.slider_p.value()
         c = self.slider_c.value() if "C" in self.dimensions else None  # Default C to None
@@ -2605,44 +2657,44 @@ class App(QMainWindow):
         about_dialog = AboutDialog()
         about_dialog.exec_()
 
-    
     def save_to_folder(self):
         folder_path = QFileDialog.getExistingDirectory(
             self,                           # Parent widget
             "Select Destination Folder",    # Dialog caption
-            "",                             # Default directory (empty starts in last used)
+            # Default directory (empty starts in last used)
+            "",
             QFileDialog.ShowDirsOnly        # Option to show only directories
         )
         if folder_path:
             # Create directory if it doesn't exist
             os.makedirs(folder_path, exist_ok=True)
-            
+
             # Save ImageData using existing method
             self.image_data.save(folder_path)
-            
+
             # Save tracking data if available
             tracking_data = {}
             has_tracking_data = False
-            
+
             if hasattr(self, "tracked_cells") and self.tracked_cells is not None:
                 tracking_data["tracked_cells"] = self.tracked_cells
                 has_tracking_data = True
-                
+
             if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
                 tracking_data["lineage_tracks"] = self.lineage_tracks
                 has_tracking_data = True
-                
+
             if hasattr(self, "motility_results") and self.motility_results is not None:
                 tracking_data["motility_results"] = self.motility_results
                 has_tracking_data = True
-            
+
             if has_tracking_data:
                 tracking_path = os.path.join(folder_path, "tracking_data.pkl")
                 with open(tracking_path, 'wb') as f:
                     pickle.dump(tracking_data, f)
-            
+
             QMessageBox.information(
-                self, "Save Complete", 
+                self, "Save Complete",
                 f"Project saved to {folder_path}" +
                 ("\nIncludes tracking data" if has_tracking_data else "")
             )
@@ -2656,62 +2708,67 @@ class App(QMainWindow):
         )
         if folder_path:
             print(f"Project loaded from folder: {folder_path}")
-            
+
             # Load the main image data
             self.image_data = ImageData.load(folder_path)
-            
+
             # Update controls / app state
             if self.image_data.nd2_filename is not None:
                 self.init_controls_nd2(self.image_data.nd2_filename)
-            
+
             # Check for tracking data
             tracking_path = os.path.join(folder_path, "tracking_data.pkl")
             has_tracking_data = False
-            
+
             if os.path.exists(tracking_path):
                 try:
                     with open(tracking_path, 'rb') as f:
                         tracking_data = pickle.load(f)
-                    
+
                     if "tracked_cells" in tracking_data and tracking_data["tracked_cells"]:
                         self.tracked_cells = tracking_data["tracked_cells"]
                         has_tracking_data = True
-                    
+
                     if "lineage_tracks" in tracking_data and tracking_data["lineage_tracks"]:
                         self.lineage_tracks = tracking_data["lineage_tracks"]
                         has_tracking_data = True
-                    
+
                     if "motility_results" in tracking_data and tracking_data["motility_results"]:
                         self.motility_results = tracking_data["motility_results"]
                         has_tracking_data = True
-                    
+
                     # Update UI to reflect loaded tracking data
                     if hasattr(self, "lineage_button") and self.lineage_tracks:
-                        self.lineage_button.setText("Visualize Lineage Tree (Loaded)")
-                        self.lineage_button.setStyleSheet("background-color: #4CAF50; color: white;")
-                    
+                        self.lineage_button.setText(
+                            "Visualize Lineage Tree (Loaded)")
+                        self.lineage_button.setStyleSheet(
+                            "background-color: #4CAF50; color: white;")
+
                     if hasattr(self, "overlay_video_button") and self.tracked_cells:
-                        self.overlay_video_button.setText("Tracking Video (Loaded)")
-                        self.overlay_video_button.setStyleSheet("background-color: #4CAF50; color: white;")
-                    
+                        self.overlay_video_button.setText(
+                            "Tracking Video (Loaded)")
+                        self.overlay_video_button.setStyleSheet(
+                            "background-color: #4CAF50; color: white;")
+
                     if hasattr(self, "motility_button") and self.lineage_tracks:
-                        self.motility_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
-                    
+                        self.motility_button.setStyleSheet(
+                            "background-color: #4CAF50; color: white; font-weight: bold;")
+
                     # Update visualization if tracking data is loaded
                     if hasattr(self, "tracked_cells") and self.tracked_cells:
                         self.visualize_tracking(self.tracked_cells)
-                
+
                 except Exception as e:
                     QMessageBox.warning(
                         self, "Warning", f"Error loading tracking data: {str(e)}"
                     )
-            
+
             QMessageBox.information(
-                self, "Project Loaded", 
+                self, "Project Loaded",
                 f"Project loaded from {folder_path}" +
                 ("\nTracking data loaded successfully" if has_tracking_data else "")
             )
-        
+
     def initMorphologyTab(self):
         layout = QVBoxLayout(self.morphologyTab)
 
