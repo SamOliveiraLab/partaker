@@ -1025,21 +1025,139 @@ class App(QMainWindow):
         try:
             # Calculate growth metrics if not already available
             if not hasattr(self, "growth_metrics"):
-
+                progress = QProgressDialog(
+                    "Calculating growth metrics...", "Cancel", 0, 100, dialog)
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setValue(10)
+                progress.show()
+                QApplication.processEvents()
+                
                 self.growth_metrics = self.lineage_visualizer.calculate_growth_and_division_metrics(
                     self.lineage_tracks)
+                
+                progress.setValue(50)
+                progress.setLabelText("Creating visualization...")
+                QApplication.processEvents()
 
-            growth_fig = self.lineage_visualizer.visualize_growth_and_division(
-                self.lineage_tracks, self.growth_metrics)
-            growth_canvas = FigureCanvas(growth_fig)
-            growth_layout.addWidget(growth_canvas)
+            # Create the growth figure with more space
+            from matplotlib.figure import Figure
+            # Increase figure size to fit the available space
+            figure = Figure(figsize=(12, 10), dpi=100)
+            
+            # Set up the subplots with more space between them
+            gs = figure.add_gridspec(2, 2, hspace=0.4, wspace=0.4)
+            
+            # Add the subplots
+            ax1 = figure.add_subplot(gs[0, 0])  # Division Time Distribution
+            ax2 = figure.add_subplot(gs[0, 1])  # Growth Rate Distribution
+            ax3 = figure.add_subplot(gs[1, 0])  # Division Time: Parent vs. Child
+            ax4 = figure.add_subplot(gs[1, 1])  # Summary statistics
+            
+            # 1. Histogram of division times
+            ax1.hist(self.growth_metrics['division_times'], bins=20, color='skyblue', edgecolor='black')
+            ax1.set_title('Division Time Distribution', fontsize=14, fontweight='bold')
+            ax1.set_xlabel('Time (frames)', fontsize=12)
+            ax1.set_ylabel('Cell Count', fontsize=12)
+            ax1.axvline(self.growth_metrics['avg_division_time'], color='red', 
+                        linestyle='--', label=f"Mean: {self.growth_metrics['avg_division_time']:.1f}")
+            ax1.axvline(self.growth_metrics['median_division_time'], color='green', 
+                        linestyle='--', label=f"Median: {self.growth_metrics['median_division_time']:.1f}")
+            ax1.legend(fontsize=11)
+            
+            # 2. Histogram of growth rates
+            ax2.hist(self.growth_metrics['growth_rates'], bins=20, color='lightgreen', edgecolor='black')
+            ax2.set_title('Growth Rate Distribution', fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Growth Rate (ln(2)/division time)', fontsize=12)
+            ax2.set_ylabel('Cell Count', fontsize=12)
+            ax2.axvline(self.growth_metrics['avg_growth_rate'], color='red', 
+                        linestyle='--', label=f"Mean: {self.growth_metrics['avg_growth_rate']:.4f}")
+            ax2.legend(fontsize=11)
+            
+            # 3. Parent vs child division times
+            # Calculate parent-child division time pairs
+            division_time_by_id = {}
+            for track in self.lineage_tracks:
+                if 'children' in track and track['children'] and 't' in track and len(track['t']) > 0:
+                    dt = track['t'][-1] - track['t'][0]
+                    if dt > 0:
+                        division_time_by_id[track['ID']] = dt
+            
+            parent_child_division_pairs = []
+            for track in self.lineage_tracks:
+                if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
+                    parent_dt = division_time_by_id[track['ID']]
+                    
+                    for child_id in track['children']:
+                        if child_id in division_time_by_id:
+                            child_dt = division_time_by_id[child_id]
+                            parent_child_division_pairs.append((parent_dt, child_dt))
+            
+            if parent_child_division_pairs:
+                parent_dts, child_dts = zip(*parent_child_division_pairs)
+                ax3.scatter(parent_dts, child_dts, alpha=0.7, color='blue')
+                ax3.set_title('Division Time: Parent vs. Child', fontsize=14, fontweight='bold')
+                ax3.set_xlabel('Parent Division Time', fontsize=12)
+                ax3.set_ylabel('Child Division Time', fontsize=12)
+                
+                # Add y=x reference line
+                min_val = min(min(parent_dts), min(child_dts))
+                max_val = max(max(parent_dts), max(child_dts))
+                ax3.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
+                
+                # Calculate correlation
+                correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
+                ax3.text(0.05, 0.95, f"Correlation: {correlation:.2f}", 
+                        transform=ax3.transAxes, 
+                        verticalalignment='top',
+                        fontsize=12,
+                        bbox=dict(facecolor='white', alpha=0.8))
+            
+            ax4.axis('off')
 
+            # Format the summary text with clear spacing
+            summary = (
+                f"Growth & Division Summary\n\n"
+                f"Total dividing cells: {self.growth_metrics['total_dividing_cells']}\n\n"
+                f"Division Time:\n"
+                f"  Mean:    {self.growth_metrics['avg_division_time']:.1f} frames\n"
+                f"  Std Dev: {self.growth_metrics['std_division_time']:.1f} frames\n"
+                f"  Median:  {self.growth_metrics['median_division_time']:.1f} frames\n\n"
+                f"Growth Rate:\n"
+                f"  Mean:    {self.growth_metrics['avg_growth_rate']:.4f}\n"
+                f"  Std Dev: {self.growth_metrics['std_growth_rate']:.4f}\n"
+            )
+
+            if parent_child_division_pairs:
+                summary += f"\nParent-Child Division Time\nCorrelation: {correlation:.2f}"
+
+            # Create a visible background for the summary text
+            summary_text = ax4.text(0.05, 0.95, summary, 
+                                transform=ax4.transAxes,
+                                verticalalignment='top', 
+                                horizontalalignment='left',
+                                fontfamily='monospace', 
+                                fontsize=12,
+                                bbox=dict(facecolor='white', alpha=0.9, 
+                                        boxstyle='round,pad=1.0',
+                                        edgecolor='gray'))
+            
+            # Create the canvas and add to layout
+            canvas = FigureCanvas(figure)
+            growth_layout.addWidget(canvas)
+            
+            # Adjust plot spacing
+            figure.subplots_adjust(hspace=0.35, wspace=0.35, bottom=0.1, top=0.95, left=0.1, right=0.95)
+            
+            # Store the figure for saving later
+            growth_fig = figure
+            
+            progress.setValue(100)
+            progress.close()
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            error_label = QLabel(
-                f"Error creating growth visualization: {str(e)}")
+            error_label = QLabel(f"Error creating growth visualization: {str(e)}")
             error_label.setStyleSheet("color: red")
             growth_layout.addWidget(error_label)
 
