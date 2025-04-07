@@ -880,7 +880,7 @@ class App(QMainWindow):
                 track['x']) >= MIN_TRACK_LENGTH]
             filtered_tracks.sort(
                 key=lambda track: len(track['x']), reverse=True)
-            MAX_TRACKS_TO_DISPLAY = 30
+            MAX_TRACKS_TO_DISPLAY = 100
             display_tracks = filtered_tracks[:MAX_TRACKS_TO_DISPLAY]
             total_tracks = len(all_tracks)
             long_tracks = len(filtered_tracks)
@@ -1212,12 +1212,16 @@ class App(QMainWindow):
                     "Precomputing morphology classifications...")
                 progress.setValue(10)
                 QApplication.processEvents()
+                
+                if hasattr(self, "cell_mapping") and self.cell_mapping:
+                    self.lineage_visualizer.cell_mapping = self.cell_mapping
+                    print(f"Transferring cell mapping with {len(self.cell_mapping)} entries to lineage visualizer")
 
                 # Precompute morphology for consistent classification
                 self.lineage_visualizer.precompute_morphology_classifications(
                     self.lineage_tracks)
 
-                progress.setValue(30)
+                progress.setValue(100)
                 QApplication.processEvents()
 
                 # If using top trees mode, find all connected components
