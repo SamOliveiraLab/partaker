@@ -1012,15 +1012,6 @@ def visualize_cell_regions(tracks, chamber_dimensions=(1392, 1040)):
     
     # Add legend for regions
     from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='lightyellow', edgecolor='none', alpha=0.3, label='Inlet Region'),
-        Patch(facecolor='lightgreen', edgecolor='none', alpha=0.3, label='Right Channel'),
-        Patch(facecolor='mistyrose', edgecolor='none', alpha=0.3, label='Corner Regions'),
-        Patch(facecolor='lightblue', edgecolor='none', alpha=0.3, label='Edge Regions'),
-        Patch(facecolor='white', edgecolor='none', label='Center Region')
-    ]
-    plt.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, -0.15),
-              ncol=3, fontsize=10)
     
     # Add grid and set limits
     plt.grid(True, linestyle='--', alpha=0.3)
@@ -1164,15 +1155,6 @@ def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_
     
     # Add legend for regions
     from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='lightyellow', edgecolor='none', alpha=0.2, label='Inlet Region'),
-        Patch(facecolor='lightgreen', edgecolor='none', alpha=0.2, label='Right Channel'),
-        Patch(facecolor='mistyrose', edgecolor='none', alpha=0.2, label='Corner Regions'),
-        Patch(facecolor='lightblue', edgecolor='none', alpha=0.2, label='Edge Regions'),
-        Patch(facecolor='white', edgecolor='none', label='Center Region')
-    ]
-    plt.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, -0.1),
-              ncol=3, fontsize=10)
     
     # Add statistical summary
     summary_text = (
