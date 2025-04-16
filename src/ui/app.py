@@ -1,5 +1,7 @@
 from pathlib import Path
 import sys
+import os
+import pickle
 
 import cv2
 import imageio.v3 as iio
@@ -35,9 +37,10 @@ from morphology import (
     extract_cells_and_metrics,
 )
 from segmentation.segmentation_models import SegmentationModels
-from tracking import optimize_tracking_parameters, track_cells
+from tracking import optimize_tracking_parameters, track_cells, visualize_cell_regions, enhanced_motility_index, visualize_motility_map, visualize_motility_metrics, analyze_motility_by_region, visualize_motility_with_chamber_regions
 from .roisel import PolygonROISelector
 from .about import AboutDialog
+from lineage_visualization import LineageVisualization
 
 
 class MorphologyWorker(QObject):
@@ -137,6 +140,9 @@ class App(QMainWindow):
             key: (color[2] / 255, color[1] / 255, color[0] / 255)
             for key, color in self.morphology_colors.items()
         }
+
+        self.lineage_visualizer = LineageVisualization(
+            self.morphology_colors_rgb)
 
         # Initialize the processed_images list to store images for export
         self.processed_images = []
@@ -459,7 +465,8 @@ class App(QMainWindow):
                     colored_image[:, :, 0] = image_data  # Red channel
                 elif c == 2:  # YFP - yellow/green
                     colored_image[:, :, 1] = image_data  # Green channel
-                    colored_image[:, :, 0] = image_data  # Add red to make it yellow
+                    # Add red to make it yellow
+                    colored_image[:, :, 0] = image_data
                 image_data = colored_image
                 image_format = QImage.Format_RGB888
             else:
@@ -619,7 +626,7 @@ class App(QMainWindow):
         self.motility_button = QPushButton("Analyze Cell Motility")
         self.motility_button.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold;")
-        self.motility_button.clicked.connect(self.analyze_motility)
+        self.motility_button.clicked.connect(self.analyze_cell_motility)
         tracking_buttons_layout.addWidget(self.motility_button)
 
         # Inner Tabs for Plots
@@ -628,7 +635,7 @@ class App(QMainWindow):
 
         self.plot_tabs.addTab(
             self.morphology_fractions_tab,
-            "Morphology Fractions")
+            "Morphology Fractions & Lineage Tracking")
         layout.addWidget(self.plot_tabs)
 
         # Plot for Morphology Fractions
@@ -646,224 +653,6 @@ class App(QMainWindow):
         # Connect Process Button
         self.segment_button.clicked.connect(
             self.process_morphology_time_series)
-
-    def create_lineage_tree(self, tracks, canvas, root_cell_id=None):
-        """
-        Create a lineage tree visualization using NetworkX on a provided canvas.
-
-        Parameters:
-        -----------
-        tracks : list
-            List of track dictionaries with lineage information (ID, t, children).
-        canvas : FigureCanvasQTAgg
-            The Matplotlib canvas to draw on.
-        root_cell_id : int or None
-            If provided, visualize only the lineage tree starting from this cell.
-        """
-        # Clear the existing figure
-        canvas.figure.clear()
-
-        import networkx as nx
-
-        # Create directed graph
-        G = nx.DiGraph()
-
-        try:
-            # Add nodes for each track
-            for track in tracks:
-                track_id = track['ID']
-
-                # Get timing information
-                if 't' in track and len(track['t']) > 0:
-                    start_time = int(min(track['t']))
-                    end_time = int(max(track['t']))
-                    duration = end_time - start_time + 1
-                else:
-                    start_time = 0
-                    end_time = 0
-                    duration = 0
-
-                # Determine if this track divides
-                has_children = 'children' in track and track['children']
-
-                # Add node with attributes
-                G.add_node(track_id,
-                           start_time=start_time,
-                           end_time=end_time,
-                           duration=duration,
-                           divides=has_children)
-
-            # Add edges for parent-child relationships
-            for track in tracks:
-                if 'children' in track and track['children']:
-                    for child_id in track['children']:
-                        G.add_edge(track['ID'], child_id)
-
-            # Filter based on root_cell_id if provided
-            if root_cell_id is not None:
-                descendants = set()
-
-                def get_descendants(node):
-                    descendants.add(node)
-                    if G.nodes[node]['divides']:
-                        for child in G.neighbors(node):
-                            get_descendants(child)
-                get_descendants(root_cell_id)
-                G = G.subgraph(descendants).copy()
-                print(
-                    f"Visualizing lineage tree for cell {root_cell_id} with {len(G.nodes())} nodes")
-            else:
-                # Find connected components and take top 5
-                connected_components = list(nx.weakly_connected_components(G))
-                print(
-                    f"Found {len(connected_components)} separate lineage trees")
-                largest_components = sorted(
-                    connected_components, key=len, reverse=True)
-                top_components = largest_components[:min(
-                    5, len(largest_components))]
-                G = G.subgraph(set.union(*top_components)).copy()
-                print(f"Showing top {len(top_components)} lineage trees")
-
-            # Add subplot
-            if root_cell_id is None and len(top_components) > 1:
-                axes = []
-                for i in range(len(top_components)):
-                    ax = canvas.figure.add_subplot(
-                        1, len(top_components), i + 1)
-                    axes.append(ax)
-            else:
-                ax = canvas.figure.add_subplot(111)
-                axes = [ax]
-
-            # Plot each component or single tree
-            if root_cell_id is None and len(top_components) > 1:
-                for i, component in enumerate(top_components):
-                    subgraph = G.subgraph(component)
-                    roots = [n for n in subgraph.nodes(
-                    ) if subgraph.in_degree(n) == 0]
-                    if not roots:
-                        axes[i].text(0.5, 0.5, "No root node",
-                                     ha='center', va='center')
-                        axes[i].axis('off')
-                        continue
-
-                    pos = self.hierarchy_pos(subgraph, roots[0])
-                    node_sizes = [100 + subgraph.nodes[n]
-                                  ['duration'] * 10 for n in subgraph.nodes()]
-                    node_colors = [
-                        'red' if subgraph.nodes[n]['divides'] else 'blue' for n in subgraph.nodes()]
-
-                    nx.draw_networkx_nodes(
-                        subgraph,
-                        pos,
-                        node_size=node_sizes,
-                        node_color=node_colors,
-                        alpha=0.8,
-                        ax=axes[i])
-                    nx.draw_networkx_edges(
-                        subgraph,
-                        pos,
-                        edge_color='black',
-                        arrows=True,
-                        arrowsize=15,
-                        ax=axes[i])
-                    nx.draw_networkx_labels(
-                        subgraph, pos, font_size=8, ax=axes[i])
-
-                    axes[i].set_title(f"Tree {i+1} ({len(component)} cells)")
-                    axes[i].axis('off')
-            else:
-                # Single tree (either specific cell or single component)
-                roots = [n for n in G.nodes() if G.in_degree(n) == 0]
-                if not roots:
-                    axes[0].text(0.5, 0.5, "No root node",
-                                 ha='center', va='center')
-                    axes[0].axis('off')
-                else:
-                    pos = self.hierarchy_pos(G, roots[0])
-                    node_sizes = [100 + G.nodes[n]
-                                  ['duration'] * 10 for n in G.nodes()]
-                    node_colors = ['red' if G.nodes[n]['divides'] else 'blue'
-                                   for n in G.nodes()]
-
-                    nx.draw_networkx_nodes(
-                        G,
-                        pos,
-                        node_size=node_sizes,
-                        node_color=node_colors,
-                        alpha=0.8,
-                        ax=axes[0])
-                    nx.draw_networkx_edges(
-                        G,
-                        pos,
-                        edge_color='black',
-                        arrows=True,
-                        arrowsize=15,
-                        ax=axes[0])
-                    nx.draw_networkx_labels(G, pos, font_size=8, ax=axes[0])
-
-                    title = f"Lineage Tree for Cell {root_cell_id}" if root_cell_id else "Largest Lineage Tree"
-                    axes[0].set_title(f"{title}\n({len(G.nodes())} cells)")
-                    axes[0].axis('off')
-
-            canvas.figure.tight_layout()
-            canvas.draw()
-
-        except Exception as e:
-            print(f"Error in lineage tree: {e}")
-            ax = canvas.figure.add_subplot(111)
-            ax.text(0.5, 0.5, f"Error: {e}", ha='center', va='center')
-            ax.axis('off')
-            canvas.draw()
-
-        return G
-
-    def hierarchy_pos(
-            self,
-            G,
-            root,
-            width=1.,
-            vert_gap=0.1,
-            vert_loc=0,
-            xcenter=0.5):
-        """
-        Position nodes in a hierarchical layout.
-        """
-        def _hierarchy_pos(
-                G,
-                root,
-                width=1.,
-                vert_gap=0.1,
-                vert_loc=0,
-                xcenter=0.5,
-                pos=None,
-                parent=None,
-                parsed=[]):
-            if pos is None:
-                pos = {root: (xcenter, vert_loc)}
-            else:
-                pos[root] = (xcenter, vert_loc)
-            children = list(G.neighbors(root))
-            if parent is not None and root in children:
-                children.remove(parent)
-            if children:
-                dx = width / len(children)
-                nextx = xcenter - width / 2 - dx / 2
-                for child in children:
-                    nextx += dx
-                    pos = _hierarchy_pos(
-                        G,
-                        child,
-                        width=dx,
-                        vert_gap=vert_gap,
-                        vert_loc=vert_loc -
-                        vert_gap,
-                        xcenter=nextx,
-                        pos=pos,
-                        parent=root,
-                        parsed=parsed)
-            return pos
-        return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
 
     def visualize_tracking(self, tracks):
         """
@@ -1035,6 +824,20 @@ class App(QMainWindow):
                 self, "Error", f"Failed to create tracking video: {str(e)}")
 
     def track_cells_with_lineage(self):
+        # Check if lineage data is already loaded
+        if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
+            # Skip tracking and go straight to visualization
+            print("Using previously loaded tracking data")
+
+            reply = QMessageBox.question(
+                self, "Lineage Analysis",
+                "Would you like to visualize the cell lineage tree?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.show_lineage_dialog()
+            return
+
         p = self.slider_p.value()
         c = self.slider_c.value() if self.has_channels else None
         if not self.image_data.is_nd2:
@@ -1070,13 +873,14 @@ class App(QMainWindow):
             progress.setValue(0)
             progress.setMaximum(100)
             all_tracks, _ = track_cells(labeled_frames)
+            visualize_cell_regions(all_tracks)
             self.lineage_tracks = all_tracks  # Store all tracks
             MIN_TRACK_LENGTH = 5
             filtered_tracks = [track for track in all_tracks if len(
                 track['x']) >= MIN_TRACK_LENGTH]
             filtered_tracks.sort(
                 key=lambda track: len(track['x']), reverse=True)
-            MAX_TRACKS_TO_DISPLAY = 30
+            MAX_TRACKS_TO_DISPLAY = 100
             display_tracks = filtered_tracks[:MAX_TRACKS_TO_DISPLAY]
             total_tracks = len(all_tracks)
             long_tracks = len(filtered_tracks)
@@ -1105,6 +909,496 @@ class App(QMainWindow):
                 "Tracking Error",
                 f"Failed to track cells with lineage: {str(e)}")
 
+    def show_timepoint_lineage_comparison(self):
+        """
+        Display both time zero and time last lineage trees side by side for comparison,
+        with a separate tab for growth and division analysis.
+        """
+        if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No tracking data available. Run tracking with lineage first.")
+            return
+
+        # Create a dialog for the comparison
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lineage Tree Time Comparison")
+        dialog.setMinimumWidth(1200)
+        dialog.setMinimumHeight(800)
+        layout = QVBoxLayout(dialog)
+
+        # Create tab widget for the two different analyses
+        tab_widget = QTabWidget()
+
+        # First tab - Time comparison visualization
+        comparison_tab = QWidget()
+        comparison_layout = QVBoxLayout(comparison_tab)
+
+        # Cell selection options for time comparison
+        selection_layout = QHBoxLayout()
+        option_group = QButtonGroup(dialog)
+
+        top_radio = QRadioButton("Top Largest Lineage Tree")
+        top_radio.setChecked(True)
+        option_group.addButton(top_radio)
+        selection_layout.addWidget(top_radio)
+
+        cell_radio = QRadioButton("Specific Cell Lineage:")
+        option_group.addButton(cell_radio)
+        selection_layout.addWidget(cell_radio)
+
+        cell_combo = QComboBox()
+        cell_combo.setEnabled(False)
+        selection_layout.addWidget(cell_combo)
+
+        # Find dividing cells for the combo box
+        dividing_cells = [track['ID']
+                          for track in self.lineage_tracks if track.get('children', [])]
+        dividing_cells.sort()
+        for cell_id in dividing_cells:
+            cell_combo.addItem(f"Cell {cell_id}")
+
+        # Enable/disable combo box based on radio selection
+        def update_combo_state():
+            cell_combo.setEnabled(cell_radio.isChecked())
+
+        top_radio.toggled.connect(update_combo_state)
+        cell_radio.toggled.connect(update_combo_state)
+
+        comparison_layout.addLayout(selection_layout)
+
+        # Create a horizontal layout for the two trees
+        trees_layout = QHBoxLayout()
+
+        # Time zero tree
+        time_zero_widget = QWidget()
+        time_zero_layout = QVBoxLayout(time_zero_widget)
+        time_zero_label = QLabel("Time Zero (First Appearance)")
+        time_zero_label.setAlignment(Qt.AlignCenter)
+        time_zero_layout.addWidget(time_zero_label)
+
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+
+        time_zero_figure = Figure(figsize=(5, 8), tight_layout=True)
+        time_zero_canvas = FigureCanvas(time_zero_figure)
+        time_zero_layout.addWidget(time_zero_canvas)
+
+        # Time last tree
+        time_last_widget = QWidget()
+        time_last_layout = QVBoxLayout(time_last_widget)
+        time_last_label = QLabel("Time Last (Before Division)")
+        time_last_label.setAlignment(Qt.AlignCenter)
+        time_last_layout.addWidget(time_last_label)
+
+        time_last_figure = Figure(figsize=(5, 8), tight_layout=True)
+        time_last_canvas = FigureCanvas(time_last_figure)
+        time_last_layout.addWidget(time_last_canvas)
+
+        # Add widgets to the trees layout
+        trees_layout.addWidget(time_zero_widget)
+        trees_layout.addWidget(time_last_widget)
+
+        # Add trees layout to comparison tab layout
+        comparison_layout.addLayout(trees_layout)
+
+        # Create navigation area for previous/next tree
+        nav_layout = QHBoxLayout()
+        prev_button = QPushButton("Previous Tree")
+        tree_counter_label = QLabel("Tree 1/1")
+        tree_counter_label.setAlignment(Qt.AlignCenter)
+        next_button = QPushButton("Next Tree")
+
+        nav_layout.addWidget(prev_button)
+        nav_layout.addWidget(tree_counter_label)
+        nav_layout.addWidget(next_button)
+        comparison_layout.addLayout(nav_layout)
+
+        # Add the comparison tab to the tab widget
+        tab_widget.addTab(comparison_tab, "Time Comparison")
+
+        # Second tab - Growth & Division analysis
+        growth_tab = QWidget()
+        growth_layout = QVBoxLayout(growth_tab)
+
+        try:
+            # Calculate growth metrics if not already available
+            if not hasattr(self, "growth_metrics"):
+                progress = QProgressDialog(
+                    "Calculating growth metrics...", "Cancel", 0, 100, dialog)
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setValue(10)
+                progress.show()
+                QApplication.processEvents()
+                
+                self.growth_metrics = self.lineage_visualizer.calculate_growth_and_division_metrics(
+                    self.lineage_tracks)
+                
+                progress.setValue(50)
+                progress.setLabelText("Creating visualization...")
+                QApplication.processEvents()
+
+            # Create the growth figure with more space
+            from matplotlib.figure import Figure
+            # Increase figure size to fit the available space
+            figure = Figure(figsize=(12, 10), dpi=100)
+            
+            # Set up the subplots with more space between them
+            gs = figure.add_gridspec(2, 2, hspace=0.4, wspace=0.4)
+            
+            # Add the subplots
+            ax1 = figure.add_subplot(gs[0, 0])  # Division Time Distribution
+            ax2 = figure.add_subplot(gs[0, 1])  # Growth Rate Distribution
+            ax3 = figure.add_subplot(gs[1, 0])  # Division Time: Parent vs. Child
+            ax4 = figure.add_subplot(gs[1, 1])  # Summary statistics
+            
+            # 1. Histogram of division times
+            ax1.hist(self.growth_metrics['division_times'], bins=20, color='skyblue', edgecolor='black')
+            ax1.set_title('Division Time Distribution', fontsize=14, fontweight='bold')
+            ax1.set_xlabel('Time (frames)', fontsize=12)
+            ax1.set_ylabel('Cell Count', fontsize=12)
+            ax1.axvline(self.growth_metrics['avg_division_time'], color='red', 
+                        linestyle='--', label=f"Mean: {self.growth_metrics['avg_division_time']:.1f}")
+            ax1.axvline(self.growth_metrics['median_division_time'], color='green', 
+                        linestyle='--', label=f"Median: {self.growth_metrics['median_division_time']:.1f}")
+            ax1.legend(fontsize=11)
+            
+            # 2. Histogram of growth rates
+            ax2.hist(self.growth_metrics['growth_rates'], bins=20, color='lightgreen', edgecolor='black')
+            ax2.set_title('Growth Rate Distribution', fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Growth Rate (ln(2)/division time)', fontsize=12)
+            ax2.set_ylabel('Cell Count', fontsize=12)
+            ax2.axvline(self.growth_metrics['avg_growth_rate'], color='red', 
+                        linestyle='--', label=f"Mean: {self.growth_metrics['avg_growth_rate']:.4f}")
+            ax2.legend(fontsize=11)
+            
+            # 3. Parent vs child division times
+            # Calculate parent-child division time pairs
+            division_time_by_id = {}
+            for track in self.lineage_tracks:
+                if 'children' in track and track['children'] and 't' in track and len(track['t']) > 0:
+                    dt = track['t'][-1] - track['t'][0]
+                    if dt > 0:
+                        division_time_by_id[track['ID']] = dt
+            
+            parent_child_division_pairs = []
+            for track in self.lineage_tracks:
+                if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
+                    parent_dt = division_time_by_id[track['ID']]
+                    
+                    for child_id in track['children']:
+                        if child_id in division_time_by_id:
+                            child_dt = division_time_by_id[child_id]
+                            parent_child_division_pairs.append((parent_dt, child_dt))
+            
+            if parent_child_division_pairs:
+                parent_dts, child_dts = zip(*parent_child_division_pairs)
+                ax3.scatter(parent_dts, child_dts, alpha=0.7, color='blue')
+                ax3.set_title('Division Time: Parent vs. Child', fontsize=14, fontweight='bold')
+                ax3.set_xlabel('Parent Division Time', fontsize=12)
+                ax3.set_ylabel('Child Division Time', fontsize=12)
+                
+                # Add y=x reference line
+                min_val = min(min(parent_dts), min(child_dts))
+                max_val = max(max(parent_dts), max(child_dts))
+                ax3.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
+                
+                # Calculate correlation
+                correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
+                ax3.text(0.05, 0.95, f"Correlation: {correlation:.2f}", 
+                        transform=ax3.transAxes, 
+                        verticalalignment='top',
+                        fontsize=12,
+                        bbox=dict(facecolor='white', alpha=0.8))
+            
+            ax4.axis('off')
+
+            # Format the summary text with clear spacing
+            summary = (
+                f"Growth & Division Summary\n\n"
+                f"Total dividing cells: {self.growth_metrics['total_dividing_cells']}\n\n"
+                f"Division Time:\n"
+                f"  Mean:    {self.growth_metrics['avg_division_time']:.1f} frames\n"
+                f"  Std Dev: {self.growth_metrics['std_division_time']:.1f} frames\n"
+                f"  Median:  {self.growth_metrics['median_division_time']:.1f} frames\n\n"
+                f"Growth Rate:\n"
+                f"  Mean:    {self.growth_metrics['avg_growth_rate']:.4f}\n"
+                f"  Std Dev: {self.growth_metrics['std_growth_rate']:.4f}\n"
+            )
+
+            if parent_child_division_pairs:
+                summary += f"\nParent-Child Division Time\nCorrelation: {correlation:.2f}"
+
+            # Create a visible background for the summary text
+            summary_text = ax4.text(0.05, 0.95, summary, 
+                                transform=ax4.transAxes,
+                                verticalalignment='top', 
+                                horizontalalignment='left',
+                                fontfamily='monospace', 
+                                fontsize=12,
+                                bbox=dict(facecolor='white', alpha=0.9, 
+                                        boxstyle='round,pad=1.0',
+                                        edgecolor='gray'))
+            
+            # Create the canvas and add to layout
+            canvas = FigureCanvas(figure)
+            growth_layout.addWidget(canvas)
+            
+            # Adjust plot spacing
+            figure.subplots_adjust(hspace=0.35, wspace=0.35, bottom=0.1, top=0.95, left=0.1, right=0.95)
+            
+            # Store the figure for saving later
+            growth_fig = figure
+            
+            progress.setValue(100)
+            progress.close()
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_label = QLabel(f"Error creating growth visualization: {str(e)}")
+            error_label.setStyleSheet("color: red")
+            growth_layout.addWidget(error_label)
+
+        # Add the growth tab to the tab widget
+        tab_widget.addTab(growth_tab, "Growth & Division")
+
+        # Add tab widget to main layout
+        layout.addWidget(tab_widget)
+
+        # Add control buttons at the bottom
+        button_layout = QHBoxLayout()
+        view_button = QPushButton("Generate Visualization")
+        save_button = QPushButton("Save Images")
+        close_button = QPushButton("Close")
+
+        button_layout.addWidget(view_button)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(close_button)
+
+        # Add export button to the buttons layout
+        export_data_button = QPushButton("Export Classification Data")
+        export_data_button.clicked.connect(
+            lambda: self.lineage_visualizer.export_morphology_classifications(dialog))
+        button_layout.addWidget(export_data_button)
+
+        layout.addLayout(button_layout)
+
+        # Store state for tree navigation
+        current_tree_index = [0]
+        available_trees = []
+
+        # Function to generate the visualizations
+        def generate_visualizations():
+            # Get selected cell ID if applicable
+            selected_cell = None
+            if cell_radio.isChecked() and cell_combo.currentText():
+                selected_cell = int(
+                    cell_combo.currentText().replace("Cell ", ""))
+                current_tree_index[0] = 0  # Reset index for specific cell
+
+            # Show progress while generating
+            progress = QProgressDialog(
+                "Generating visualizations...", "Cancel", 0, 100, dialog)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
+
+            try:
+                # First, precompute all morphology classifications
+                progress.setLabelText(
+                    "Precomputing morphology classifications...")
+                progress.setValue(10)
+                QApplication.processEvents()
+                
+                if hasattr(self, "cell_mapping") and self.cell_mapping:
+                    self.lineage_visualizer.cell_mapping = self.cell_mapping
+                    print(f"Transferring cell mapping with {len(self.cell_mapping)} entries to lineage visualizer")
+
+                # Precompute morphology for consistent classification
+                self.lineage_visualizer.precompute_morphology_classifications(
+                    self.lineage_tracks)
+
+                progress.setValue(100)
+                QApplication.processEvents()
+
+                # If using top trees mode, find all connected components
+                if top_radio.isChecked():
+                    # Create a graph to find connected components
+                    import networkx as nx
+                    G = nx.DiGraph()
+
+                    # Add nodes and edges
+                    for track in self.lineage_tracks:
+                        track_id = track['ID']
+                        G.add_node(track_id)
+                        if 'children' in track and track['children']:
+                            for child_id in track['children']:
+                                G.add_edge(track_id, child_id)
+
+                    # Find all connected components
+                    components = list(nx.weakly_connected_components(G))
+                    # Sort by size (largest first)
+                    available_trees.clear()
+                    available_trees.extend(sorted(components, key=len, reverse=True)[
+                                           :5])  # Top 5 largest
+
+                    # Make sure current index is valid
+                    if not available_trees:
+                        QMessageBox.warning(
+                            dialog, "Error", "No valid lineage trees found")
+                        progress.close()
+                        return
+
+                    if current_tree_index[0] >= len(available_trees):
+                        current_tree_index[0] = 0
+
+                    # Get root of current tree for visualization
+                    tree_nodes = list(available_trees[current_tree_index[0]])
+
+                    # Find the root node of this tree (node with no parent in this tree)
+                    root_candidates = []
+                    for node in tree_nodes:
+                        is_root = True
+                        for track in self.lineage_tracks:
+                            if 'children' in track and node in track['children']:
+                                # Only consider parents in same tree
+                                if track['ID'] in tree_nodes:
+                                    is_root = False
+                                    break
+                        if is_root:
+                            root_candidates.append(node)
+
+                    # Use first root found or smallest ID if no clear root
+                    root_cell_id = root_candidates[0] if root_candidates else min(
+                        tree_nodes)
+
+                    # Update tree counter
+                    tree_counter_label.setText(
+                        f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
+
+                    # Enable navigation buttons if we have multiple trees
+                    prev_button.setEnabled(len(available_trees) > 1)
+                    next_button.setEnabled(len(available_trees) > 1)
+                else:
+                    # Specific cell selected - use that as root
+                    root_cell_id = selected_cell
+                    # Disable navigation for specific cell mode
+                    prev_button.setEnabled(False)
+                    next_button.setEnabled(False)
+                    tree_counter_label.setText("Custom Tree")
+
+                # Generate time zero tree with cartoony style
+                progress.setLabelText("Generating Time Zero visualization...")
+                progress.setValue(50)
+                QApplication.processEvents()
+
+                self.lineage_visualizer.create_cartoony_lineage_comparison(
+                    self.lineage_tracks, time_zero_canvas,
+                    root_cell_id=root_cell_id, time_point="first")
+
+                # Generate time last tree with cartoony style
+                progress.setLabelText("Generating Time Last visualization...")
+                progress.setValue(70)
+                QApplication.processEvents()
+
+                self.lineage_visualizer.create_cartoony_lineage_comparison(
+                    self.lineage_tracks, time_last_canvas,
+                    root_cell_id=root_cell_id, time_point="last")
+
+                # Calculate diversity metrics
+                progress.setLabelText("Calculating diversity metrics...")
+                progress.setValue(90)
+                QApplication.processEvents()
+
+                metrics = self.lineage_visualizer.calculate_diversity_metrics(
+                    self.lineage_tracks)
+
+                progress.setValue(100)
+
+            except Exception as e:
+                QMessageBox.warning(
+                    dialog, "Error", f"Error generating visualization: {str(e)}")
+                print(f"Visualization error: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                progress.close()
+
+        # Navigation functions
+        def go_to_next_tree():
+            if not available_trees or len(available_trees) <= 1:
+                return
+
+            # Move to next tree
+            current_tree_index[0] = (
+                current_tree_index[0] + 1) % len(available_trees)
+            generate_visualizations()
+
+        def go_to_previous_tree():
+            if not available_trees or len(available_trees) <= 1:
+                return
+
+            # Move to previous tree
+            current_tree_index[0] = (
+                current_tree_index[0] - 1) % len(available_trees)
+            generate_visualizations()
+
+        # Connect button signals
+        view_button.clicked.connect(generate_visualizations)
+        save_button.clicked.connect(
+            lambda: save_images(tab_widget.currentIndex()))
+        close_button.clicked.connect(dialog.close)
+        prev_button.clicked.connect(go_to_previous_tree)
+        next_button.clicked.connect(go_to_next_tree)
+
+        # Function to save images depending on which tab is active
+        def save_images(tab_index):
+            if tab_index == 0:  # Time Comparison tab
+                save_path, _ = QFileDialog.getSaveFileName(
+                    dialog, "Save Visualization", "", "PNG Files (*.png)")
+                if save_path:
+                    # Extract base path without extension
+                    base_path = save_path.replace(".png", "")
+
+                    # Get current tree info for filename
+                    tree_info = ""
+                    if top_radio.isChecked():
+                        tree_info = f"tree{current_tree_index[0]+1}"
+                    else:
+                        tree_info = f"cell{cell_combo.currentText().replace('Cell ', '')}"
+
+                    # Save time zero tree
+                    time_zero_path = f"{base_path}_{tree_info}_time_zero.png"
+                    time_zero_figure.savefig(
+                        time_zero_path, dpi=300, bbox_inches='tight')
+
+                    # Save time last tree
+                    time_last_path = f"{base_path}_{tree_info}_time_last.png"
+                    time_last_figure.savefig(
+                        time_last_path, dpi=300, bbox_inches='tight')
+
+                    QMessageBox.information(
+                        dialog, "Save Complete",
+                        f"Images saved as:\n{time_zero_path}\n{time_last_path}")
+
+            elif tab_index == 1:  # Growth & Division tab
+                save_path, _ = QFileDialog.getSaveFileName(
+                    dialog, "Save Growth Analysis", "", "PNG Files (*.png)")
+                if save_path:
+                    growth_fig.savefig(save_path, dpi=300, bbox_inches='tight')
+                    QMessageBox.information(
+                        dialog, "Save Complete",
+                        f"Growth analysis saved as:\n{save_path}")
+
+        # Initial generation
+        generate_visualizations()
+
+        # Show the dialog
+        dialog.exec_()
+
     def show_lineage_dialog(self):
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
@@ -1112,16 +1406,25 @@ class App(QMainWindow):
                 "Error",
                 "No tracking data available. Run tracking with lineage first.")
             return
+
         dialog = QDialog(self)
         dialog.setWindowTitle("Lineage Tree Visualization")
-        dialog.setMinimumWidth(600)
+        dialog.setMinimumWidth(800)
         dialog.setMinimumHeight(700)
         layout = QVBoxLayout(dialog)
-        info_label = QLabel(
-            "Select a visualization option below. Cell lineage trees show parent-child relationships.\n"
-            "Red nodes indicate cells that divide further, blue nodes are cells that don't divide.")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
+
+        # Add visualization type selection
+        viz_layout = QHBoxLayout()
+        viz_label = QLabel("Visualization Style:")
+        viz_layout.addWidget(viz_label)
+
+        viz_type = QComboBox()
+        viz_type.addItems(
+            ["Standard Lineage Tree", "Morphology-Enhanced Tree"])
+        viz_layout.addWidget(viz_type)
+        layout.addLayout(viz_layout)
+
+        # Cell selection options (same as original)
         selection_layout = QHBoxLayout()
         option_group = QButtonGroup(dialog)
         top_radio = QRadioButton("Top 5 Largest Lineage Trees")
@@ -1146,11 +1449,34 @@ class App(QMainWindow):
             cell_combo.setEnabled(cell_radio.isChecked())
         top_radio.toggled.connect(update_combo_state)
         cell_radio.toggled.connect(update_combo_state)
+
+        # Canvas for the visualization (same as original)
         from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
         figure = Figure(figsize=(9, 6), tight_layout=True)
         canvas = FigureCanvas(figure)
         layout.addWidget(canvas)
+
+        # NEW: Navigation layout for previous/next buttons
+        nav_layout = QHBoxLayout()
+        prev_button = QPushButton("Previous Tree")
+        next_button = QPushButton("Next Tree")
+
+        # Add a label to show current tree number
+        tree_counter_label = QLabel("Tree 1/1")
+        tree_counter_label.setAlignment(Qt.AlignCenter)
+
+        nav_layout.addWidget(prev_button)
+        nav_layout.addWidget(tree_counter_label)
+        nav_layout.addWidget(next_button)
+        layout.addLayout(nav_layout)
+
+        # Add variables to track current tree index and available trees
+        # Use list to allow modification inside closures
+        current_tree_index = [0]
+        available_trees = []  # Will store the list of trees
+
+        # Original buttons
         button_layout = QHBoxLayout()
         view_button = QPushButton("Visualize")
         save_button = QPushButton("Save")
@@ -1158,6 +1484,13 @@ class App(QMainWindow):
         button_layout.addWidget(view_button)
         button_layout.addWidget(save_button)
         button_layout.addWidget(close_button)
+
+        # Add this button to your existing lineage dialog
+        comparison_button = QPushButton("Compare Time Zero vs Time Last")
+        comparison_button.clicked.connect(
+            self.show_timepoint_lineage_comparison)
+        button_layout.addWidget(comparison_button)
+
         layout.addLayout(button_layout)
 
         def create_visualization():
@@ -1165,19 +1498,148 @@ class App(QMainWindow):
             if cell_radio.isChecked() and cell_combo.currentText():
                 selected_cell = int(
                     cell_combo.currentText().replace("Cell ", ""))
-            self.create_lineage_tree(
-                self.lineage_tracks, canvas, root_cell_id=selected_cell)
+                # Reset index when showing specific cell
+                current_tree_index[0] = 0
+
+            # Handle tree identification - this is common code for both visualization types
+            if top_radio.isChecked():
+                # Get all trees by analyzing connected components
+                import networkx as nx
+                G = nx.DiGraph()
+
+                # Build the graph
+                for track in self.lineage_tracks:
+                    G.add_node(track['ID'])
+                    if 'children' in track and track['children']:
+                        for child_id in track['children']:
+                            G.add_edge(track['ID'], child_id)
+
+                # Find connected components (these are our trees)
+                connected_components = list(nx.weakly_connected_components(G))
+                # Sort by size (largest first)
+                available_trees.clear()
+                available_trees.extend(
+                    sorted(connected_components, key=len, reverse=True)[:5])
+
+                # Make sure current index is valid
+                if not available_trees:
+                    current_tree_index[0] = 0
+                elif current_tree_index[0] >= len(available_trees):
+                    current_tree_index[0] = 0
+
+                # Get root of current tree
+                if available_trees:
+                    tree_nodes = list(available_trees[current_tree_index[0]])
+
+                    # Find root nodes (no parents in this tree)
+                    root_candidates = []
+                    for node in tree_nodes:
+                        is_root = True
+                        for _, child in G.in_edges(node):
+                            if child in tree_nodes:
+                                is_root = False
+                                break
+                        if is_root:
+                            root_candidates.append(node)
+
+                    # If no clear root, use the earliest appearing cell (lowest ID typically)
+                    if root_candidates:
+                        root_cell_id = min(root_candidates)
+                    else:
+                        root_cell_id = min(tree_nodes)
+
+                    # Update counter display
+                    tree_counter_label.setText(
+                        f"Tree {current_tree_index[0]+1}/{len(available_trees)}")
+                else:
+                    root_cell_id = None
+                    tree_counter_label.setText("Tree 0/0")
+
+                # Enable/disable navigation buttons
+                prev_button.setEnabled(len(available_trees) > 1)
+                next_button.setEnabled(len(available_trees) > 1)
+            else:
+                # Specific cell mode
+                root_cell_id = selected_cell
+                available_trees.clear()
+                tree_counter_label.setText("Cell Lineage")
+
+                # Disable navigation buttons in cell-specific mode
+                prev_button.setEnabled(False)
+                next_button.setEnabled(False)
+
+            # Choose visualization based on combo box selection
+            if viz_type.currentText() == "Morphology-Enhanced Tree":
+                # Use the morphology visualization with the selected root
+                self.lineage_visualizer.visualize_morphology_lineage_tree(
+                    self.lineage_tracks, canvas, root_cell_id)
+            else:
+                # Use the standard visualization with the selected root
+                self.lineage_visualizer.create_lineage_tree(
+                    self.lineage_tracks, canvas, root_cell_id=root_cell_id)
+
+        def go_to_next_tree():
+            if not available_trees or len(available_trees) <= 1:
+                return
+
+            # Move to next tree
+            current_tree_index[0] = (
+                current_tree_index[0] + 1) % len(available_trees)
+
+            # Show activity indicator
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                create_visualization()
+            finally:
+                QApplication.restoreOverrideCursor()
+
+        def go_to_previous_tree():
+            if not available_trees or len(available_trees) <= 1:
+                return
+
+            # Move to previous tree
+            current_tree_index[0] = (
+                current_tree_index[0] - 1) % len(available_trees)
+
+            # Show activity indicator
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                create_visualization()
+            finally:
+                QApplication.restoreOverrideCursor()
 
         def save_visualization():
             output_path, _ = QFileDialog.getSaveFileName(
-                dialog, "Save Lineage Tree", "", "PNG Files (*.png);;All Files (*)")
+                dialog, "Save Lineage Tree", "", "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)")
             if output_path:
+                # Use a higher DPI for better image quality
                 figure.savefig(output_path, dpi=300, bbox_inches='tight')
                 QMessageBox.information(
                     dialog, "Success", f"Lineage tree saved to {output_path}")
+
+        def maximize_dialog():
+            """Toggle between normal and maximized window state"""
+            if dialog.isMaximized():
+                dialog.showNormal()
+            else:
+                dialog.showMaximized()
+
+        # Add a maximize button
+        maximize_button = QPushButton("Maximize Window")
+        maximize_button.clicked.connect(maximize_dialog)
+        button_layout.addWidget(maximize_button)
+
+        # Connect signals
         view_button.clicked.connect(create_visualization)
         save_button.clicked.connect(save_visualization)
         close_button.clicked.connect(dialog.close)
+        viz_type.currentIndexChanged.connect(create_visualization)
+
+        # Connect navigation buttons
+        next_button.clicked.connect(go_to_next_tree)
+        prev_button.clicked.connect(go_to_previous_tree)
+
+        # Initial visualization
         create_visualization()
         dialog.exec_()
 
@@ -1427,7 +1889,6 @@ class App(QMainWindow):
             # Save if path provided
             if output_path:
                 plt.savefig(output_path, dpi=300, bbox_inches='tight')
-                print(f"Saved lineage tree to {output_path}")
 
             plt.tight_layout()
             plt.show()
@@ -1441,156 +1902,11 @@ class App(QMainWindow):
                 f"Failed to visualize lineage tree: {str(e)}"
             )
 
-    def get_all_descendants(self, cell_id):
+    def analyze_cell_motility(self):
         """
-        Recursively get all descendants of a cell.
+        Analyze cell motility using the enhanced model and display visualizations.
         """
-        descendants = []
 
-        # Find the track for this cell
-        parent_track = None
-        for track in self.lineage_tracks:
-            if track['ID'] == cell_id:
-                parent_track = track
-                break
-
-        if parent_track and 'children' in parent_track and parent_track['children']:
-            # Add immediate children
-            descendants.extend(parent_track['children'])
-
-            # Recursively add descendants of each child
-            for child_id in parent_track['children']:
-                descendants.extend(self.get_all_descendants(child_id))
-
-        return descendants
-
-    def visualize_focused_lineage_tree(
-            self,
-            root_cell_id,
-            output_path=None,
-            progress_callback=None):
-        """
-        Create a focused lineage tree visualization starting from a specific cell.
-        """
-        import networkx as nx
-        import matplotlib.pyplot as plt
-
-        if progress_callback:
-            progress_callback(20)
-
-        # Get the cell and all its descendants
-        descendants = self.get_all_descendants(root_cell_id)
-
-        # Add the root cell itself
-        relevant_cell_ids = [root_cell_id] + descendants
-
-        # Create the graph
-        G = nx.DiGraph()
-
-        # Add nodes and edges
-        for track in self.lineage_tracks:
-            if track['ID'] in relevant_cell_ids:
-                # Add this node
-                G.add_node(track['ID'],
-                           start_time=track['t'][0] if track['t'] else 0,
-                           track=track)
-
-                # Add edges from parent to children
-                if 'children' in track and track['children']:
-                    for child_id in track['children']:
-                        if child_id in relevant_cell_ids:
-                            G.add_edge(track['ID'], child_id)
-
-        if progress_callback:
-            progress_callback(40)
-
-        # Set up the plot
-        plt.figure(figsize=(12, 10))
-
-        # Use hierarchical layout for tree
-        try:
-            # First try a hierarchical layout (best for trees)
-            pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
-        except BaseException:
-            try:
-                # Fallback to a different hierarchical layout
-                pos = nx.drawing.nx_agraph.graphviz_layout(G, prog='dot')
-            except BaseException:
-                # Last resort - spring layout with time on y-axis
-                pos = {}
-                for node in G.nodes():
-                    # Use random x position and time-based y position
-                    time = G.nodes[node].get('start_time', 0)
-                    import random
-                    # Negative for top-down orientation
-                    pos[node] = (random.random(), -time)
-
-        if progress_callback:
-            progress_callback(60)
-
-        # Draw the nodes
-        node_sizes = [300 for _ in G.nodes()]
-        node_colors = ['skyblue' for _ in G.nodes()]
-
-        # Highlight the root cell
-        node_colors = ['skyblue' if node != root_cell_id else 'red'
-                       for node in G.nodes()]
-
-        nx.draw_networkx_nodes(
-            G, pos,
-            node_size=node_sizes,
-            node_color=node_colors,
-            alpha=0.8
-        )
-
-        # Draw the edges with arrows
-        nx.draw_networkx_edges(
-            G, pos,
-            edge_color='gray',
-            width=1.5,
-            alpha=0.8,
-            arrows=True,
-            arrowstyle='-|>',
-            arrowsize=15
-        )
-
-        # Add labels
-        nx.draw_networkx_labels(G, pos, font_size=10)
-
-        if progress_callback:
-            progress_callback(80)
-
-        # Add title and labels
-        plt.title(f"Cell Lineage Tree (Root Cell: {root_cell_id})")
-        plt.grid(True, linestyle='--', alpha=0.3)
-
-        # Remove axis
-        plt.axis('off')
-
-        # Add info text
-        info_text = f"Root Cell: {root_cell_id}\n"
-        info_text += f"Total Descendants: {len(descendants)}\n"
-        info_text += f"Division Events: {len([t for t in self.lineage_tracks if t['ID'] in relevant_cell_ids and t.get('children')])}"
-
-        plt.figtext(0.02, 0.02, info_text,
-                    bbox=dict(facecolor='white', alpha=0.8), fontsize=10)
-
-        # Save or show
-        if output_path:
-            plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"Lineage tree saved to {output_path}")
-
-        plt.tight_layout()
-        plt.show()
-
-        if progress_callback:
-            progress_callback(100)
-
-    def analyze_motility(self):
-        """
-        Analyze cell motility and display results with option to use all tracks or filtered tracks.
-        """
-        # Check if any tracking data is available
         if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
             QMessageBox.warning(
                 self,
@@ -1599,7 +1915,6 @@ class App(QMainWindow):
             return
 
         # Ask user which set of tracks to use - with custom button text
-        from PySide6.QtWidgets import QMessageBox
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Motility Analysis Options")
         msg_box.setText("Which tracks would you like to analyze?")
@@ -1632,92 +1947,259 @@ class App(QMainWindow):
                 self, "Error", f"No {track_type} tracks available.")
             return
 
-        # Import the motility analysis functions from tracking.py
-        from tracking import calculate_motility_index, plot_motility_gauge
+        # Show progress dialog
+        progress = QProgressDialog(
+            "Analyzing cell motility...", "Cancel", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
 
-        # Calculate motility index and detailed metrics
-        motility_index, detailed_metrics = calculate_motility_index(
-            tracks_to_analyze)
+        # Get chamber dimensions if available
+        chamber_dimensions = None
+        try:
+            if hasattr(self, "image_data") and hasattr(self.image_data, "data"):
+                if self.image_data.is_nd2:
+                    if len(self.image_data.data.shape) >= 4:
+                        height = self.image_data.data.shape[-2]
+                        width = self.image_data.data.shape[-1]
+                        chamber_dimensions = (width, height)
+                else:
+                    height, width = self.image_data.data.shape[1:3]
+                    chamber_dimensions = (width, height)
 
-        # Store the results for later reference
-        self.motility_results = {
-            "motility_index": motility_index,
-            "detailed_metrics": detailed_metrics,
-            "track_type": track_type,
-            "environment_type": "MC"  # or "MCM" - you'll need to set this based on your data
-        }
+                if chamber_dimensions and (chamber_dimensions[0] < 10 or chamber_dimensions[1] < 10):
+                    print(
+                        f"Invalid chamber dimensions: {chamber_dimensions}, using defaults")
+                    chamber_dimensions = (1392, 1040)
+                else:
+                    print(f"Using chamber dimensions: {chamber_dimensions}")
+            else:
+                chamber_dimensions = (1392, 1040)
+                print(
+                    f"Using default chamber dimensions: {chamber_dimensions}")
+        except Exception as e:
+            print(f"Error determining chamber dimensions: {e}")
+            chamber_dimensions = (1392, 1040)
 
-        # Create visualization
-        self.figure_morphology_fractions.clear()
-        fig = self.figure_morphology_fractions
+        try:
+            # Calculate enhanced motility metrics
+            progress.setValue(20)
+            progress.setLabelText("Calculating motility metrics...")
+            QApplication.processEvents()
 
-        # Create a 2x2 grid
-        grid = fig.add_gridspec(2, 2)
+            motility_metrics = enhanced_motility_index(
+                tracks_to_analyze, chamber_dimensions)
 
-        # 1. Display motility index with gauge-like visualization
-        ax1 = fig.add_subplot(grid[0, 0])
-        plot_motility_gauge(ax1, motility_index)
+            progress.setValue(50)
+            progress.setLabelText(
+                "Collecting cell positions for visualization...")
+            QApplication.processEvents()
 
-        # 2. Histogram of displacements
-        ax2 = fig.add_subplot(grid[0, 1])
-        displacements = [m["net_displacement"]
-                         for m in detailed_metrics["individual_metrics"]]
-        ax2.hist(displacements, bins=10, color='skyblue', edgecolor='black')
-        ax2.set_title("Cell Displacements")
-        ax2.set_xlabel("Displacement (pixels)")
-        ax2.set_ylabel("Count")
+            # Collect all cell positions from segmentation data
+            all_cell_positions = []
+            p = self.slider_p.value()
+            c = self.slider_c.value() if self.has_channels else None
 
-        # 3. Plot trajectories (similar to your current visualization)
-        ax3 = fig.add_subplot(grid[1, 0])
-        for track in tracks_to_analyze:
-            x_coords = track['x']
-            y_coords = track['y']
-            ax3.plot(x_coords, y_coords, marker='o', markersize=2, linewidth=1)
+            try:
+                for t in range(min(20, self.dimensions.get("T", 1))):
+                    binary_image = self.image_data.segmentation_cache[t, p, c]
+                    if binary_image is not None:
+                        labeled_image = label(binary_image)
+                        for region in regionprops(labeled_image):
+                            y, x = region.centroid
+                            all_cell_positions.append((x, y))
+            except Exception as e:
+                print(f"Error collecting cell positions: {e}")
+                all_cell_positions = []
+                for track in tracks_to_analyze:
+                    all_cell_positions.extend(
+                        list(zip(track['x'], track['y'])))
 
-            # Mark start and end points
-            if len(x_coords) > 0:
-                ax3.plot(x_coords[0], y_coords[0], 'o', markersize=5)
-                ax3.plot(x_coords[-1], y_coords[-1], 's', markersize=5)
+            print(
+                f"Collected {len(all_cell_positions)} cell positions for visualization")
 
-        ax3.set_title("Cell Trajectories")
-        ax3.set_xlabel("X Coordinate")
-        ax3.set_ylabel("Y Coordinate")
+            # Create combined visualization tab
+            progress.setValue(60)
+            progress.setLabelText("Creating combined visualization...")
+            QApplication.processEvents()
 
-        # 4. Motion metrics summary
-        ax4 = fig.add_subplot(grid[1, 1])
-        ax4.axis('off')
+            combined_tab = QWidget()
+            combined_layout = QVBoxLayout(combined_tab)
+            combined_fig, _ = visualize_motility_with_chamber_regions(
+                tracks_to_analyze, all_cell_positions, chamber_dimensions, motility_metrics)
+            combined_canvas = FigureCanvas(combined_fig)
+            combined_layout.addWidget(combined_canvas)
 
-        # Create a summary text
-        summary_text = (
-            f"Motility Analysis Summary\n\n"
-            f"Motility Index: {motility_index:.1f}\n\n"
-            f"Average Displacement: {detailed_metrics['average_displacement']:.1f} px\n"
-            f"Average Velocity: {detailed_metrics['average_velocity']:.2f} px/frame\n"
-            f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n"
-            f"Movement Directness: {1/detailed_metrics['average_tortuosity']:.2f}\n\n"
-            f"Population Variability:\n"
-            f"Displacement (cv): {detailed_metrics['cv_displacement']:.2f}\n"
-            f"Velocity (cv): {detailed_metrics['cv_velocity']:.2f}\n\n"
-            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks")
+            # Create dialog and tab widget
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Cell Motility Analysis")
+            dialog.setMinimumWidth(1200)
+            dialog.setMinimumHeight(800)
+            layout = QVBoxLayout(dialog)
+            tab_widget = QTabWidget()
 
-        ax4.text(0.05, 0.95, summary_text, va='top', ha='left', fontsize=9)
+            # Add combined tab as first tab
+            tab_widget.insertTab(0, combined_tab, "Motility by Region")
+            tab_widget.setCurrentIndex(0)
 
-        fig.tight_layout()
-        self.canvas_morphology_fractions.draw()
+            # Motility Map Tab
+            progress.setValue(40)
+            progress.setLabelText("Creating motility visualizations...")
+            QApplication.processEvents()
 
-        # Show summary in a message box
-        QMessageBox.information(
-            self, "Motility Analysis", f"Motility Analysis Complete\n\n"
-            f"Motility Index: {motility_index:.1f}\n"
-            f"This index represents overall cell movement activity.\n"
-            f"Higher values indicate greater movement freedom.\n\n"
-            f"Average Displacement: {detailed_metrics['average_displacement']:.1f} pixels\n"
-            f"Average Velocity: {detailed_metrics['average_velocity']:.2f} pixels/frame\n"
-            f"Directional Coherence: {detailed_metrics['directional_coherence']:.2f}\n\n"
-            f"Analysis based on: {len(tracks_to_analyze)} {track_type} tracks\n\n"
-            f"These metrics quantify cell movement behavior in the current environment.")
+            map_tab = QWidget()
+            map_layout = QVBoxLayout(map_tab)
+            map_fig, _ = visualize_motility_map(
+                tracks_to_analyze, chamber_dimensions, motility_metrics)
+            map_canvas = FigureCanvas(map_fig)
+            map_layout.addWidget(map_canvas)
 
-        return motility_index, detailed_metrics, track_type
+            # Detailed Metrics Tab
+            metrics_tab = QWidget()
+            metrics_layout = QVBoxLayout(metrics_tab)
+            metrics_fig = visualize_motility_metrics(motility_metrics)
+            metrics_canvas = FigureCanvas(metrics_fig)
+            metrics_layout.addWidget(metrics_canvas)
+
+            # Regional Analysis Tab
+            region_tab = QWidget()
+            region_layout = QVBoxLayout(region_tab)
+            if chamber_dimensions:
+                progress.setValue(70)
+                progress.setLabelText("Analyzing regional variations...")
+                QApplication.processEvents()
+                regional_analysis, region_fig = analyze_motility_by_region(
+                    tracks_to_analyze, chamber_dimensions, motility_metrics)
+                region_canvas = FigureCanvas(region_fig)
+                region_layout.addWidget(region_canvas)
+            else:
+                region_label = QLabel(
+                    "Chamber dimensions not available for regional analysis.")
+                region_label.setAlignment(Qt.AlignCenter)
+                region_layout.addWidget(region_label)
+
+            # Add tabs to tab widget
+            tab_widget.addTab(map_tab, "Motility Map")
+            tab_widget.addTab(metrics_tab, "Detailed Metrics")
+            tab_widget.addTab(region_tab, "Regional Analysis")
+
+            # Summary
+            summary_text = (
+                f"<h3>Motility Analysis Summary</h3>"
+                f"<p><b>Population Average Motility Index:</b> {motility_metrics['population_avg_motility']:.1f}/100</p>"
+                f"<p><b>Motility Heterogeneity:</b> {motility_metrics['population_heterogeneity']:.2f}</p>"
+                f"<p><b>Sample Size:</b> {motility_metrics['sample_size']} cells</p>"
+                f"<p>Analysis based on {track_type} tracks.</p>"
+            )
+            summary_label = QLabel(summary_text)
+            summary_label.setTextFormat(Qt.RichText)
+            summary_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(summary_label)
+            layout.addWidget(tab_widget)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+            export_button = QPushButton("Export Results")
+            close_button = QPushButton("Close")
+            button_layout.addWidget(export_button)
+            button_layout.addWidget(close_button)
+            layout.addLayout(button_layout)
+
+            # Export function
+            def export_results():
+                export_dialog = QDialog(dialog)
+                export_dialog.setWindowTitle("Export Options")
+                export_layout = QVBoxLayout(export_dialog)
+                export_label = QLabel("Select export options:")
+                export_layout.addWidget(export_label)
+
+                export_map = QCheckBox("Export Motility Map")
+                export_map.setChecked(True)
+                export_layout.addWidget(export_map)
+
+                export_metrics = QCheckBox("Export Detailed Metrics Plot")
+                export_metrics.setChecked(True)
+                export_layout.addWidget(export_metrics)
+
+                export_regional = QCheckBox("Export Regional Analysis")
+                export_regional.setChecked(chamber_dimensions is not None)
+                export_regional.setEnabled(chamber_dimensions is not None)
+                export_layout.addWidget(export_regional)
+
+                export_csv = QCheckBox("Export Metrics as CSV")
+                export_csv.setChecked(True)
+                export_layout.addWidget(export_csv)
+
+                export_buttons = QDialogButtonBox(
+                    QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                export_buttons.accepted.connect(export_dialog.accept)
+                export_buttons.rejected.connect(export_dialog.reject)
+                export_layout.addWidget(export_buttons)
+
+                if export_dialog.exec() == QDialog.Accepted:
+                    save_path, _ = QFileDialog.getSaveFileName(
+                        export_dialog, "Save Results", "", "All Files (*)")
+                    if save_path:
+                        base_path = save_path.replace(
+                            ".png", "").replace(".csv", "")
+                        if export_map.isChecked():
+                            map_fig.savefig(
+                                f"{base_path}_motility_map.png", dpi=300, bbox_inches='tight')
+                        if export_metrics.isChecked():
+                            metrics_fig.savefig(
+                                f"{base_path}_detailed_metrics.png", dpi=300, bbox_inches='tight')
+                        if export_regional.isChecked() and chamber_dimensions:
+                            region_fig.savefig(
+                                f"{base_path}_regional_analysis.png", dpi=300, bbox_inches='tight')
+                        if export_csv.isChecked():
+                            metrics_df = pd.DataFrame(
+                                motility_metrics['individual_metrics'])
+                            metrics_df.to_csv(
+                                f"{base_path}_motility_metrics.csv", index=False)
+                        QMessageBox.information(export_dialog, "Export Complete",
+                                                f"Results exported to {base_path}_*.png/csv")
+
+            export_button.clicked.connect(export_results)
+            close_button.clicked.connect(dialog.close)
+
+            progress.setValue(100)
+            progress.close()
+
+            # Store results
+            self.motility_results = {
+                "motility_metrics": motility_metrics, "track_type": track_type}
+
+            # Update main UI plot
+            self.figure_morphology_fractions.clear()
+            ax = self.figure_morphology_fractions.add_subplot(111)
+            for track in tracks_to_analyze:
+                track_id = track.get('ID', -1)
+                metric = next((m for m in motility_metrics['individual_metrics']
+                               if m['track_id'] == track_id), None)
+                if metric:
+                    mi = metric['motility_index']
+                    color = plt.cm.coolwarm(mi/100)
+                    ax.plot(track['x'], track['y'], '-',
+                            color=color, linewidth=1, alpha=0.7)
+
+            ax.set_title(
+                f"Cell Motility Map (Population Avg: {motility_metrics['population_avg_motility']:.1f})")
+            ax.set_xlabel("X Coordinate")
+            ax.set_ylabel("Y Coordinate")
+            sm = plt.cm.ScalarMappable(
+                cmap=plt.cm.coolwarm, norm=plt.Normalize(0, 100))
+            sm.set_array([])
+            cbar = plt.colorbar(sm, ax=ax)
+            cbar.set_label("Motility Index")
+            self.canvas_morphology_fractions.draw()
+
+            dialog.exec()
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            progress.close()
+            QMessageBox.warning(self, "Analysis Error",
+                                f"Error analyzing motility: {str(e)}")
 
     def process_morphology_time_series(self):
         p = self.slider_p.value()
@@ -1824,8 +2306,6 @@ class App(QMainWindow):
                     ).to_dict()
                     total_cells = len(metrics_df)
 
-                    # Print diagnostics for this frame
-                    print(f"Frame {t}: Total cells = {total_cells}")
                     for morph_class, count in class_counts.items():
                         print(
                             f"  {morph_class}: {count} cells ({count/total_cells*100:.1f}%)")
@@ -2136,8 +2616,6 @@ class App(QMainWindow):
 
         self.update_annotation_scatter()
 
-        print(f"[SUCCESS] Annotated image displayed for T={t}, P={p}, C={c}")
-
     def show_context_menu(self, position):
         context_menu = QMenu(self)
 
@@ -2310,8 +2788,38 @@ class App(QMainWindow):
             QFileDialog.ShowDirsOnly        # Option to show only directories
         )
         if folder_path:
-            print(f"Project will be saved to folder: {folder_path}")
+            # Create directory if it doesn't exist
+            os.makedirs(folder_path, exist_ok=True)
+
+            # Save ImageData using existing method
             self.image_data.save(folder_path)
+
+            # Save tracking data if available
+            tracking_data = {}
+            has_tracking_data = False
+
+            if hasattr(self, "tracked_cells") and self.tracked_cells is not None:
+                tracking_data["tracked_cells"] = self.tracked_cells
+                has_tracking_data = True
+
+            if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
+                tracking_data["lineage_tracks"] = self.lineage_tracks
+                has_tracking_data = True
+
+            if hasattr(self, "motility_results") and self.motility_results is not None:
+                tracking_data["motility_results"] = self.motility_results
+                has_tracking_data = True
+
+            if has_tracking_data:
+                tracking_path = os.path.join(folder_path, "tracking_data.pkl")
+                with open(tracking_path, 'wb') as f:
+                    pickle.dump(tracking_data, f)
+
+            QMessageBox.information(
+                self, "Save Complete",
+                f"Project saved to {folder_path}" +
+                ("\nIncludes tracking data" if has_tracking_data else "")
+            )
 
     def load_from_folder(self):
         folder_path = QFileDialog.getExistingDirectory(
@@ -2322,10 +2830,66 @@ class App(QMainWindow):
         )
         if folder_path:
             print(f"Project loaded from folder: {folder_path}")
+
+            # Load the main image data
             self.image_data = ImageData.load(folder_path)
+
             # Update controls / app state
             if self.image_data.nd2_filename is not None:
                 self.init_controls_nd2(self.image_data.nd2_filename)
+
+            # Check for tracking data
+            tracking_path = os.path.join(folder_path, "tracking_data.pkl")
+            has_tracking_data = False
+
+            if os.path.exists(tracking_path):
+                try:
+                    with open(tracking_path, 'rb') as f:
+                        tracking_data = pickle.load(f)
+
+                    if "tracked_cells" in tracking_data and tracking_data["tracked_cells"]:
+                        self.tracked_cells = tracking_data["tracked_cells"]
+                        has_tracking_data = True
+
+                    if "lineage_tracks" in tracking_data and tracking_data["lineage_tracks"]:
+                        self.lineage_tracks = tracking_data["lineage_tracks"]
+                        has_tracking_data = True
+
+                    if "motility_results" in tracking_data and tracking_data["motility_results"]:
+                        self.motility_results = tracking_data["motility_results"]
+                        has_tracking_data = True
+
+                    # Update UI to reflect loaded tracking data
+                    if hasattr(self, "lineage_button") and self.lineage_tracks:
+                        self.lineage_button.setText(
+                            "Visualize Lineage Tree (Loaded)")
+                        self.lineage_button.setStyleSheet(
+                            "background-color: #4CAF50; color: white;")
+
+                    if hasattr(self, "overlay_video_button") and self.tracked_cells:
+                        self.overlay_video_button.setText(
+                            "Tracking Video (Loaded)")
+                        self.overlay_video_button.setStyleSheet(
+                            "background-color: #4CAF50; color: white;")
+
+                    if hasattr(self, "motility_button") and self.lineage_tracks:
+                        self.motility_button.setStyleSheet(
+                            "background-color: #4CAF50; color: white; font-weight: bold;")
+
+                    # Update visualization if tracking data is loaded
+                    if hasattr(self, "tracked_cells") and self.tracked_cells:
+                        self.visualize_tracking(self.tracked_cells)
+
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Warning", f"Error loading tracking data: {str(e)}"
+                    )
+
+            QMessageBox.information(
+                self, "Project Loaded",
+                f"Project loaded from {folder_path}" +
+                ("\nTracking data loaded successfully" if has_tracking_data else "")
+            )
 
     def initMorphologyTab(self):
         layout = QVBoxLayout(self.morphologyTab)
@@ -4150,20 +4714,20 @@ class App(QMainWindow):
         # Process each selected position
         for p in selected_ps:
             fluo, timestamp = analyze_fluorescence_singlecell(
-                self.image_data.segmentation_cache[t_s:t_e, p, 0], 
-                self.image_data.data[t_s:t_e, p, c], 
+                self.image_data.segmentation_cache[t_s:t_e, p, 0],
+                self.image_data.data[t_s:t_e, p, c],
                 rpu)
             combined_fluo.append(fluo)
             combined_timestamp.append(timestamp)
-        
+
         # TEST: parallel
         # import concurrent.futures
 
         # # Process each selected position in parallel
         # def process_position(p):
         #     fluo, timestamp = analyze_fluorescence_singlecell(
-        #         self.image_data.segmentation_cache[t_s:t_e, p, 0], 
-        #         self.image_data.data[t_s:t_e, p, c], 
+        #         self.image_data.segmentation_cache[t_s:t_e, p, 0],
+        #         self.image_data.data[t_s:t_e, p, c],
         #         rpu)
         #     return fluo, timestamp
 
@@ -4236,4 +4800,3 @@ class App(QMainWindow):
         ax.set_xlabel('T')
         ax.set_ylabel('Cell activity in RPUs')
         self.population_canvas.draw()
-
