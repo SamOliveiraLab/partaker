@@ -39,9 +39,12 @@ from morphology import (
 from segmentation.segmentation_models import SegmentationModels
 from tracking import optimize_tracking_parameters, track_cells, visualize_cell_regions, enhanced_motility_index, visualize_motility_map, visualize_motility_metrics, analyze_motility_by_region, visualize_motility_with_chamber_regions
 from .roisel import PolygonROISelector
-from .about import AboutDialog
 from lineage_visualization import LineageVisualization
 
+from .dialogs.about import AboutDialog
+from .dialogs.experiment import ExperimentDialog
+
+from pubsub import pub
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -165,6 +168,11 @@ class App(QMainWindow):
 
         self.initUI()
         self.layout.addWidget(self.tab_widget)
+
+        pub.subscribe(self.on_exp_change, "experiment")
+
+    def on_exp_change(self, experiment):
+        self.curr_experiment = experiment
 
     def load_from_folder(self, folder_path):
         p = Path(folder_path)
@@ -2555,8 +2563,7 @@ class App(QMainWindow):
                 SegmentationModels.CELLPOSE_BACT_PHASE,
                 SegmentationModels.CELLPOSE_BACT_FLUOR,
                 SegmentationModels.CELLPOSE,
-                SegmentationModels.UNET,
-                SegmentationModels.CELLSAM])
+                SegmentationModels.UNET])
         self.model_dropdown.currentIndexChanged.connect(
             lambda: self.image_data.segmentation_cache.with_model(
                 self.model_dropdown.currentText()))
@@ -2750,6 +2757,12 @@ class App(QMainWindow):
         # File menu
         file_menu = menu_bar.addMenu("File")
 
+        # New Experiment
+        new_experiment_action = QAction("New Experiment", self)
+        new_experiment_action.setShortcut("Ctrl+E")
+        new_experiment_action.triggered.connect(self.show_new_experiment_dialog)
+        file_menu.addAction(new_experiment_action)
+
         # Save action
         save_action = QAction("Save", self)
         save_action.setShortcut("Ctrl+S")
@@ -2774,6 +2787,10 @@ class App(QMainWindow):
             about_action_mac = QAction("About", self)
             about_action_mac.triggered.connect(self.show_about_dialog)
             self.menuBar().addAction(about_action_mac)
+
+    def show_new_experiment_dialog(self):
+        experiment = ExperimentDialog()
+        experiment.exec_()
 
     def show_about_dialog(self):
         about_dialog = AboutDialog()

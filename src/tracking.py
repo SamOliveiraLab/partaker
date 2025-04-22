@@ -1,4 +1,4 @@
-import btrack
+
 import numpy as np
 import os
 import cv2
@@ -12,6 +12,7 @@ from matplotlib.patches import Patch, Rectangle
 
 
 def track_cells(segmented_images):
+    import btrack
     """
     Tracks segmented cells over time using BayesianTracker (btrack).
 

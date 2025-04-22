@@ -18,49 +18,9 @@ from skimage import exposure
 from skimage.restoration import richardson_lucy
 from skimage.measure import label
 
-from cellSAM import segment_cellular_image, get_model
-
-# # Example usage
-# segmentation_models = SegmentationModels()
-# # Accessing the CELLPOSE model
-# cellpose_model = segmentation_models.get_model(SegmentationModels.CELLPOSE)
-# # Accessing the UNET model
-# unet_model = segmentation_models.get_model(SegmentationModels.UNET)
-# # Segmenting images using the CELLPOSE model
-# segmented_images = segmentation_models.segment_images(images, mode=SegmentationModels.CELLPOSE, progress=progress)
-# # Segmenting images using the UNET model
-# segmented_images = segmentation_models.segment_images(images, mode=SegmentationModels.UNET, progress=progress)
-
-# # @cachier(stale_after=datetime.timedelta(days=3))
-# def
-# segment_images(directory='/Users/hiram/Workspace/OliveiraLab/PartakerV3/src/aligned_data/XY8_Long_PHC',
-# weights='/Users/hiram/Workspace/OliveiraLab/PartakerV3/src/checkpoints/delta_2_20_02_24_600eps.index'):
-
-#     target_size_seg = (512, 512)
-#     model = unet_segmentation(input_size = target_size_seg + (1,))
-#     test_images = Path(directory)
-#     imgs = list(map(lambda x : cv2.imread(str(x), cv2.IMREAD_GRAYSCALE), sorted([img for img in test_images.iterdir()], key=lambda x : int(x.stem))))
-
-#     def my_resize(img):
-#         a = img[55:960, 150:810]
-#         a = cv2.resize(a, (512, 512))
-#         a = np.expand_dims(a, axis=-1)
-#         return a
-
-#     pred_imgs = model.predict(np.array(list(map(my_resize, imgs))))
-#     return pred_imgs
-
-# TODO: Implement caching for segmentation models
-
-"""
-Container class for multiple segmentation models
-"""
-
-
 class SegmentationModels:
     CELLPOSE = 'cellpose'
     UNET = 'unet'
-    CELLSAM = 'cellsam'
     CELLPOSE_FT_0 = 'cellpose_finetuned'
     CELLPOSE_BACT_PHASE = 'bact_phase_cp3'
     CELLPOSE_BACT_FLUOR = 'bact_fluor_cp3'
@@ -75,17 +35,6 @@ class SegmentationModels:
                 cls, *args, **kwargs)
             cls._instance.models = {}
         return cls._instance
-
-    """
-    Segments a single image using cellsam
-    """
-
-    def segment_cellsam(self, images):
-        _img = np.expand_dims(images[0], axis=2)
-        _cellSAM_masks, _, _ = segment_cellular_image(_img, device='cpu')
-        # Doing this to ensure API compatibility with other segmentation
-        # methods
-        return [_cellSAM_masks]
 
     """
     Segments using U-Net
@@ -301,9 +250,6 @@ class SegmentationModels:
                     input_size=target_size_seg + (1,), pretrained_weights=os.environ["UNET_WEIGHTS"])
 
             segmented_images = self.segment_unet(images)
-
-        elif mode == SegmentationModels.CELLSAM:
-            segmented_images = self.segment_cellsam(images)
 
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
