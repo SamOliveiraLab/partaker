@@ -41,11 +41,8 @@ from tracking import optimize_tracking_parameters, track_cells, visualize_cell_r
 from .roisel import PolygonROISelector
 from lineage_visualization import LineageVisualization
 
-from .dialogs.about import AboutDialog
-from .dialogs.experiment import ExperimentDialog
-
-from .widgets.view_area import ViewAreaWidget
-from .widgets.population import PopulationWidget
+from .dialogs import AboutDialog, ExperimentDialog
+from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget
 
 from pubsub import pub
 
@@ -2723,9 +2720,8 @@ class App(QMainWindow):
 
     def init_ui(self):
         # Initialize tabs as QWidget
-        # self.importTab = QWidget()
-        # self.exportTab = QWidget()
         
+        self.segmentation_tab = SegmentationWidget()
         self.populationTab = PopulationWidget()
 
         self.morphologyTab = QWidget()
@@ -2733,8 +2729,7 @@ class App(QMainWindow):
         self.morphologyVisualizationTab = QWidget()
 
         # Add tabs to the QTabWidget
-        # self.tab_widget.addTab(self.importTab, "Import")
-        # self.tab_widget.addTab(self.exportTab, "Export")
+        self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
@@ -2742,11 +2737,6 @@ class App(QMainWindow):
             self.morphologyVisualizationTab,
             "Morphology Visualization")
 
-        # Initialize tab layouts and content
-        # self.initImportTab()
-        # self.initViewArea()
-        # self.initExportTab()
-        # self.initPopulationTab()
         self.initMorphologyTab()
         self.initMorphologyTimeTab()
         self.initMorphologyVisualizationTab()
