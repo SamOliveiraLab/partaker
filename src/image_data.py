@@ -6,35 +6,40 @@ import nd2
 
 from segmentation.segmentation_cache import SegmentationCache
 
+from pubsub import pub
+
 """
 Can hold either an ND2 file or a series of images
 """
-
-
 class ImageData:
     def __init__(self, data=None, path=None, is_nd2=False):
         self.data = data
         self.nd2_filename = path
         self.processed_images = []
         self.is_nd2 = is_nd2
+
+
         if data is not None:
             self.segmentation_cache = SegmentationCache(data)
         else:
             self.segmentation_cache = None
 
+        pub.subscribe(self._access, "image_request")
+        pub.sendMessage("image_data_loaded", image_data=self)
+
+    # Access the image at the time, position and channel
+    # Ignore mode and model for now
+    def _access(self, time, position, channel, mode, model):
+        image = self.data[time, position, channel, :, :].compute()
+        pub.sendMessage("image_ready", image = image, time=time, position=position, channel=channel, mode=mode)
+
     @classmethod
-    def load_nd2(cls, filename: str):
-        image_data = cls()
-        image_data.nd2_filename = filename
-        image_data._load_nd2(filename)
+    def load_nd2(cls, file_path: str):
+        with nd2.ND2File (file_path) as nd2_file:
+            image_data = ImageData(data=nd2.imread(
+                file_path, dask=True), path=file_path, is_nd2=True)
 
         return image_data
-
-    def _load_nd2(self, filename: str):
-        with nd2.ND2File(filename) as nd2_file:
-            self.data = nd2.imread(filename, dask=True)
-        if self.segmentation_cache is not None:
-            self.segmentation_cache.clear()
 
     def save(self, filename: str):
         """Saves state to file

@@ -44,7 +44,11 @@ from lineage_visualization import LineageVisualization
 from .dialogs.about import AboutDialog
 from .dialogs.experiment import ExperimentDialog
 
+from .widgets.view_area import ViewAreaWidget
+
 from pubsub import pub
+
+from experiment import Experiment
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -157,10 +161,11 @@ class App(QMainWindow):
         self.layout = QHBoxLayout(self.central_widget)
         self.tab_widget = QTabWidget()
 
+        self.viewArea = ViewAreaWidget()
+        self.layout.addWidget(self.viewArea)
+        
         # Initialize other tabs and UI components
         self.importTab = QWidget()
-        self.viewArea = QWidget()
-        self.layout.addWidget(self.viewArea)
         self.exportTab = QWidget()
         self.populationTab = QWidget()
         self.morphologyTab = QWidget()
@@ -169,10 +174,13 @@ class App(QMainWindow):
         self.initUI()
         self.layout.addWidget(self.tab_widget)
 
-        pub.subscribe(self.on_exp_change, "experiment")
+        pub.subscribe(self.on_exp_loaded, "experiment_loaded")
 
-    def on_exp_change(self, experiment):
+    def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
+
+        # Instance ImageData and load the first nd2 file
+        self.image_data = ImageData.load_nd2(experiment.nd2_files[0])
 
     def load_from_folder(self, folder_path):
         p = Path(folder_path)
@@ -199,9 +207,7 @@ class App(QMainWindow):
         print("Segmentation cache cleared.")
 
     def load_nd2_file(self, file_path):
-        with nd2.ND2File(file_path) as nd2_file:
-            self.image_data = ImageData(data=nd2.imread(
-                file_path, dask=True), path=file_path, is_nd2=True)
+        self.image_data = ImageData.load_nd2(file_path)
         self.init_controls_nd2(file_path)
 
     def init_controls_nd2(self, file_path):
@@ -2742,7 +2748,7 @@ class App(QMainWindow):
 
         # Initialize tab layouts and content
         self.initImportTab()
-        self.initViewArea()
+        # self.initViewArea()
         self.initExportTab()
         self.initPopulationTab()
         self.initMorphologyTab()

@@ -153,7 +153,7 @@ class ExperimentDialog(QDialog):
             self.experimentCreated.emit(experiment)
             
             # Also publish to PyPubSub for global subscribers
-            pub.sendMessage("experiment_created", experiment=experiment)
+            pub.sendMessage("experiment_loaded", experiment=experiment)
             
             self.accept()
             
