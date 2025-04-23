@@ -5,6 +5,8 @@ import os
 import nd2
 
 from segmentation.segmentation_cache import SegmentationCache
+from segmentation.segmentation_service import SegmentationService
+from segmentation.segmentation_models import SegmentationModels
 
 from pubsub import pub
 
@@ -12,26 +14,36 @@ from pubsub import pub
 Can hold either an ND2 file or a series of images
 """
 class ImageData:
-    def __init__(self, data=None, path=None, is_nd2=False):
+    def __init__(self, data, path, is_nd2=True):
         self.data = data
         self.nd2_filename = path
         self.processed_images = []
         self.is_nd2 = is_nd2
 
+        # Initialize segmentation components
+        self.segmentation_cache = SegmentationCache(data)
+        self.segmentation_service = SegmentationService(
+            cache=self.segmentation_cache,
+            models=SegmentationModels(),
+            data_getter=self._get_raw_image
+        )
 
-        if data is not None:
-            self.segmentation_cache = SegmentationCache(data)
-        else:
-            self.segmentation_cache = None
-
-        pub.subscribe(self._access, "image_request")
+        pub.subscribe(self._access, "raw_image_request")
         pub.sendMessage("image_data_loaded", image_data=self)
 
-    # Access the image at the time, position and channel
-    # Ignore mode and model for now
-    def _access(self, time, position, channel, mode, model):
-        image = self.data[time, position, channel, :, :].compute()
-        pub.sendMessage("image_ready", image = image, time=time, position=position, channel=channel, mode=mode)
+    def _get_raw_image(self, t, p, c):
+        """Helper method to retrieve raw images"""
+        return self.data[t, p, c].compute()
+
+    def _access(self, time, position, channel):
+        
+        image = self._get_raw_image(time, position, channel)
+        pub.sendMessage("image_ready",
+                       image=image,
+                       time=time,
+                       position=position,
+                       channel=channel,
+                       mode='normal')
 
     @classmethod
     def load_nd2(cls, file_path: str):
