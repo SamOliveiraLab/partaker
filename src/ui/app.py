@@ -45,6 +45,7 @@ from .dialogs.about import AboutDialog
 from .dialogs.experiment import ExperimentDialog
 
 from .widgets.view_area import ViewAreaWidget
+from .widgets.population import PopulationWidget
 
 from pubsub import pub
 
@@ -163,15 +164,8 @@ class App(QMainWindow):
 
         self.viewArea = ViewAreaWidget()
         self.layout.addWidget(self.viewArea)
-        
-        # Initialize other tabs and UI components
-        self.importTab = QWidget()
-        self.exportTab = QWidget()
-        self.populationTab = QWidget()
-        self.morphologyTab = QWidget()
-        self.morphologyTimeTab = QWidget()
 
-        self.initUI()
+        self.init_ui()
         self.layout.addWidget(self.tab_widget)
 
         pub.subscribe(self.on_exp_loaded, "experiment_loaded")
@@ -2727,18 +2721,20 @@ class App(QMainWindow):
             #                             '-qp', '0'],
             #             pixelformat='yuv444p')
 
-    def initUI(self):
+    def init_ui(self):
         # Initialize tabs as QWidget
-        self.importTab = QWidget()
-        self.exportTab = QWidget()
-        self.populationTab = QWidget()
+        # self.importTab = QWidget()
+        # self.exportTab = QWidget()
+        
+        self.populationTab = PopulationWidget()
+
         self.morphologyTab = QWidget()
         self.morphologyTimeTab = QWidget()
         self.morphologyVisualizationTab = QWidget()
 
         # Add tabs to the QTabWidget
-        self.tab_widget.addTab(self.importTab, "Import")
-        self.tab_widget.addTab(self.exportTab, "Export")
+        # self.tab_widget.addTab(self.importTab, "Import")
+        # self.tab_widget.addTab(self.exportTab, "Export")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
@@ -2747,10 +2743,10 @@ class App(QMainWindow):
             "Morphology Visualization")
 
         # Initialize tab layouts and content
-        self.initImportTab()
+        # self.initImportTab()
         # self.initViewArea()
-        self.initExportTab()
-        self.initPopulationTab()
+        # self.initExportTab()
+        # self.initPopulationTab()
         self.initMorphologyTab()
         self.initMorphologyTimeTab()
         self.initMorphologyVisualizationTab()
@@ -4553,273 +4549,273 @@ class App(QMainWindow):
         )
         self.annotated_image_label.setPixmap(pixmap)
 
-    def initPopulationTab(self):
-        layout = QVBoxLayout(self.populationTab)
+    # def initPopulationTab(self):
+    #     layout = QVBoxLayout(self.populationTab)
 
-        self.population_figure = plt.figure()
-        self.population_canvas = FigureCanvas(self.population_figure)
-        layout.addWidget(self.population_canvas)
+    #     self.population_figure = plt.figure()
+    #     self.population_canvas = FigureCanvas(self.population_figure)
+    #     layout.addWidget(self.population_canvas)
 
-        # P selection mode radio buttons
-        p_mode_group = QGroupBox("P Selection Mode")
-        p_mode_layout = QVBoxLayout()
+    #     # P selection mode radio buttons
+    #     p_mode_group = QGroupBox("P Selection Mode")
+    #     p_mode_layout = QVBoxLayout()
 
-        self.use_current_p_radio = QRadioButton("Use current P")
-        self.use_current_p_radio.setChecked(True)  # Default selection
-        self.select_ps_radio = QRadioButton("Select Ps to aggregate")
+    #     self.use_current_p_radio = QRadioButton("Use current P")
+    #     self.use_current_p_radio.setChecked(True)  # Default selection
+    #     self.select_ps_radio = QRadioButton("Select Ps to aggregate")
 
-        p_mode_layout.addWidget(self.use_current_p_radio)
-        p_mode_layout.addWidget(self.select_ps_radio)
-        p_mode_group.setLayout(p_mode_layout)
-        layout.addWidget(p_mode_group)
+    #     p_mode_layout.addWidget(self.use_current_p_radio)
+    #     p_mode_layout.addWidget(self.select_ps_radio)
+    #     p_mode_group.setLayout(p_mode_layout)
+    #     layout.addWidget(p_mode_group)
 
-        # Create the multiple P selection widget (initially hidden)
-        self.multi_p_widget = QWidget()
-        self.multi_p_widget.setVisible(False)  # Hidden by default
-        multi_p_layout = QVBoxLayout(self.multi_p_widget)
+    #     # Create the multiple P selection widget (initially hidden)
+    #     self.multi_p_widget = QWidget()
+    #     self.multi_p_widget.setVisible(False)  # Hidden by default
+    #     multi_p_layout = QVBoxLayout(self.multi_p_widget)
 
-        # Create a table to show selected Ps
-        self.selected_ps_table = QTableWidget()
-        self.selected_ps_table.setColumnCount(2)  # P value and Remove button
-        self.selected_ps_table.setHorizontalHeaderLabels(["P Value", "Action"])
-        self.selected_ps_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.selected_ps_table.setSelectionMode(QAbstractItemView.NoSelection)
-        multi_p_layout.addWidget(QLabel("Selected Ps:"))
-        multi_p_layout.addWidget(self.selected_ps_table)
+    #     # Create a table to show selected Ps
+    #     self.selected_ps_table = QTableWidget()
+    #     self.selected_ps_table.setColumnCount(2)  # P value and Remove button
+    #     self.selected_ps_table.setHorizontalHeaderLabels(["P Value", "Action"])
+    #     self.selected_ps_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+    #     self.selected_ps_table.setSelectionMode(QAbstractItemView.NoSelection)
+    #     multi_p_layout.addWidget(QLabel("Selected Ps:"))
+    #     multi_p_layout.addWidget(self.selected_ps_table)
 
-        # Add dropdown and button to add new Ps
-        add_p_layout = QHBoxLayout()
-        self.p_dropdown = QComboBox()
+    #     # Add dropdown and button to add new Ps
+    #     add_p_layout = QHBoxLayout()
+    #     self.p_dropdown = QComboBox()
 
-        add_p_button = QPushButton("Add P")
-        add_p_button.clicked.connect(self.add_p_to_selection)
-        add_p_layout.addWidget(self.p_dropdown)
-        add_p_layout.addWidget(add_p_button)
-        multi_p_layout.addLayout(add_p_layout)
+    #     add_p_button = QPushButton("Add P")
+    #     add_p_button.clicked.connect(self.add_p_to_selection)
+    #     add_p_layout.addWidget(self.p_dropdown)
+    #     add_p_layout.addWidget(add_p_button)
+    #     multi_p_layout.addLayout(add_p_layout)
 
-        # Add the multi_p_widget to the main layout
-        layout.addWidget(self.multi_p_widget)
+    #     # Add the multi_p_widget to the main layout
+    #     layout.addWidget(self.multi_p_widget)
 
-        # Connect radio buttons to toggle the multi_p_widget visibility
-        self.use_current_p_radio.toggled.connect(self.update_p_selection_mode)
-        self.select_ps_radio.toggled.connect(self.update_p_selection_mode)
+    #     # Connect radio buttons to toggle the multi_p_widget visibility
+    #     self.use_current_p_radio.toggled.connect(self.update_p_selection_mode)
+    #     self.select_ps_radio.toggled.connect(self.update_p_selection_mode)
 
-        # Store selected Ps
-        self.selected_ps = set()
+    #     # Store selected Ps
+    #     self.selected_ps = set()
 
-        # Checkbox for single cell analysis
-        self.single_cell_checkbox = QCheckBox("Single Cell Analysis")
-        layout.addWidget(self.single_cell_checkbox)
+    #     # Checkbox for single cell analysis
+    #     self.single_cell_checkbox = QCheckBox("Single Cell Analysis")
+    #     layout.addWidget(self.single_cell_checkbox)
 
-        # Button to manually plot
-        plot_fluo_btn = QPushButton("Plot Fluorescence")
-        plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
+    #     # Button to manually plot
+    #     plot_fluo_btn = QPushButton("Plot Fluorescence")
+    #     plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
 
-        # Channel control
-        channel_choice_layout = QHBoxLayout()
-        channel_combo = QComboBox()
-        channel_combo.addItem('0')
-        channel_combo.addItem('1')
-        channel_combo.addItem('2')
-        channel_choice_layout.addWidget(QLabel("Cannel selection: "))
-        channel_choice_layout.addWidget(channel_combo)
-        self.channel_combo = channel_combo
-        channel_choice_layout.addWidget(plot_fluo_btn)
+    #     # Channel control
+    #     channel_choice_layout = QHBoxLayout()
+    #     channel_combo = QComboBox()
+    #     channel_combo.addItem('0')
+    #     channel_combo.addItem('1')
+    #     channel_combo.addItem('2')
+    #     channel_choice_layout.addWidget(QLabel("Cannel selection: "))
+    #     channel_choice_layout.addWidget(channel_combo)
+    #     self.channel_combo = channel_combo
+    #     channel_choice_layout.addWidget(plot_fluo_btn)
 
-        layout.addLayout(channel_choice_layout)
+    #     layout.addLayout(channel_choice_layout)
 
-        # Time range controls
-        time_range_layout = QHBoxLayout()
-        time_range_layout.addWidget(QLabel("Time Range:"))
+    #     # Time range controls
+    #     time_range_layout = QHBoxLayout()
+    #     time_range_layout.addWidget(QLabel("Time Range:"))
 
-        self.time_min_box = QSpinBox()
-        time_range_layout.addWidget(self.time_min_box)
+    #     self.time_min_box = QSpinBox()
+    #     time_range_layout.addWidget(self.time_min_box)
 
-        self.time_max_box = QSpinBox()
-        time_range_layout.addWidget(self.time_max_box)
+    #     self.time_max_box = QSpinBox()
+    #     time_range_layout.addWidget(self.time_max_box)
 
-        layout.addLayout(time_range_layout)
+    #     layout.addLayout(time_range_layout)
 
-        # Create the combobox and populate it with the dictionary keys
-        self.rpu_params_combo = QComboBox()
-        for key in AVAIL_RPUS.keys():
-            self.rpu_params_combo.addItem(key)
+    #     # Create the combobox and populate it with the dictionary keys
+    #     self.rpu_params_combo = QComboBox()
+    #     for key in AVAIL_RPUS.keys():
+    #         self.rpu_params_combo.addItem(key)
 
-        hb = QHBoxLayout()
-        hb.addWidget(QLabel("Select RPU Parameters:"))
-        hb.addWidget(self.rpu_params_combo)
-        layout.addLayout(hb)
+    #     hb = QHBoxLayout()
+    #     hb.addWidget(QLabel("Select RPU Parameters:"))
+    #     hb.addWidget(self.rpu_params_combo)
+    #     layout.addLayout(hb)
 
-    def update_p_selection_mode(self):
-        """Show or hide the multiple P selection widget based on radio button selection"""
-        if self.select_ps_radio.isChecked():
-            self.multi_p_widget.setVisible(True)
-        else:
-            self.multi_p_widget.setVisible(False)
+    # def update_p_selection_mode(self):
+    #     """Show or hide the multiple P selection widget based on radio button selection"""
+    #     if self.select_ps_radio.isChecked():
+    #         self.multi_p_widget.setVisible(True)
+    #     else:
+    #         self.multi_p_widget.setVisible(False)
 
-    def add_p_to_selection(self):
-        """Add a P value to the selection table"""
-        try:
-            p_value = int(self.p_dropdown.currentText())
-        except BaseException:
-            return
+    # def add_p_to_selection(self):
+    #     """Add a P value to the selection table"""
+    #     try:
+    #         p_value = int(self.p_dropdown.currentText())
+    #     except BaseException:
+    #         return
 
-        # Check if this P is already in the selection
-        if p_value in self.selected_ps:
-            return
+    #     # Check if this P is already in the selection
+    #     if p_value in self.selected_ps:
+    #         return
 
-        # Add to our set of selected Ps
-        self.selected_ps.add(p_value)
+    #     # Add to our set of selected Ps
+    #     self.selected_ps.add(p_value)
 
-        # Update the table
-        row_position = self.selected_ps_table.rowCount()
-        self.selected_ps_table.insertRow(row_position)
+    #     # Update the table
+    #     row_position = self.selected_ps_table.rowCount()
+    #     self.selected_ps_table.insertRow(row_position)
 
-        # Add P value
-        self.selected_ps_table.setItem(
-            row_position, 0, QTableWidgetItem(
-                str(p_value)))
+    #     # Add P value
+    #     self.selected_ps_table.setItem(
+    #         row_position, 0, QTableWidgetItem(
+    #             str(p_value)))
 
-        # Add remove button
-        remove_button = QPushButton("Remove")
-        remove_button.clicked.connect(
-            lambda: self.remove_p_from_selection(p_value))
-        self.selected_ps_table.setCellWidget(row_position, 1, remove_button)
+    #     # Add remove button
+    #     remove_button = QPushButton("Remove")
+    #     remove_button.clicked.connect(
+    #         lambda: self.remove_p_from_selection(p_value))
+    #     self.selected_ps_table.setCellWidget(row_position, 1, remove_button)
 
-        # Update dropdown to remove this P
-        current_index = self.p_dropdown.currentIndex()
-        self.p_dropdown.removeItem(current_index)
+    #     # Update dropdown to remove this P
+    #     current_index = self.p_dropdown.currentIndex()
+    #     self.p_dropdown.removeItem(current_index)
 
-    def remove_p_from_selection(self, p_value):
-        """Remove a P value from the selection"""
-        if p_value in self.selected_ps:
-            self.selected_ps.remove(p_value)
+    # def remove_p_from_selection(self, p_value):
+    #     """Remove a P value from the selection"""
+    #     if p_value in self.selected_ps:
+    #         self.selected_ps.remove(p_value)
 
-            # Find and remove the row from the table
-            for row in range(self.selected_ps_table.rowCount()):
-                if int(self.selected_ps_table.item(row, 0).text()) == p_value:
-                    self.selected_ps_table.removeRow(row)
-                    break
+    #         # Find and remove the row from the table
+    #         for row in range(self.selected_ps_table.rowCount()):
+    #             if int(self.selected_ps_table.item(row, 0).text()) == p_value:
+    #                 self.selected_ps_table.removeRow(row)
+    #                 break
 
-            # Add the P value back to the dropdown
-            # Sort the items to keep them in numerical order
-            self.p_dropdown.addItem(str(p_value))
-            items = [
-                self.p_dropdown.itemText(i) for i in range(
-                    self.p_dropdown.count())]
-            items = sorted(items, key=int)
+    #         # Add the P value back to the dropdown
+    #         # Sort the items to keep them in numerical order
+    #         self.p_dropdown.addItem(str(p_value))
+    #         items = [
+    #             self.p_dropdown.itemText(i) for i in range(
+    #                 self.p_dropdown.count())]
+    #         items = sorted(items, key=int)
 
-            self.p_dropdown.clear()
-            for item in items:
-                self.p_dropdown.addItem(item)
+    #         self.p_dropdown.clear()
+    #         for item in items:
+    #             self.p_dropdown.addItem(item)
 
-    def get_selected_ps(self):
-        """Return the selected P values based on the current mode"""
-        if self.use_current_p_radio.isChecked():  # Return P from view area
-            return [self.slider_p.value()]
-        else:
-            # Multiple P mode - return the set of selected Ps
-            return list(self.selected_ps)
+    # def get_selected_ps(self):
+    #     """Return the selected P values based on the current mode"""
+    #     if self.use_current_p_radio.isChecked():  # Return P from view area
+    #         return [self.slider_p.value()]
+    #     else:
+    #         # Multiple P mode - return the set of selected Ps
+    #         return list(self.selected_ps)
 
-    def plot_fluorescence_signal(self):
-        if not hasattr(self, 'image_data'):
-            return
+    # def plot_fluorescence_signal(self):
+    #     if not hasattr(self, 'image_data'):
+    #         return
 
-        selected_ps = self.get_selected_ps()
-        c = int(self.channel_combo.currentText())
-        rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
-        t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
+    #     selected_ps = self.get_selected_ps()
+    #     c = int(self.channel_combo.currentText())
+    #     rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
+    #     t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
 
-        # Initialize lists for combined data
-        combined_fluo = []
-        combined_timestamp = []
+    #     # Initialize lists for combined data
+    #     combined_fluo = []
+    #     combined_timestamp = []
 
-        # Process each selected position
-        for p in selected_ps:
-            fluo, timestamp = analyze_fluorescence_singlecell(
-                self.image_data.segmentation_cache[t_s:t_e, p, 0],
-                self.image_data.data[t_s:t_e, p, c],
-                rpu)
-            combined_fluo.append(fluo)
-            combined_timestamp.append(timestamp)
+    #     # Process each selected position
+    #     for p in selected_ps:
+    #         fluo, timestamp = analyze_fluorescence_singlecell(
+    #             self.image_data.segmentation_cache[t_s:t_e, p, 0],
+    #             self.image_data.data[t_s:t_e, p, c],
+    #             rpu)
+    #         combined_fluo.append(fluo)
+    #         combined_timestamp.append(timestamp)
 
-        # TEST: parallel
-        # import concurrent.futures
+    #     # TEST: parallel
+    #     # import concurrent.futures
 
-        # # Process each selected position in parallel
-        # def process_position(p):
-        #     fluo, timestamp = analyze_fluorescence_singlecell(
-        #         self.image_data.segmentation_cache[t_s:t_e, p, 0],
-        #         self.image_data.data[t_s:t_e, p, c],
-        #         rpu)
-        #     return fluo, timestamp
+    #     # # Process each selected position in parallel
+    #     # def process_position(p):
+    #     #     fluo, timestamp = analyze_fluorescence_singlecell(
+    #     #         self.image_data.segmentation_cache[t_s:t_e, p, 0],
+    #     #         self.image_data.data[t_s:t_e, p, c],
+    #     #         rpu)
+    #     #     return fluo, timestamp
 
-        # with concurrent.futures.ThreadPoolExecutor() as executor:
-        #     results = list(executor.map(process_position, selected_ps))
+    #     # with concurrent.futures.ThreadPoolExecutor() as executor:
+    #     #     results = list(executor.map(process_position, selected_ps))
 
-        # # Combine results
-        # combined_fluo = [result[0] for result in results]
-        # combined_timestamp = [result[1] for result in results]
+    #     # # Combine results
+    #     # combined_fluo = [result[0] for result in results]
+    #     # combined_timestamp = [result[1] for result in results]
 
-        # Handle combined_fluo as a list of lists
-        all_fluo_data = []
-        all_timestamp_data = []
+    #     # Handle combined_fluo as a list of lists
+    #     all_fluo_data = []
+    #     all_timestamp_data = []
 
-        # Iterate through each position's data
-        for pos_idx, (fluo_list, timestamp_list) in enumerate(zip(combined_fluo, combined_timestamp)):
-            for t_idx, (t, fluo_values) in enumerate(zip(timestamp_list, fluo_list)):
-                for f in fluo_values:
-                    all_fluo_data.append(f)
-                    all_timestamp_data.append(t)
+    #     # Iterate through each position's data
+    #     for pos_idx, (fluo_list, timestamp_list) in enumerate(zip(combined_fluo, combined_timestamp)):
+    #         for t_idx, (t, fluo_values) in enumerate(zip(timestamp_list, fluo_list)):
+    #             for f in fluo_values:
+    #                 all_fluo_data.append(f)
+    #                 all_timestamp_data.append(t)
 
-        # Convert to numpy arrays for efficient processing
-        all_fluo_data = np.array(all_fluo_data)
-        all_timestamp_data = np.array(all_timestamp_data)
+    #     # Convert to numpy arrays for efficient processing
+    #     all_fluo_data = np.array(all_fluo_data)
+    #     all_timestamp_data = np.array(all_timestamp_data)
 
-        self.population_figure.clear()
-        ax = self.population_figure.add_subplot(111)
+    #     self.population_figure.clear()
+    #     ax = self.population_figure.add_subplot(111)
 
-        plot_timestamp = []
-        plot_fluo = []
-        fluo_mean = []
-        fluo_std = []
+    #     plot_timestamp = []
+    #     plot_fluo = []
+    #     fluo_mean = []
+    #     fluo_std = []
 
-        # Calculate mean and std for each timestamp
-        unique_timestamps = np.unique(all_timestamp_data)
-        for t in unique_timestamps:
-            fluo_data = all_fluo_data[all_timestamp_data == t]
-            fluo_mean.append(np.mean(fluo_data))
-            fluo_std.append(np.std(fluo_data))
-            for f in fluo_data:
-                plot_timestamp.append(t)
-                plot_fluo.append(f)
+    #     # Calculate mean and std for each timestamp
+    #     unique_timestamps = np.unique(all_timestamp_data)
+    #     for t in unique_timestamps:
+    #         fluo_data = all_fluo_data[all_timestamp_data == t]
+    #         fluo_mean.append(np.mean(fluo_data))
+    #         fluo_std.append(np.std(fluo_data))
+    #         for f in fluo_data:
+    #             plot_timestamp.append(t)
+    #             plot_fluo.append(f)
 
-        fluo_mean = np.array(fluo_mean)
-        fluo_std = np.array(fluo_std)
+    #     fluo_mean = np.array(fluo_mean)
+    #     fluo_std = np.array(fluo_std)
 
-        npoints = 500
-        # Randomly select up to npoints points for plotting
-        points = np.array(list(zip(plot_timestamp, plot_fluo)))
-        if len(points) > npoints:
-            points = points[np.random.choice(
-                points.shape[0], npoints, replace=False)]
-            plot_timestamp, plot_fluo = zip(*points)
+    #     npoints = 500
+    #     # Randomly select up to npoints points for plotting
+    #     points = np.array(list(zip(plot_timestamp, plot_fluo)))
+    #     if len(points) > npoints:
+    #         points = points[np.random.choice(
+    #             points.shape[0], npoints, replace=False)]
+    #         plot_timestamp, plot_fluo = zip(*points)
 
-        ax.scatter(
-            plot_timestamp,
-            plot_fluo,
-            color='blue',
-            alpha=0.5,
-            marker='+')
-        ax.plot(unique_timestamps, fluo_mean, color='red', label='Mean')
-        ax.fill_between(
-            unique_timestamps,
-            fluo_mean - fluo_std,
-            fluo_mean + fluo_std,
-            color='red',
-            alpha=0.2,
-            label='Std Dev')
-        ax.set_title(f'Fluorescence signal for Positions {selected_ps}')
-        ax.set_xlabel('T')
-        ax.set_ylabel('Cell activity in RPUs')
-        self.population_canvas.draw()
+    #     ax.scatter(
+    #         plot_timestamp,
+    #         plot_fluo,
+    #         color='blue',
+    #         alpha=0.5,
+    #         marker='+')
+    #     ax.plot(unique_timestamps, fluo_mean, color='red', label='Mean')
+    #     ax.fill_between(
+    #         unique_timestamps,
+    #         fluo_mean - fluo_std,
+    #         fluo_mean + fluo_std,
+    #         color='red',
+    #         alpha=0.2,
+    #         label='Std Dev')
+    #     ax.set_title(f'Fluorescence signal for Positions {selected_ps}')
+    #     ax.set_xlabel('T')
+    #     ax.set_ylabel('Cell activity in RPUs')
+    #     self.population_canvas.draw()
