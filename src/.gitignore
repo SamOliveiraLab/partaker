@@ -2,3 +2,5 @@ __pycache__/
 checkpoints/
 aligned_data/
 sample_data/
+*.nd2
+*.zip

@@ -47,6 +47,7 @@ from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget
 from pubsub import pub
 
 from experiment import Experiment
+from metrics_service import MetricsService
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
@@ -128,10 +129,11 @@ class MorphologyWorker(QObject):
             raise e
             self.error.emit(str(e))
 
-
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        self.metrics_service = MetricsService()
 
         self.morphology_colors = {
             "Artifact": (128, 128, 128),  # Gray
