@@ -42,7 +42,7 @@ from .roisel import PolygonROISelector
 from lineage_visualization import LineageVisualization
 
 from .dialogs import AboutDialog, ExperimentDialog
-from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget
+from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget
 
 from pubsub import pub
 
@@ -134,6 +134,7 @@ class App(QMainWindow):
         super().__init__()
 
         self.metrics_service = MetricsService()
+        self.image_data = None
 
         self.morphology_colors = {
             "Artifact": (128, 128, 128),  # Gray
@@ -168,12 +169,15 @@ class App(QMainWindow):
         self.layout.addWidget(self.tab_widget)
 
         pub.subscribe(self.on_exp_loaded, "experiment_loaded")
+        pub.subscribe(self.on_image_request, "image_request")
+        pub.subscribe(self.on_segmentation_request, "segmentation_request")
 
     def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
 
         # Instance ImageData and load the first nd2 file
         self.image_data = ImageData.load_nd2(experiment.nd2_files[0])
+        pub.sendMessage("image_data_loaded", image_data=self.image_data)
 
     def load_from_folder(self, folder_path):
         p = Path(folder_path)
@@ -514,7 +518,63 @@ class App(QMainWindow):
 
         # Store this processed image for export
         self.processed_images.append(image_data)
+        pub.sendMessage("current_view_changed", 
+                    time=t,
+                    position=p, 
+                    channel=c)
 
+
+    def on_image_request(self, time, position, channel):
+        """Handle requests for raw image data"""
+        if not self.image_data:
+            return
+        
+        # Retrieve the image data
+        try:
+            if self.image_data.is_nd2:
+                if self.has_channels:
+                    image = self.image_data.data[time, position, channel]
+                else:
+                    image = self.image_data.data[time, position]
+            else:
+                image = self.image_data.data[time]
+                
+            # Convert to NumPy array if needed
+            image = np.array(image)
+            
+            # Publish the image
+            pub.sendMessage("image_ready", 
+                        image=image,
+                        time=time, 
+                        position=position, 
+                        channel=channel)
+        except Exception as e:
+            print(f"Error retrieving image: {e}")
+
+    def on_segmentation_request(self, time, position, channel, model_name):
+        """Handle requests for segmentation data"""
+        if not self.image_data:
+            return
+        
+        try:
+            # Get the appropriate segmentation model
+            if model_name:
+                self.image_data.segmentation_cache.with_model(model_name)
+            else:
+                self.image_data.segmentation_cache.with_model(self.model_dropdown.currentText())
+            
+            # Get the segmentation
+            segmented_image = self.image_data.segmentation_cache[time, position, channel]
+            
+            # Publish the segmentation result
+            pub.sendMessage("segmentation_ready", 
+                        segmented_image=segmented_image,
+                        time=time, 
+                        position=position, 
+                        channel=channel)
+        except Exception as e:
+            print(f"Error retrieving segmentation: {e}")
+        
     def initImportTab(self):
         def importFile():
             file_dialog = QFileDialog()
@@ -2725,8 +2785,9 @@ class App(QMainWindow):
         
         self.segmentation_tab = SegmentationWidget()
         self.populationTab = PopulationWidget()
+        self.morphologyTab = MorphologyWidget()
 
-        self.morphologyTab = QWidget()
+
         self.morphologyTimeTab = QWidget()
         self.morphologyVisualizationTab = QWidget()
 
@@ -2739,7 +2800,7 @@ class App(QMainWindow):
             self.morphologyVisualizationTab,
             "Morphology Visualization")
 
-        self.initMorphologyTab()
+        # self.initMorphologyTab()
         self.initMorphologyTimeTab()
         self.initMorphologyVisualizationTab()
         self.initMenuBar()
@@ -2902,78 +2963,78 @@ class App(QMainWindow):
                 ("\nTracking data loaded successfully" if has_tracking_data else "")
             )
 
-    def initMorphologyTab(self):
-        layout = QVBoxLayout(self.morphologyTab)
+    # def initMorphologyTab(self):
+    #     layout = QVBoxLayout(self.morphologyTab)
 
-        # Create QTabWidget for inner tabs
-        inner_tab_widget = QTabWidget()
-        self.scatter_tab = QWidget()
-        self.table_tab = QWidget()
+    #     # Create QTabWidget for inner tabs
+    #     inner_tab_widget = QTabWidget()
+    #     self.scatter_tab = QWidget()
+    #     self.table_tab = QWidget()
 
-        # Add tabs to the inner tab widget
-        inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
-        inner_tab_widget.addTab(self.table_tab, "Metrics Table")
+    #     # Add tabs to the inner tab widget
+    #     inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
+    #     inner_tab_widget.addTab(self.table_tab, "Metrics Table")
 
-        # Scatter plot tab layout (PCA)
-        scatter_layout = QVBoxLayout(self.scatter_tab)
+    #     # Scatter plot tab layout (PCA)
+    #     scatter_layout = QVBoxLayout(self.scatter_tab)
 
-        # Annotated image display (adjusted size)
-        self.annotated_image_label = QLabel(
-            "Annotated image will be displayed here.")
-        self.annotated_image_label.setFixedSize(
-            300, 300)  # Adjust size as needed
-        self.annotated_image_label.setAlignment(Qt.AlignCenter)
-        self.annotated_image_label.setScaledContents(True)
-        scatter_layout.addWidget(self.annotated_image_label)
+    #     # Annotated image display (adjusted size)
+    #     self.annotated_image_label = QLabel(
+    #         "Annotated image will be displayed here.")
+    #     self.annotated_image_label.setFixedSize(
+    #         300, 300)  # Adjust size as needed
+    #     self.annotated_image_label.setAlignment(Qt.AlignCenter)
+    #     self.annotated_image_label.setScaledContents(True)
+    #     scatter_layout.addWidget(self.annotated_image_label)
 
-        # Dropdown for selecting metric to color PCA scatter plot
-        self.color_dropdown_annot = QComboBox()
-        self.color_dropdown_annot.addItems(
-            [
-                "area",
-                "perimeter",
-                "aspect_ratio",
-                "extent",
-                "solidity",
-                "equivalent_diameter",
-                "orientation",
-            ]
-        )
+    #     # Dropdown for selecting metric to color PCA scatter plot
+    #     self.color_dropdown_annot = QComboBox()
+    #     self.color_dropdown_annot.addItems(
+    #         [
+    #             "area",
+    #             "perimeter",
+    #             "aspect_ratio",
+    #             "extent",
+    #             "solidity",
+    #             "equivalent_diameter",
+    #             "orientation",
+    #         ]
+    #     )
 
-        # Add dropdown for coloring
-        # dropdown_layout = QHBoxLayout()
-        # dropdown_layout.addWidget(QLabel("Color by:"))
-        # dropdown_layout.addWidget(self.color_dropdown_annot)
-        # scatter_layout.addLayout(dropdown_layout)
+    #     # Add dropdown for coloring
+    #     # dropdown_layout = QHBoxLayout()
+    #     # dropdown_layout.addWidget(QLabel("Color by:"))
+    #     # dropdown_layout.addWidget(self.color_dropdown_annot)
+    #     # scatter_layout.addLayout(dropdown_layout)
 
-        # PCA scatter plot display
-        self.figure_annot_scatter = plt.figure()
-        self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
-        scatter_layout.addWidget(self.canvas_annot_scatter)
+    #     # PCA scatter plot display
+    #     self.figure_annot_scatter = plt.figure()
+    #     self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
+    #     scatter_layout.addWidget(self.canvas_annot_scatter)
 
-        # Connect dropdown change to PCA plot update
-        self.color_dropdown_annot.currentTextChanged.connect(
-            self.update_annotation_scatter)
+    #     # Connect dropdown change to PCA plot update
+    #     self.color_dropdown_annot.currentTextChanged.connect(
+    #         self.update_annotation_scatter)
 
-        # Table tab layout (Metrics Table)
-        table_layout = QVBoxLayout(self.table_tab)
-        # Add the Export Button at the top of the table layout
-        self.export_button = QPushButton("Export to CSV")
-        self.export_button.setStyleSheet(
-            "background-color: white; color: black; font-size: 14px;")
-        table_layout.addWidget(self.export_button)
+    #     # Table tab layout (Metrics Table)
+    #     table_layout = QVBoxLayout(self.table_tab)
+    #     # Add the Export Button at the top of the table layout
+    #     self.export_button = QPushButton("Export to CSV")
+    #     self.export_button.setStyleSheet(
+    #         "background-color: white; color: black; font-size: 14px;")
+    #     table_layout.addWidget(self.export_button)
 
-        # Connect the button to the export function (use annotation or define
-        # it here)
-        self.export_button.clicked.connect(self.export_metrics_to_csv)
+    #     # Connect the button to the export function (use annotation or define
+    #     # it here)
+    #     self.export_button.clicked.connect(self.export_metrics_to_csv)
 
-        self.metrics_table = QTableWidget()  # Create the table widget
-        # Connect the table item click signal to the handler
-        self.metrics_table.itemClicked.connect(self.on_table_item_click)
-        table_layout.addWidget(self.metrics_table)
+    #     self.metrics_table = QTableWidget()  # Create the table widget
+    #     # Connect the table item click signal to the handler
+    #     self.metrics_table.itemClicked.connect(self.on_table_item_click)
+    #     table_layout.addWidget(self.metrics_table)
 
-        # Add the inner tab widget to the annotated tab layout
-        layout.addWidget(inner_tab_widget)
+    #     # Add the inner tab widget to the annotated tab layout
+    #     layout.addWidget(inner_tab_widget)
 
     def initMorphologyVisualizationTab(self):
         layout = QVBoxLayout(self.morphologyVisualizationTab)
