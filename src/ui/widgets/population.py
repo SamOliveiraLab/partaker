@@ -14,7 +14,6 @@ class PopulationWidget(QWidget):
     """
     Widget for plotting population-level fluorescence over time.
     """
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.metrics_service = MetricsService()  # Singleton instance
@@ -114,11 +113,25 @@ class PopulationWidget(QWidget):
 
         if df.is_empty():
             return
+        
+        # Test each filter condition separately
+        pos_filter = df["position"].is_in(selected_positions)
+        channel_filter = df["channel"] == channel
+        time_start_filter = df["time"] >= t_start
+        time_end_filter = df["time"] <= t_end
+        
+        print(f"Position filter matches: {df.filter(pos_filter).shape[0]} rows")
+        # print(f"Channel filter matches: {df.filter(channel_filter).shape[0]} rows")
+        print(f"Time start filter matches: {df.filter(time_start_filter).shape[0]} rows")
+        print(f"Time end filter matches: {df.filter(time_end_filter).shape[0]} rows")
+
 
         # Filter for selected positions, channel, and time range
         mask = (
             df["position"].is_in(selected_positions)
-            & (df["channel"] == channel)
+            # TODO: include fluorescence for different channels in MetricsService
+            # and reflect those here.
+            # & (df["channel"] == channel)
             & (df["time"] >= t_start)
             & (df["time"] <= t_end)
         )
@@ -128,15 +141,18 @@ class PopulationWidget(QWidget):
             return
 
         # Determine the metric to plot
-        metric_name = self.metric_combo.currentText()
-        if metric_name == "Mean Intensity":
-            metric_col = "mean_intensity"
-        elif metric_name == "Integrated Intensity":
-            metric_col = "integrated_intensity"
-        elif metric_name == "Normalized Intensity":
-            metric_col = "normalized_intensity"
-        else:
-            return  # Unknown metric
+        # metric_name = self.metric_combo.currentText()
+        # if metric_name == "Mean Intensity":
+        #     metric_col = "mean_intensity"
+        # elif metric_name == "Integrated Intensity":
+        #     metric_col = "integrated_intensity"
+        # elif metric_name == "Normalized Intensity":
+        #     metric_col = "normalized_intensity"
+        # else:
+        #     return  # Unknown metric
+        # The metric we want is based on the selected channel
+        metric_col = f"fluo_{channel}"
+        metric_name = f"Fluorescence for channel {channel}"
 
         # Group by time, aggregate mean and std of the selected metric across cells and positions
         grouped = (

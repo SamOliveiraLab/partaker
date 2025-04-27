@@ -55,7 +55,7 @@ class MetricsService:
             mode: Display mode of the image
         """
         # Handle raw images for fluorescence analysis
-        if mode == "normal":
+        if mode == "normal" and channel != 0:
             self._process_fluorescence_image(image, time, position, channel)
             return
             
@@ -83,18 +83,19 @@ class MetricsService:
         logger.info(f"Analyzing {num_features} cells in image at T={time}, P={position}, C={channel}")
         
         # Store the labeled image for later fluorescence analysis
-        cache_key = (time, position, channel)
+        cache_key = (time, position)
         self._segmentation_cache[cache_key] = labeled_image
         
         # Calculate metrics for the segmented cells
         self._calculate_metrics(labeled_image, time, position, channel)
         
         # Request raw images for fluorescence analysis
-        # We need to request the raw image for the current channel
-        pub.sendMessage("raw_image_request",
-                       time=time,
-                       position=position,
-                       channel=channel)
+        # TODO: make it aware of the fluorescence channels
+        for _chan in range(1, 3):
+            pub.sendMessage("raw_image_request",
+                        time=time,
+                        position=position,
+                        channel=_chan)
     
     def _process_fluorescence_image(self, image, time, position, channel):
         """
@@ -106,7 +107,8 @@ class MetricsService:
             position: Position
             channel: Channel
         """
-        cache_key = (time, position, channel)
+        cache_key = (time, position)
+        # TODO: compute fluorescence values per channel!
         
         # Check if we have segmentation labels for this image
         if cache_key not in self._segmentation_cache:
@@ -119,7 +121,7 @@ class MetricsService:
         # Find metrics for this time/position/channel in our data
         matching_metrics = [
             (i, m) for i, m in enumerate(self._data) 
-            if m["time"] == time and m["position"] == position and m["channel"] == channel
+            if m["time"] == time and m["position"] == position # and m["channel"] == channel
         ]
         
         if not matching_metrics:
@@ -134,6 +136,9 @@ class MetricsService:
         background_mask = labeled_image == 0
         background_intensity = np.mean(image[background_mask]) if np.any(background_mask) else 0
         
+        # Fluorescence measurement key
+        fluo_metric_key = f"fluo_{channel}"
+
         # Update fluorescence metrics for each cell
         for idx, metrics in matching_metrics:
             cell_id = metrics["cell_id"]
@@ -141,13 +146,13 @@ class MetricsService:
             
             if np.any(cell_mask):
                 cell_pixels = image[cell_mask]
-                metrics["mean_intensity"] = np.mean(cell_pixels)
-                metrics["max_intensity"] = np.max(cell_pixels)
-                metrics["min_intensity"] = np.min(cell_pixels)
-                metrics["std_intensity"] = np.std(cell_pixels)
-                metrics["integrated_intensity"] = np.sum(cell_pixels)
-                metrics["background_intensity"] = background_intensity
-                metrics["normalized_intensity"] = metrics["mean_intensity"] / background_intensity if background_intensity > 0 else None
+                metrics[fluo_metric_key] = np.mean(cell_pixels)
+                # metrics["max_intensity"] = np.max(cell_pixels)
+                # metrics["min_intensity"] = np.min(cell_pixels)
+                # metrics["std_intensity"] = np.std(cell_pixels)
+                # metrics["integrated_intensity"] = np.sum(cell_pixels)
+                # metrics["background_intensity"] = background_intensity
+                # metrics["normalized_intensity"] = metrics["mean_intensity"] / background_intensity if background_intensity > 0 else None
                 
                 # Log the fluorescence metrics
                 self._log_fluorescence_metrics(metrics)
@@ -157,9 +162,6 @@ class MetricsService:
         
         # Update the DataFrame
         self._update_dataframe()
-        
-        # Clean up the cache to prevent memory leaks
-        del self._segmentation_cache[cache_key]
     
     def _calculate_metrics(self, labeled_image, time, position, channel):
         """
@@ -228,12 +230,19 @@ class MetricsService:
         Args:
             metrics: Dictionary of cell metrics
         """
-        logger.info(f"Fluorescence metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']} C:{metrics['channel']}")
-        logger.info(f"  Mean Intensity: {metrics['mean_intensity']:.2f}")
-        logger.info(f"  Max Intensity: {metrics['max_intensity']:.2f}")
-        logger.info(f"  Integrated Intensity: {metrics['integrated_intensity']:.2f}")
-        logger.info(f"  Background Intensity: {metrics['background_intensity']:.2f}")
-        logger.info(f"  Normalized Intensity: {metrics['normalized_intensity']:.2f}" if metrics['normalized_intensity'] else "  Normalized Intensity: None")
+        logger.info(f"Fluorescence metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']}")
+        for _chan in range(1, 3): # 1 and 2
+            try:
+                fluo_metric_key = f"fluo_{_chan}"
+                logger.info(f"  Average fluorescence for channel {_chan}: {metrics[fluo_metric_key]:.2f}")
+            except:
+                logger.info(f"  Channel {fluo_metric_key} not present!")
+                continue
+        # logger.info(f"  Mean Intensity: {metrics['mean_intensity']:.2f}")
+        # logger.info(f"  Max Intensity: {metrics['max_intensity']:.2f}")
+        # logger.info(f"  Integrated Intensity: {metrics['integrated_intensity']:.2f}")
+        # logger.info(f"  Background Intensity: {metrics['background_intensity']:.2f}")
+        # logger.info(f"  Normalized Intensity: {metrics['normalized_intensity']:.2f}" if metrics['normalized_intensity'] else "  Normalized Intensity: None")
     
     def _update_dataframe(self):
         """Update the Polars DataFrame with collected data"""
