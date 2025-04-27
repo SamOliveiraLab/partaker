@@ -9,6 +9,7 @@ import polars as pl  # Import Polars
 
 # Assume MetricsService is a singleton with a .df attribute (Polars DataFrame)
 from metrics_service import MetricsService
+from experiment import Experiment
 
 class PopulationWidget(QWidget):
     """
@@ -18,6 +19,7 @@ class PopulationWidget(QWidget):
         super().__init__(parent)
         self.metrics_service = MetricsService()  # Singleton instance
         self.init_ui()
+        self.experiment : Experiment = None
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -76,6 +78,7 @@ class PopulationWidget(QWidget):
 
         # Listen for data loading to populate UI
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
+        pub.subscribe(self.on_experiment_loaded, "experiment_loaded")
 
     def on_image_data_loaded(self, image_data):
         # Populate positions and channels based on image_data shape
@@ -95,6 +98,9 @@ class PopulationWidget(QWidget):
         self.time_min_box.setRange(0, t_max)
         self.time_max_box.setRange(0, t_max)
         self.time_max_box.setValue(t_max)
+
+    def on_experiment_loaded(self, experiment):
+        self.experiment = experiment
 
     def plot_fluorescence_signal(self):
         # Get user selections
@@ -164,9 +170,18 @@ class PopulationWidget(QWidget):
             .sort("time")
         )
 
-        times = grouped["time"].to_numpy()
-        mean_metric = grouped["mean_metric"].to_numpy()
-        std_metric = grouped["std_metric"].to_numpy()
+        # Filter values smaller than epsilon, and multiply time by the experiment interval constant
+        epsilon = 0.1
+        valid = grouped.filter(pl.col("mean_metric") > epsilon)
+
+        factor = self.experiment.interval
+        result = valid.with_columns(
+            (pl.col("time") * factor).alias("scaled_time")
+        )
+
+        times = result["scaled_time"].to_numpy()
+        mean_metric = result["mean_metric"].to_numpy()
+        std_metric = result["std_metric"].to_numpy()
 
         # Plot
         self.population_figure.clear()
