@@ -198,51 +198,57 @@ class MorphologyWidget(QWidget):
     
     def on_table_item_click(self, item):
         """Handle clicks on the metrics table to select and track cells"""
-        row = item.row()
-        cell_id = self.metrics_table.item(row, 0).text()
-        cell_id = int(cell_id)
+        try:
+            row = item.row()
+            cell_id = self.metrics_table.item(row, 0).text()
+            cell_id = int(cell_id)
+            
+            # Always highlight the cell in the current frame first
+            print(f"Highlighting cell {cell_id} in current frame")
+            self.highlight_cell_in_image(cell_id)
+            
+            # Only attempt tracking as a secondary action
+            try:
+                print(f"Attempting to track cell {cell_id}")
+                self.select_cell_for_tracking(cell_id)
+            except Exception as e:
+                print(f"Cell tracking failed: {str(e)}")
+                # Don't show error message about tracking to the user
+                # since highlighting still worked
+        except Exception as e:
+            print(f"Error in table item click: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Failed to process cell selection: {str(e)}")
         
-        # Highlight the cell in the current frame
-        self.highlight_cell_in_image(cell_id)
-        
-        # Set up tracking for this cell across frames
-        print(f"Selected cell {cell_id} for tracking from table")
-        self.select_cell_for_tracking(cell_id)
     
     def select_cell_for_tracking(self, cell_id):
         """Select a specific cell to track across frames."""
         print(f"Selected cell {cell_id} for tracking")
         self.selected_cell_id = cell_id
         
-        # Initialize lineage_tracks if it doesn't exist
-        if not hasattr(self, "lineage_tracks"):
-            self.lineage_tracks = []
-            print("Initializing empty lineage_tracks")
-        
-        # Check if tracking data is available
-        if not self.lineage_tracks:
-            reply = QMessageBox.question(
+        # Check if tracking is available (don't initialize an empty list)
+        if not hasattr(self, "lineage_tracks") or not self.lineage_tracks:
+            print("No tracking data available")
+            reply = QMessageBox.information(
                 self, "No Tracking Data",
-                "No tracking data is available. Do you want to request tracking data?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+                "Cell highlighting is working, but tracking data is not available yet.\n\n"
+                "Tracking requires running cell tracking first.",
+                QMessageBox.Ok | QMessageBox.Help, 
+                QMessageBox.Ok
             )
-            if reply == QMessageBox.Yes:
-                # Send message to generate tracking data
-                print("Requesting tracking data generation")
-                pub.sendMessage("track_cells_requested")
+            if reply == QMessageBox.Help:
                 QMessageBox.information(
-                    self, "Tracking Requested", 
-                    "Tracking data generation has been requested. Please try tracking again once it's complete."
+                    self, "How To Track Cells",
+                    "To track cells across frames:\n\n"
+                    "1. Go to the Morphology / Time tab\n"
+                    "2. Click 'Visualize Lineage Tree'\n"
+                    "3. Once tracking is complete, return here\n"
+                    "4. Select a cell from the table again"
                 )
-            else:
-                print("User canceled tracking request")
-            
-            self.selected_cell_id = None
             return
-            
+        
         # If we have tracking data, proceed with finding the cell
         self.find_cell_in_tracking_data(cell_id)
-        
+     
     def set_tracking_data(self, lineage_tracks):
         """Set tracking data from external source"""
         print(f"Received tracking data with {len(lineage_tracks)} tracks")
@@ -343,24 +349,46 @@ class MorphologyWidget(QWidget):
                        tracked_data=self.tracked_cell_lineage,
                        save_path=save_path)
     
+    
     def highlight_cell_in_image(self, cell_id):
         """Highlight a specific cell in the current image view"""
-        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-            QMessageBox.warning(
-                self, "Error", 
-                "No cell mapping data available. Did you classify cells first?"
-            )
-            return
+        try:
+            if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+                print("No cell mapping available for highlighting")
+                return
+                
+            if int(cell_id) not in self.cell_mapping:
+                print(f"Cell ID {cell_id} not found in mapping")
+                return
+                
+            # Send message to highlight the cell in main view
+            print(f"Sending highlight request for cell {cell_id}")
+            pub.sendMessage("highlight_cell_requested", cell_id=int(cell_id))
             
-        if cell_id not in self.cell_mapping:
-            QMessageBox.warning(
-                self, "Error",
-                f"Cell ID {cell_id} not found in cell mapping."
-            )
-            return
-            
-        # Send message to highlight the cell in main view
-        pub.sendMessage("highlight_cell_requested", cell_id=cell_id)
+            # Also highlight the cell in our local view if we have the annotated image
+            if hasattr(self, "annotated_image") and self.annotated_image is not None:
+                try:
+                    # Create a copy of the annotated image
+                    highlighted = self.annotated_image.copy()
+                    
+                    # Get bounding box of the cell
+                    y1, x1, y2, x2 = self.cell_mapping[int(cell_id)]["bbox"]
+                    
+                    # Draw a prominent rectangle around the cell
+                    cv2.rectangle(highlighted, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    
+                    # Display in our widget
+                    height, width = highlighted.shape[:2]
+                    qimage = QImage(highlighted.data, width, height, 
+                                highlighted.strides[0], QImage.Format_RGB888)
+                    pixmap = QPixmap.fromImage(qimage)
+                    self.annotated_image_label.setPixmap(pixmap)
+                    
+                    print(f"Cell {cell_id} highlighted in local view")
+                except Exception as e:
+                    print(f"Failed to highlight in local view: {str(e)}")
+        except Exception as e:
+            print(f"Error highlighting cell: {str(e)}")
     
     def update_annotation_scatter(self):
         """Update the PCA scatter plot with current cell morphology data"""
