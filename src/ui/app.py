@@ -158,6 +158,7 @@ class App(QMainWindow):
         # Initialize other UI components
         self.tab_widget = QTabWidget()
         
+        
         # Complete initialization
         self.init_ui()
         self.layout.addWidget(self.tab_widget)
@@ -2789,7 +2790,7 @@ class App(QMainWindow):
         # Add tabs to the QTabWidget
         self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
         self.tab_widget.addTab(self.populationTab, "Population")
-        self.tab_widget.addTab(self.morphologyTab, "Morphology")
+        self.tab_widget.addTab(self.morphology_widget, "Morphology")
         self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
         self.tab_widget.addTab(
             self.morphologyVisualizationTab,
