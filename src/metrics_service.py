@@ -171,6 +171,7 @@ class MetricsService:
         # Update the DataFrame
         self._update_dataframe()
     
+    
     def _calculate_metrics(self, labeled_image, time, position, channel):
         """
         Calculate basic shape metrics for all cells in a labeled image.
@@ -192,6 +193,9 @@ class MetricsService:
             solidity = prop.solidity
             equivalent_diameter = prop.equivalent_diameter
             aspect_ratio = prop.major_axis_length / prop.minor_axis_length if prop.minor_axis_length > 0 else 1.0
+            
+            # Add orientation explicitly
+            orientation = prop.orientation
 
             metrics_for_classification = {
                 "area": prop.area,
@@ -199,7 +203,8 @@ class MetricsService:
                 "aspect_ratio": aspect_ratio,
                 "circularity": circularity,
                 "solidity": solidity,
-                "equivalent_diameter": equivalent_diameter
+                "equivalent_diameter": equivalent_diameter,
+                "orientation": orientation  # Add orientation here
             }
 
             # Get morphology classification
@@ -223,6 +228,7 @@ class MetricsService:
                 "circularity": circularity,
                 "solidity": solidity,
                 "equivalent_diameter": equivalent_diameter,
+                "orientation": orientation,  # Add orientation here
                 "morphology_class": morphology_class,
                 # Initialize fluorescence metrics to None - will be filled later
                 "mean_intensity": None,
@@ -239,7 +245,7 @@ class MetricsService:
 
             # Add to data collection
             self._data.append(metrics)
-
+    
     def _log_shape_metrics(self, metrics):
         """
         Log shape metrics for a cell.

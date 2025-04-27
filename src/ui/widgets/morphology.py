@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QComboBox, QTableWidget, QTableWidgetItem, 
                                QMessageBox, QFileDialog, QTabWidget)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QImage, QPixmap, QColor
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import numpy as np
@@ -15,25 +15,17 @@ import cv2
 from morphology import (classify_morphology, extract_cells_and_metrics, 
                        annotate_binary_mask, extract_cell_morphologies)
 
-
 class MorphologyWidget(QWidget):
-    """
-    Widget for morphology analysis of segmented cells.
-    Uses PyPubSub for communication with other components.
-    """
-    
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, metrics_service=None):
         super().__init__(parent)
-        
-        # Initialize state variables
         self.cell_mapping = {}
-        self.annotated_image = None
-        self.current_time = 0
-        self.current_position = 0
-        self.current_channel = 0
-        self.image_data = None
+        self.selected_cell_id = None
+        self.tracked_cell_lineage = {}
         
-        # Define color mapping for morphology classes
+        # Store reference to metrics service
+        self.metrics_service = metrics_service
+        
+        # Set up morphology colors (same as original)
         self.morphology_colors = {
             "Artifact": (128, 128, 128),  # Gray
             "Divided": (255, 0, 0),       # Blue
@@ -47,34 +39,35 @@ class MorphologyWidget(QWidget):
             for key, color in self.morphology_colors.items()
         }
         
-        # Set up the UI
-        self.init_ui()
+        # Initialize UI components
+        self.initUI()
         
-        # Subscribe to relevant topics
+        # Subscribe to relevant messages
+        pub.subscribe(self.on_cell_mapping_updated, "cell_mapping_updated")
+        pub.subscribe(self.on_segmentation_ready, "segmentation_ready")
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_current_view_changed, "current_view_changed")
-        pub.subscribe(self.on_segmentation_ready, "segmentation_ready")
-        pub.subscribe(self.on_image_ready, "image_ready")
+        pub.subscribe(self.set_tracking_data, "tracking_data_available")
     
-    def init_ui(self):
-        """Initialize the user interface"""
+    def initUI(self):
         layout = QVBoxLayout(self)
         
+        # Add the fetch metrics button at the top
+        self.fetch_metrics_button = QPushButton("Get Metrics from Service")
+        self.fetch_metrics_button.clicked.connect(self.fetch_metrics_from_service)
+        self.fetch_metrics_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        layout.addWidget(self.fetch_metrics_button)
+        
         # Create QTabWidget for inner tabs
-        self.inner_tab_widget = QTabWidget()
+        inner_tab_widget = QTabWidget()
         self.scatter_tab = QWidget()
         self.table_tab = QWidget()
         
         # Add tabs to the inner tab widget
-        self.inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
-        self.inner_tab_widget.addTab(self.table_tab, "Metrics Table")
+        inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
+        inner_tab_widget.addTab(self.table_tab, "Metrics Table")
         
-        # Classify Cells button
-        classify_button = QPushButton("Classify Cells")
-        classify_button.clicked.connect(self.classify_cells)
-        layout.addWidget(classify_button)
-        
-        # ---- Scatter plot tab layout (PCA) ----
+        # Set up scatter plot tab (PCA)
         scatter_layout = QVBoxLayout(self.scatter_tab)
         
         # Annotated image display
@@ -84,211 +77,295 @@ class MorphologyWidget(QWidget):
         self.annotated_image_label.setScaledContents(True)
         scatter_layout.addWidget(self.annotated_image_label)
         
-        # Dropdown for selecting metric to color PCA scatter plot
-        self.color_dropdown = QComboBox()
-        self.color_dropdown.addItems([
-            "area", "perimeter", "aspect_ratio", "extent",
-            "solidity", "equivalent_diameter", "orientation"
-        ])
+        # PCA scatter plot display (no color by dropdown)
+        self.figure_annot_scatter = plt.figure()
+        self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
+        scatter_layout.addWidget(self.canvas_annot_scatter)
         
-        dropdown_layout = QHBoxLayout()
-        dropdown_layout.addWidget(QLabel("Color by:"))
-        dropdown_layout.addWidget(self.color_dropdown)
-        scatter_layout.addLayout(dropdown_layout)
-        
-        # PCA scatter plot display
-        self.figure_scatter = plt.figure()
-        self.canvas_scatter = FigureCanvas(self.figure_scatter)
-        scatter_layout.addWidget(self.canvas_scatter)
-        
-        # Connect dropdown change to PCA plot update
-        self.color_dropdown.currentTextChanged.connect(self.update_scatter_plot)
-        
-        # ---- Table tab layout (Metrics Table) ----
+        # Metrics table tab
         table_layout = QVBoxLayout(self.table_tab)
+        
+        # Add Export button with tracking GIF capability
+        self.button_layout = QHBoxLayout()
         
         # Export to CSV button
         self.export_button = QPushButton("Export to CSV")
         self.export_button.setStyleSheet("background-color: white; color: black; font-size: 14px;")
         self.export_button.clicked.connect(self.export_metrics_to_csv)
-        table_layout.addWidget(self.export_button)
+        self.button_layout.addWidget(self.export_button)
         
-        # Metrics table
+        # Save GIF button (initially hidden, will appear after cell selection)
+        self.save_gif_button = None
+        
+        table_layout.addLayout(self.button_layout)
+        
+        # Create metrics table
         self.metrics_table = QTableWidget()
         self.metrics_table.itemClicked.connect(self.on_table_item_click)
         table_layout.addWidget(self.metrics_table)
         
-        # Add the inner tab widget to the main layout
-        layout.addWidget(self.inner_tab_widget)
-
-    def classify_cells(self):
-        """
-        Classify cells in the current image and update displays.
-        """
-        if not self.image_data:
-            QMessageBox.warning(self, "Error", "No image data available.")
-            return
-            
-        # Request current image
-        pub.sendMessage("image_request", 
-                       time=self.current_time, 
-                       position=self.current_position, 
-                       channel=self.current_channel)
-        
-        # Request segmentation
-        pub.sendMessage("segmentation_request", 
-                       time=self.current_time, 
-                       position=self.current_position, 
-                       channel=self.current_channel, 
-                       model_name=None)
+        # Add tabs to main layout
+        layout.addWidget(inner_tab_widget)
     
-    def on_segmentation_ready(self, segmented_image, time, position, channel):
-        """
-        Handle segmented image data when ready.
-        """
-        # Check if this is the image we're expecting
-        if (time != self.current_time or 
-            position != self.current_position or 
-            channel != self.current_channel):
+    def fetch_metrics_from_service(self):
+        """Fetch cell metrics and classification from the metrics service dataframe"""
+        if not self.metrics_service:
+            QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
         
-        if segmented_image is None:
-            QMessageBox.warning(self, "Segmentation Error", "Segmentation failed.")
-            return
-        
-        # Store segmentation for later use
-        self.current_segmentation = segmented_image
-        
-        # Request original image data to extract metrics
-        pub.sendMessage("image_request",
-                      time=time,
-                      position=position,
-                      channel=channel)
-    
-    def on_image_ready(self, image, time, position, channel, mode):
-        """
-        Handle the raw image data for morphology analysis.
-        """
-        if mode != "normal":
-            return
-    
-        # Check if this is the image we're expecting
-        if (time != self.current_time or 
-            position != self.current_position or 
-            channel != self.current_channel):
-            return
-            
-        # Make sure we have the segmentation
-        if not hasattr(self, 'current_segmentation') or self.current_segmentation is None:
-            # Request segmentation again
-            pub.sendMessage("segmentation_request", 
-                          time=time, 
-                          position=position, 
-                          channel=channel, 
-                          model_name=None)
-            return
-            
-        # Extract cells and metrics
-        self.cell_mapping = extract_cells_and_metrics(image, self.current_segmentation)
-        
-        if not self.cell_mapping:
-            QMessageBox.warning(self, "No Cells", "No cells detected in the current frame.")
-            return
-            
-        # Annotate the binary segmented image
-        self.annotated_image = annotate_binary_mask(self.current_segmentation, self.cell_mapping)
-        
-        # Display the annotated image
-        height, width = self.annotated_image.shape[:2]
-        qimage = QImage(
-            self.annotated_image.data,
-            width,
-            height,
-            self.annotated_image.strides[0],
-            QImage.Format_RGB888
-        )
-        
-        pixmap = QPixmap.fromImage(qimage).scaled(
-            self.annotated_image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        )
-        self.annotated_image_label.setPixmap(pixmap)
-        
-        # Update the metrics table and PCA scatter plot
-        self.populate_metrics_table()
-        self.update_scatter_plot()
-    
-    def on_image_data_loaded(self, image_data):
-        """
-        Handle new image data loading notification.
-        """
-        # Store the image data
-        self.image_data = image_data
-        
-        # Clear any existing data
-        self.cell_mapping = {}
-        self.annotated_image = None
-        if hasattr(self, 'current_segmentation'):
-            self.current_segmentation = None
-        self.annotated_image_label.clear()
-        self.metrics_table.setRowCount(0)
-        self.figure_scatter.clear()
-        self.canvas_scatter.draw()
-    
-    def on_current_view_changed(self, time, position, channel):
-        """
-        Handle notification that the currently displayed image has changed.
-        """
-        self.current_time = time
-        self.current_position = position
-        self.current_channel = channel
-    
-    def populate_metrics_table(self):
-        """
-        Populate the metrics table with cell data.
-        """
-        if not self.cell_mapping:
-            return
-            
-        # Convert cell mapping to a DataFrame
-        metrics_data = [
-            {**{"ID": cell_id}, **data["metrics"]}
-            for cell_id, data in self.cell_mapping.items()
-        ]
-        metrics_df = pd.DataFrame(metrics_data)
-        
-        # Round numerical columns to 2 decimal places
-        numeric_columns = [
-            'area', 'perimeter', 'equivalent_diameter', 'orientation',
-            'aspect_ratio', 'circularity', 'solidity'
-        ]
-        
-        if not metrics_df.empty:
-            # Only round columns that exist in the DataFrame
-            existing_numerics = [col for col in numeric_columns if col in metrics_df.columns]
-            if existing_numerics:
-                metrics_df[existing_numerics] = metrics_df[existing_numerics].round(2)
-                
-            # Update QTableWidget
-            self.metrics_table.setRowCount(len(metrics_df))
-            self.metrics_table.setColumnCount(len(metrics_df.columns))
-            self.metrics_table.setHorizontalHeaderLabels(metrics_df.columns)
-            
-            for row in range(len(metrics_df)):
-                for col, column_name in enumerate(metrics_df.columns):
-                    value = metrics_df.iloc[row, col]
-                    # Convert NaN to empty string
-                    if pd.isna(value):
-                        value = ""
-                    self.metrics_table.setItem(row, col, QTableWidgetItem(str(value)))
-    
-    def update_scatter_plot(self):
-        """
-        Update the PCA scatter plot with current cell data.
-        """
         try:
-            if not self.cell_mapping:
+            # Get current frame information to fetch relevant metrics
+            # (These would be provided by pub/sub messages in real implementation)
+            t = pub.sendMessage("get_current_t", default=0)
+            p = pub.sendMessage("get_current_p", default=0)
+            c = pub.sendMessage("get_current_c", default=0)
+            
+            print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
+            
+            # Request cell metrics from the service for current frame
+            polars_df = self.metrics_service.query(time=t, position=p, channel=c)
+            
+            if polars_df.is_empty():
+                print("No metrics found in polars dataframe")
+                QMessageBox.warning(self, "No Data", "No metrics available for the current frame.")
+                return
+            
+            print(f"Retrieved polars dataframe with shape: {polars_df.shape}")
+            print(f"Columns: {polars_df.columns}")
+            
+            # Convert polars to pandas
+            metrics_df = polars_df.to_pandas()
+            print(f"Converted to pandas dataframe with shape: {metrics_df.shape}")
+            print(f"Pandas columns: {metrics_df.columns}")
+            
+            # Convert the metrics dataframe to the cell_mapping format expected by existing code
+            self.cell_mapping = {}
+            
+            for idx, row in metrics_df.iterrows():
+                # Use 'cell_id' instead of 'ID'
+                if 'cell_id' in row:
+                    cell_id = int(row['cell_id'])
+                else:
+                    print(f"Warning: Row {idx} missing cell_id column")
+                    continue
+                
+                # Extract bounding box - if not available, use defaults
+                if all(col in row for col in ['y1', 'x1', 'y2', 'x2']):
+                    bbox = (
+                        int(row['y1']), 
+                        int(row['x1']), 
+                        int(row['y2']), 
+                        int(row['x2'])
+                    )
+                else:
+                    # Use centroid to create a small bounding box if available
+                    if 'centroid_y' in row and 'centroid_x' in row:
+                        cy, cx = row['centroid_y'], row['centroid_x']
+                        bbox = (int(cy-5), int(cx-5), int(cy+5), int(cx+5))
+                        print(f"Created bbox from centroid for cell {cell_id}: {bbox}")
+                    else:
+                        bbox = (0, 0, 10, 10)  # Default fallback
+                        print(f"Using default bbox for cell {cell_id}")
+                
+                # Extract metrics dictionary - exclude certain columns
+                exclude_cols = ['cell_id', 'y1', 'x1', 'y2', 'x2']
+                metrics = {col: row[col] for col in row.index if col not in exclude_cols}
+                
+                # Create cell mapping entry
+                self.cell_mapping[cell_id] = {
+                    "bbox": bbox,
+                    "metrics": metrics
+                }
+            
+            print(f"Created cell_mapping with {len(self.cell_mapping)} entries")
+            
+            # Update the UI with the fetched metrics
+            self.populate_metrics_table()
+            self.update_annotation_scatter()
+            
+            # Provide user feedback
+            QMessageBox.information(
+                self, 
+                "Metrics Loaded", 
+                f"Successfully loaded metrics for {len(self.cell_mapping)} cells from metrics service."
+            )
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Error fetching metrics: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to fetch metrics: {str(e)}")
+    
+    def on_table_item_click(self, item):
+        """Handle clicks on the metrics table to select and track cells"""
+        row = item.row()
+        cell_id = self.metrics_table.item(row, 0).text()
+        cell_id = int(cell_id)
+        
+        # Highlight the cell in the current frame
+        self.highlight_cell_in_image(cell_id)
+        
+        # Set up tracking for this cell across frames
+        print(f"Selected cell {cell_id} for tracking from table")
+        self.select_cell_for_tracking(cell_id)
+    
+    def select_cell_for_tracking(self, cell_id):
+        """Select a specific cell to track across frames."""
+        print(f"Selected cell {cell_id} for tracking")
+        self.selected_cell_id = cell_id
+        
+        # Initialize lineage_tracks if it doesn't exist
+        if not hasattr(self, "lineage_tracks"):
+            self.lineage_tracks = []
+            print("Initializing empty lineage_tracks")
+        
+        # Check if tracking data is available
+        if not self.lineage_tracks:
+            reply = QMessageBox.question(
+                self, "No Tracking Data",
+                "No tracking data is available. Do you want to request tracking data?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                # Send message to generate tracking data
+                print("Requesting tracking data generation")
+                pub.sendMessage("track_cells_requested")
+                QMessageBox.information(
+                    self, "Tracking Requested", 
+                    "Tracking data generation has been requested. Please try tracking again once it's complete."
+                )
+            else:
+                print("User canceled tracking request")
+            
+            self.selected_cell_id = None
+            return
+            
+        # If we have tracking data, proceed with finding the cell
+        self.find_cell_in_tracking_data(cell_id)
+        
+    def set_tracking_data(self, lineage_tracks):
+        """Set tracking data from external source"""
+        print(f"Received tracking data with {len(lineage_tracks)} tracks")
+        self.lineage_tracks = lineage_tracks
+        
+        # If we have a previously selected cell, try to track it now
+        if hasattr(self, "selected_cell_id") and self.selected_cell_id:
+            print(f"Re-attempting to track previously selected cell {self.selected_cell_id}")
+            self.find_cell_in_tracking_data(self.selected_cell_id)
+    
+    def find_cell_in_tracking_data(self, cell_id):
+        """Find a cell in the tracking data and prepare tracking information"""
+        print(f"Finding cell {cell_id} in tracking data...")
+        
+        # Clear previous tracking
+        self.tracked_cell_lineage = {}
+        
+        # Find the track for this cell
+        selected_track = None
+        for track in self.lineage_tracks:
+            if track['ID'] == cell_id:
+                selected_track = track
+                break
+                
+        if not selected_track:
+            print(f"Cell {cell_id} not found in tracking data")
+            QMessageBox.warning(
+                self, "Cell Not Found",
+                f"Cell {cell_id} not found in tracking data."
+            )
+            return
+            
+        # Get all frames where this cell appears
+        if 't' in selected_track:
+            t_values = selected_track['t']
+            print(f"Cell {cell_id} appears in frames: {t_values}")
+            
+            # Map each frame to this cell ID
+            for t in t_values:
+                if t not in self.tracked_cell_lineage:
+                    self.tracked_cell_lineage[t] = []
+                self.tracked_cell_lineage[t].append(cell_id)
+                
+            # Get children cells if any
+            if 'children' in selected_track and selected_track['children']:
+                print(f"Cell {cell_id} has children: {selected_track['children']}")
+                self.add_children_to_tracking(selected_track['children'])
+                
+        QMessageBox.information(
+            self, "Cell Tracking Prepared",
+            f"Cell {cell_id} will be tracked across {len(self.tracked_cell_lineage)} frames.\n"
+            f"Use the time slider to navigate frames."
+        )
+        
+        # Notify that tracking data is ready
+        pub.sendMessage("cell_tracking_ready", cell_id=cell_id, lineage_data=self.tracked_cell_lineage)
+    
+    def add_children_to_tracking(self, child_ids):
+        """Add children cells to tracking data recursively"""
+        for child_id in child_ids:
+            # Find the child's track
+            child_track = None
+            for track in self.lineage_tracks:
+                if track['ID'] == child_id:
+                    child_track = track
+                    break
+                    
+            if child_track and 't' in child_track:
+                print(f"Adding child {child_id} to tracking")
+                t_values = child_track['t']
+                
+                # Map each frame to this child ID
+                for t in t_values:
+                    if t not in self.tracked_cell_lineage:
+                        self.tracked_cell_lineage[t] = []
+                    self.tracked_cell_lineage[t].append(child_id)
+                    
+                # Recursively add this child's children
+                if 'children' in child_track and child_track['children']:
+                    print(f"Child {child_id} has children: {child_track['children']}")
+                    self.add_children_to_tracking(child_track['children'])
+    
+    def save_tracked_cell_as_gif(self):
+        """Save the movement of the tracked cell as an animated GIF."""
+        if not hasattr(self, "tracked_cell_lineage") or not self.tracked_cell_lineage:
+            QMessageBox.warning(self, "Error", "No cell is being tracked.")
+            return
+            
+        # Ask user for save location
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Cell Movement as GIF", "", "GIF Files (*.gif)"
+        )
+        if not save_path:
+            return
+            
+        # Request GIF creation via pub/sub
+        pub.sendMessage("create_tracking_gif_requested", 
+                       tracked_data=self.tracked_cell_lineage,
+                       save_path=save_path)
+    
+    def highlight_cell_in_image(self, cell_id):
+        """Highlight a specific cell in the current image view"""
+        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+            QMessageBox.warning(
+                self, "Error", 
+                "No cell mapping data available. Did you classify cells first?"
+            )
+            return
+            
+        if cell_id not in self.cell_mapping:
+            QMessageBox.warning(
+                self, "Error",
+                f"Cell ID {cell_id} not found in cell mapping."
+            )
+            return
+            
+        # Send message to highlight the cell in main view
+        pub.sendMessage("highlight_cell_requested", cell_id=cell_id)
+    
+    def update_annotation_scatter(self):
+        """Update the PCA scatter plot with current cell morphology data"""
+        try:
+            if not hasattr(self, "cell_mapping") or not self.cell_mapping:
                 return
                 
             # Prepare DataFrame
@@ -301,17 +378,14 @@ class MorphologyWidget(QWidget):
             
             # Select numeric features for PCA
             numeric_features = [
-                'area', 'perimeter', 'equivalent_diameter', 'orientation',
-                'aspect_ratio', 'circularity', 'solidity'
-            ]
-            
-            # Ensure all required columns are present
-            available_features = [col for col in numeric_features if col in morphology_df.columns]
-            
-            if len(available_features) < 2:
-                return  # Need at least 2 features for PCA
-                
-            X = morphology_df[available_features].values
+                'area',
+                'perimeter',
+                'equivalent_diameter',
+                'orientation',
+                'aspect_ratio',
+                'circularity',
+                'solidity']
+            X = morphology_df[numeric_features].values
             
             # Scale the features
             scaler = StandardScaler()
@@ -327,13 +401,13 @@ class MorphologyWidget(QWidget):
             pca_df['ID'] = morphology_df['ID']
             
             # Plot PCA scatter
-            self.figure_scatter.clear()
-            ax = self.figure_scatter.add_subplot(111)
-            
+            self.figure_annot_scatter.clear()
+            ax = self.figure_annot_scatter.add_subplot(111)
             scatter = ax.scatter(
                 pca_df['PC1'],
                 pca_df['PC2'],
-                c=[self.morphology_colors_rgb[class_] for class_ in pca_df['Class']],
+                c=[
+                    self.morphology_colors_rgb[class_] for class_ in pca_df['Class']],
                 s=50,
                 edgecolor='w',
                 picker=True)
@@ -345,14 +419,14 @@ class MorphologyWidget(QWidget):
             # Enable interactive annotations and highlighting
             self.annotate_scatter_points(ax, scatter, pca_df)
             
-            self.canvas_scatter.draw()
+            self.canvas_annot_scatter.draw()
             
         except Exception as e:
-            print(f"Error updating scatter plot: {e}")
+            QMessageBox.warning(self, "Error", f"An error occurred: {str(e)}")
     
     def annotate_scatter_points(self, ax, scatter, pca_df):
         """
-        Adds interactive hover annotations and click event to highlight selected cells.
+        Adds interactive hover annotations and click event to highlight a selected cell.
         """
         annot = ax.annotate(
             "",
@@ -366,6 +440,7 @@ class MorphologyWidget(QWidget):
         annot.set_visible(False)
         
         def update_annot(ind):
+            """Update annotation text and position based on hovered point."""
             index = ind["ind"][0]
             pos = scatter.get_offsets()[index]
             annot.xy = pos
@@ -375,30 +450,33 @@ class MorphologyWidget(QWidget):
             annot.get_bbox_patch().set_alpha(0.8)
             
         def on_hover(event):
+            """Handle hover events to show annotations."""
             vis = annot.get_visible()
             if event.inaxes == ax:
                 cont, ind = scatter.contains(event)
                 if cont:
                     update_annot(ind)
                     annot.set_visible(True)
-                    self.canvas_scatter.draw_idle()
+                    self.canvas_annot_scatter.draw_idle()
                 else:
                     if vis:
                         annot.set_visible(False)
-                        self.canvas_scatter.draw_idle()
+                        self.canvas_annot_scatter.draw_idle()
                         
         def on_click(event):
+            """Handle click events to highlight the selected cell in the segmented image."""
             if event.inaxes == ax:
                 cont, ind = scatter.contains(event)
                 if cont:
                     index = ind["ind"][0]
                     selected_id = int(pca_df.iloc[index]["ID"])
+                    cell_class = pca_df.iloc[index]["Class"]
                     self.highlight_cell_in_image(selected_id)
                     
-        self.canvas_scatter.mpl_connect("motion_notify_event", on_hover)
-        self.canvas_scatter.mpl_connect("button_press_event", on_click)
+        self.canvas_annot_scatter.mpl_connect("motion_notify_event", on_hover)
+        self.canvas_annot_scatter.mpl_connect("button_press_event", on_click)
         
-        # Add legend
+        # Add legend using self.morphology_colors_rgb
         handles = [
             plt.Line2D(
                 [0], [0],
@@ -416,100 +494,114 @@ class MorphologyWidget(QWidget):
             loc='best',
         )
     
-    def on_table_item_click(self, item):
-        """
-        Handle clicks on the metrics table.
-        """
-        row = item.row()
-        cell_id_item = self.metrics_table.item(row, 0)
-        if cell_id_item:
-            cell_id = cell_id_item.text()
-            self.highlight_cell_in_image(cell_id)
     
-    def highlight_cell_in_image(self, cell_id):
-        """
-        Highlight a selected cell in the annotated image.
-        """
-        # Ensure cell_id is an integer
-        try:
-            cell_id = int(cell_id)
-        except ValueError:
+    def populate_metrics_table(self):
+        """Populate the metrics table with cell data, showing only classification-relevant columns"""
+        if not self.cell_mapping:
             return
             
-        if not hasattr(self, "cell_mapping") or not self.cell_mapping or cell_id not in self.cell_mapping:
-            return
-            
-        # Get the bounding box coordinates
-        y1, x1, y2, x2 = self.cell_mapping[cell_id]["bbox"]
+        # Convert cell mapping to a DataFrame
+        metrics_data = [
+            {**{"ID": cell_id}, **data["metrics"]}
+            for cell_id, data in self.cell_mapping.items()
+        ]
+        metrics_df = pd.DataFrame(metrics_data)
         
-        # Create a copy of the annotated image to highlight the selected cell
-        if self.annotated_image is None:
-            return
-            
-        highlighted_image = self.annotated_image.copy()
+        print(f"Created metrics dataframe with columns: {metrics_df.columns}")
         
-        # Draw a prominent border around the selected cell
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (255, 255, 255), 2)
+        # Select only classification-relevant columns
+        # Include "ID" first, then morphology class, then relevant metrics
+        columns_to_show = ["ID", "morphology_class", "area", "perimeter", 
+                        "aspect_ratio", "circularity", "solidity", 
+                        "equivalent_diameter"]
         
-        # Add text label for cell ID
-        cv2.putText(
-            highlighted_image,
-            f"ID: {cell_id}",
-            (x1, y1 - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
+        # Only keep columns that exist in the dataframe
+        available_columns = [col for col in columns_to_show if col in metrics_df.columns]
         
-        # Convert to QImage and display
-        height, width = highlighted_image.shape[:2]
-        qimage = QImage(
-            highlighted_image.data,
-            width,
-            height,
-            highlighted_image.strides[0],
-            QImage.Format_RGB888
-        )
+        # Filter dataframe to show only selected columns
+        metrics_df = metrics_df[available_columns]
         
-        pixmap = QPixmap.fromImage(qimage).scaled(
-            self.annotated_image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        )
-        self.annotated_image_label.setPixmap(pixmap)
+        # Round numeric columns to 2 decimal places (excluding ID and morphology_class)
+        numeric_columns = [col for col in available_columns 
+                        if col not in ["ID", "morphology_class"]]
+        
+        if numeric_columns:
+            metrics_df[numeric_columns] = metrics_df[numeric_columns].round(2)
+        
+        # Update QTableWidget
+        self.metrics_table.setRowCount(metrics_df.shape[0])
+        self.metrics_table.setColumnCount(metrics_df.shape[1])
+        self.metrics_table.setHorizontalHeaderLabels(metrics_df.columns)
+        
+        for row in range(metrics_df.shape[0]):
+            for col, value in enumerate(metrics_df.iloc[row]):
+                self.metrics_table.setItem(
+                    row, col, QTableWidgetItem(str(value)))
+                
+                # Highlight the morphology class column with background color
+                if metrics_df.columns[col] == "morphology_class":
+                    morph_class = str(value)
+                    if morph_class in self.morphology_colors:
+                        item = self.metrics_table.item(row, col)
+                        bgr_color = self.morphology_colors[morph_class]
+                        # Convert BGR to RGB for Qt
+                        rgb_color = (bgr_color[2], bgr_color[1], bgr_color[0])
+                        item.setBackground(QColor(*rgb_color))
+                        # Use contrasting text color
+                        item.setForeground(QColor(255, 255, 255) if sum(rgb_color) < 384 else QColor(0, 0, 0))
+                        
     
     def export_metrics_to_csv(self):
-        """
-        Export the metrics data to a CSV file.
-        """
-        if not self.cell_mapping:
-            QMessageBox.warning(self, "Error", "No data available for export.")
-            return
-            
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Metrics Data", "", "CSV Files (*.csv);;All Files (*)"
-        )
-        
-        if not file_path:
-            return
-            
+        """Exports the metrics table data to a CSV file."""
         try:
-            # Convert cell mapping to DataFrame
+            if not self.cell_mapping:
+                QMessageBox.warning(self, "Error", "No cell data available.")
+                return
+                
             metrics_data = [
                 {**{"ID": cell_id}, **data["metrics"]}
                 for cell_id, data in self.cell_mapping.items()
             ]
             metrics_df = pd.DataFrame(metrics_data)
             
-            # Save to CSV
-            metrics_df.to_csv(file_path, index=False)
-            
-            QMessageBox.information(
-                self, "Export Successful", f"Metrics data exported to {file_path}"
-            )
+            if metrics_df.empty:
+                QMessageBox.warning(
+                    self, "Error", "No data available to export.")
+                return
+                
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Metrics Data", "", "CSV Files (*.csv);;All Files (*)")
+            if save_path:
+                metrics_df.to_csv(save_path, index=False)
+                QMessageBox.information(
+                    self, "Success", f"Metrics data exported to {save_path}"
+                )
+            else:
+                QMessageBox.warning(self, "Cancelled", "Export cancelled.")
         except Exception as e:
-            QMessageBox.critical(
-                self, "Export Error", f"An error occurred during export: {str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+    
+    # Handlers for pub/sub messages
+    def on_cell_mapping_updated(self, cell_mapping):
+        """Handler for updated cell mapping data"""
+        self.cell_mapping = cell_mapping
+        self.populate_metrics_table()
+        self.update_annotation_scatter()
+    
+    def on_segmentation_ready(self, segmentation_data):
+        """Handler for when segmentation is ready"""
+        # Process segmentation results if needed
+        pass
+    
+    def on_image_data_loaded(self, image_data):
+        """Handler for when new image data is loaded"""
+        # Reset state for new image data
+        self.selected_cell_id = None
+        self.tracked_cell_lineage = {}
+        if self.save_gif_button:
+            self.save_gif_button.setVisible(False)
+    
+    def on_current_view_changed(self, t, p, c):
+        """Handler for when the current view changes (time/position/channel)"""
+        # Update display if needed for new t/p/c values
+        pass

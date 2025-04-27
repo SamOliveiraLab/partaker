@@ -130,48 +130,43 @@ class MorphologyWorker(QObject):
             self.error.emit(str(e))
 
 class App(QMainWindow):
+    
     def __init__(self):
         super().__init__()
 
-        self.metrics_service = MetricsService()
-        self.image_data = None
-
-        self.morphology_colors = {
-            "Artifact": (128, 128, 128),  # Gray
-            "Divided": (255, 0, 0),       # Blue
-            "Healthy": (0, 255, 0),       # Green
-            "Elongated": (0, 255, 255),   # Yellow
-            "Deformed": (255, 0, 255),    # Magenta
-        }
-
-        self.morphology_colors_rgb = {
-            key: (color[2] / 255, color[1] / 255, color[0] / 255)
-            for key, color in self.morphology_colors.items()
-        }
-
-        self.lineage_visualizer = LineageVisualization(
-            self.morphology_colors_rgb)
-
-        # Initialize the processed_images list to store images for export
-        self.processed_images = []
-
+        # Set window properties first
         self.setWindowTitle("Partaker 3 - GUI")
         self.setGeometry(100, 100, 1000, 800)
+        
+        # Create central widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
+        
+        # Create main layout
         self.layout = QHBoxLayout(self.central_widget)
-        self.tab_widget = QTabWidget()
-
+        
+        # Initialize services
+        self.metrics_service = MetricsService()
+        
+        # Create and add the MorphologyWidget with metrics service
+        self.morphology_widget = MorphologyWidget(metrics_service=self.metrics_service)
+        
+        # Create ViewArea widget
         self.viewArea = ViewAreaWidget()
         self.layout.addWidget(self.viewArea)
-
+        
+        # Initialize other UI components
+        self.tab_widget = QTabWidget()
+        
+        # Complete initialization
         self.init_ui()
         self.layout.addWidget(self.tab_widget)
-
+        
+        # Subscribe to events
         pub.subscribe(self.on_exp_loaded, "experiment_loaded")
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
-
+    
     def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
 
