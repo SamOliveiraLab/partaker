@@ -53,9 +53,9 @@ class MorphologyWidget(QWidget):
         layout = QVBoxLayout(self)
         
         # Add the fetch metrics button at the top
-        self.fetch_metrics_button = QPushButton("Get Metrics from Service")
+        self.fetch_metrics_button = QPushButton("Classify Cells")
         self.fetch_metrics_button.clicked.connect(self.fetch_metrics_from_service)
-        self.fetch_metrics_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.fetch_metrics_button.setStyleSheet("background-color: black; color: white; font-weight: bold;")
         layout.addWidget(self.fetch_metrics_button)
         
         # Create QTabWidget for inner tabs
