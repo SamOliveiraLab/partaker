@@ -10,36 +10,31 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 import nd2
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import tifffile
+
 from tqdm import tqdm
 
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
 
-from cellpose import models, utils
+from cellpose import utils
 from skimage.measure import label, regionprops
-from sklearn.cluster import KMeans
+
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from fluorescence.rpu import AVAIL_RPUS
-from fluorescence.sc import analyze_fluorescence_singlecell
 from image_data import ImageData
-from image_functions import remove_stage_jitter_MAE
+
 from morphology import (
     annotate_binary_mask,
     annotate_image,
     classify_morphology,
     extract_cell_morphologies,
-    extract_cell_morphologies_time,
     extract_cells_and_metrics,
 )
 from segmentation.segmentation_models import SegmentationModels
-from tracking import optimize_tracking_parameters, track_cells, visualize_cell_regions, enhanced_motility_index, visualize_motility_map, visualize_motility_metrics, analyze_motility_by_region, visualize_motility_with_chamber_regions
+from tracking import track_cells, visualize_cell_regions, enhanced_motility_index, visualize_motility_map, visualize_motility_metrics, analyze_motility_by_region, visualize_motility_with_chamber_regions
 from .roisel import PolygonROISelector
-from lineage_visualization import LineageVisualization
 
 from .dialogs import AboutDialog, ExperimentDialog
 from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget
@@ -67,7 +62,6 @@ class MorphologyWorker(QObject):
         self.num_frames = num_frames
         self.position = position
         self.channel = channel
-        # self.metrics_table.itemClicked.connect(self.on_table_item_click)
         self.cell_mapping = {}
 
     def run(self):
@@ -126,8 +120,8 @@ class MorphologyWorker(QObject):
             else:
                 self.error.emit("No valid results found in any frame.")
         except Exception as e:
-            raise e
             self.error.emit(str(e))
+            raise e
 
 class App(QMainWindow):
     
@@ -157,7 +151,6 @@ class App(QMainWindow):
         
         # Initialize other UI components
         self.tab_widget = QTabWidget()
-        
         
         # Complete initialization
         self.init_ui()
@@ -268,8 +261,6 @@ class App(QMainWindow):
             self.p_dropdown.addItem(str(p))
 
     def show_cell_area(self, img):
-        from skimage import measure
-        import seaborn as sns
 
         # Check if the image type is CV_32FC1 and convert to CV_8UC1
         if img.dtype == np.float32 or img.dtype == np.int32 or img.dtype == np.int64:
@@ -571,81 +562,6 @@ class App(QMainWindow):
         except Exception as e:
             print(f"Error retrieving segmentation: {e}")
         
-    def initImportTab(self):
-        def importFile():
-            file_dialog = QFileDialog()
-            file_path, _ = file_dialog.getOpenFileName()
-            if file_path:
-                self.load_nd2_file(file_path)
-
-        def importFolder():
-            file_dialog = QFileDialog()
-            _path = file_dialog.getExistingDirectory()
-            self.load_from_folder(_path)
-
-        def slice_and_export():
-            if not hasattr(self, "image_data") or not self.image_data.is_nd2:
-                QMessageBox.warning(
-                    self, "Error", "No ND2 file loaded to slice.")
-                return
-
-            save_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Sliced Data", "", "TIFF Files (*.tif);;All Files (*)")
-
-            if not save_path:
-                QMessageBox.warning(
-                    self, "Error", "No save location selected.")
-                return
-
-            try:
-                sliced_data = self.image_data.data[0:4, 0, :, :].compute()
-
-                tifffile.imwrite(save_path, np.array(sliced_data), imagej=True)
-                QMessageBox.information(
-                    self, "Success", f"Sliced data saved to {save_path}"
-                )
-            except Exception as e:
-                QMessageBox.warning(
-                    self, "Error", f"Failed to slice and export: {e}")
-
-        layout = QVBoxLayout(self.importTab)
-
-        slice_button = QPushButton("Slice and Export")
-        slice_button.clicked.connect(slice_and_export)
-        layout.addWidget(slice_button)
-
-        button = QPushButton("Select File / Folder")
-        button.clicked.connect(
-            lambda: (
-                importFile()
-                if not self.is_folder_checkbox.isChecked()
-                else importFolder()
-            )
-        )
-        layout.addWidget(button)
-
-        self.roi_button = QPushButton("Select ROI")
-        self.roi_button.clicked.connect(self.open_roi_selector)
-        self.roi_mask = None
-        layout.addWidget(self.roi_button)
-
-        self.is_folder_checkbox = QCheckBox("Load from folder?")
-        layout.addWidget(self.is_folder_checkbox)
-
-        self.filename_label = QLabel("Filename will be shown here.")
-        layout.addWidget(self.filename_label)
-
-        # ROI selector
-        # self.import_tab_roi_selector_label = QLabel("Region of interest selection")
-        # self.import_tab_roi_selector_checkbox = QCheckBox("Use ROI?")
-        # self.import_tab_roi_selector = ROIWidget()
-        # layout.addWidget(self.import_tab_roi_selector_label)
-        # layout.addWidget(self.import_tab_roi_selector)
-        # layout.addWidget(self.import_tab_roi_selector_checkbox)
-
-        self.info_label = QLabel("File info will be shown here.")
-        layout.addWidget(self.info_label)
-
     def open_roi_selector(self):
         # Get the image to use for ROI selection
         image_data = self.current_image
@@ -4366,50 +4282,50 @@ class App(QMainWindow):
         # f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1,
         # y2, x2)}")
 
-    def highlight_selected_cell(self, cell_id, cache_key):
-        """
-        Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
+    # def highlight_selected_cell(self, cell_id, cache_key):
+    #     """
+    #     Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.
 
-        Parameters:
-        -----------
-        cell_id : int
-            ID of the cell to highlight.
-        cache_key : tuple
-            Key to retrieve cached segmentation and cell mapping.
-        """
-        # Ensure cell mapping exists
-        if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-            QMessageBox.warning(self, "Error", "Cell mapping not initialized.")
-            return
+    #     Parameters:
+    #     -----------
+    #     cell_id : int
+    #         ID of the cell to highlight.
+    #     cache_key : tuple
+    #         Key to retrieve cached segmentation and cell mapping.
+    #     """
+    #     # Ensure cell mapping exists
+    #     if not hasattr(self, "cell_mapping") or not self.cell_mapping:
+    #         QMessageBox.warning(self, "Error", "Cell mapping not initialized.")
+    #         return
 
-        # Retrieve bounding box for the selected cell
-        if cell_id not in self.cell_mapping:
-            QMessageBox.warning(self, "Error", f"Cell ID {cell_id} not found.")
-            return
+    #     # Retrieve bounding box for the selected cell
+    #     if cell_id not in self.cell_mapping:
+    #         QMessageBox.warning(self, "Error", f"Cell ID {cell_id} not found.")
+    #         return
 
-        bbox = self.cell_mapping[cell_id]["bbox"]
-        y1, x1, y2, x2 = bbox  # Correct order (y1, x1, y2, x2)
+    #     bbox = self.cell_mapping[cell_id]["bbox"]
+    #     y1, x1, y2, x2 = bbox  # Correct order (y1, x1, y2, x2)
 
-        # Create a copy of the annotated image to avoid overwriting
-        highlighted_image = self.annotated_image.copy()
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2),
-                      (255, 0, 0), 2)  # Highlight with red box
+    #     # Create a copy of the annotated image to avoid overwriting
+    #     highlighted_image = self.annotated_image.copy()
+    #     cv2.rectangle(highlighted_image, (x1, y1), (x2, y2),
+    #                   (255, 0, 0), 2)  # Highlight with red box
 
-        # Display the highlighted image in the scatter plot tab
-        height, width = highlighted_image.shape[:2]
-        qimage = QImage(
-            highlighted_image.data,
-            width,
-            height,
-            highlighted_image.strides[0],
-            QImage.Format_RGB888,
-        )
-        pixmap = QPixmap.fromImage(qimage).scaled(
-            self.annotated_image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
-        self.annotated_image_label.setPixmap(pixmap)
+    #     # Display the highlighted image in the scatter plot tab
+    #     height, width = highlighted_image.shape[:2]
+    #     qimage = QImage(
+    #         highlighted_image.data,
+    #         width,
+    #         height,
+    #         highlighted_image.strides[0],
+    #         QImage.Format_RGB888,
+    #     )
+    #     pixmap = QPixmap.fromImage(qimage).scaled(
+    #         self.annotated_image_label.size(),
+    #         Qt.KeepAspectRatio,
+    #         Qt.SmoothTransformation,
+    #     )
+    #     self.annotated_image_label.setPixmap(pixmap)
 
     def generate_morphology_data(self):
         # Generate morphological data for the annotated tab
@@ -4597,274 +4513,3 @@ class App(QMainWindow):
             Qt.SmoothTransformation,
         )
         self.annotated_image_label.setPixmap(pixmap)
-
-    # def initPopulationTab(self):
-    #     layout = QVBoxLayout(self.populationTab)
-
-    #     self.population_figure = plt.figure()
-    #     self.population_canvas = FigureCanvas(self.population_figure)
-    #     layout.addWidget(self.population_canvas)
-
-    #     # P selection mode radio buttons
-    #     p_mode_group = QGroupBox("P Selection Mode")
-    #     p_mode_layout = QVBoxLayout()
-
-    #     self.use_current_p_radio = QRadioButton("Use current P")
-    #     self.use_current_p_radio.setChecked(True)  # Default selection
-    #     self.select_ps_radio = QRadioButton("Select Ps to aggregate")
-
-    #     p_mode_layout.addWidget(self.use_current_p_radio)
-    #     p_mode_layout.addWidget(self.select_ps_radio)
-    #     p_mode_group.setLayout(p_mode_layout)
-    #     layout.addWidget(p_mode_group)
-
-    #     # Create the multiple P selection widget (initially hidden)
-    #     self.multi_p_widget = QWidget()
-    #     self.multi_p_widget.setVisible(False)  # Hidden by default
-    #     multi_p_layout = QVBoxLayout(self.multi_p_widget)
-
-    #     # Create a table to show selected Ps
-    #     self.selected_ps_table = QTableWidget()
-    #     self.selected_ps_table.setColumnCount(2)  # P value and Remove button
-    #     self.selected_ps_table.setHorizontalHeaderLabels(["P Value", "Action"])
-    #     self.selected_ps_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-    #     self.selected_ps_table.setSelectionMode(QAbstractItemView.NoSelection)
-    #     multi_p_layout.addWidget(QLabel("Selected Ps:"))
-    #     multi_p_layout.addWidget(self.selected_ps_table)
-
-    #     # Add dropdown and button to add new Ps
-    #     add_p_layout = QHBoxLayout()
-    #     self.p_dropdown = QComboBox()
-
-    #     add_p_button = QPushButton("Add P")
-    #     add_p_button.clicked.connect(self.add_p_to_selection)
-    #     add_p_layout.addWidget(self.p_dropdown)
-    #     add_p_layout.addWidget(add_p_button)
-    #     multi_p_layout.addLayout(add_p_layout)
-
-    #     # Add the multi_p_widget to the main layout
-    #     layout.addWidget(self.multi_p_widget)
-
-    #     # Connect radio buttons to toggle the multi_p_widget visibility
-    #     self.use_current_p_radio.toggled.connect(self.update_p_selection_mode)
-    #     self.select_ps_radio.toggled.connect(self.update_p_selection_mode)
-
-    #     # Store selected Ps
-    #     self.selected_ps = set()
-
-    #     # Checkbox for single cell analysis
-    #     self.single_cell_checkbox = QCheckBox("Single Cell Analysis")
-    #     layout.addWidget(self.single_cell_checkbox)
-
-    #     # Button to manually plot
-    #     plot_fluo_btn = QPushButton("Plot Fluorescence")
-    #     plot_fluo_btn.clicked.connect(self.plot_fluorescence_signal)
-
-    #     # Channel control
-    #     channel_choice_layout = QHBoxLayout()
-    #     channel_combo = QComboBox()
-    #     channel_combo.addItem('0')
-    #     channel_combo.addItem('1')
-    #     channel_combo.addItem('2')
-    #     channel_choice_layout.addWidget(QLabel("Cannel selection: "))
-    #     channel_choice_layout.addWidget(channel_combo)
-    #     self.channel_combo = channel_combo
-    #     channel_choice_layout.addWidget(plot_fluo_btn)
-
-    #     layout.addLayout(channel_choice_layout)
-
-    #     # Time range controls
-    #     time_range_layout = QHBoxLayout()
-    #     time_range_layout.addWidget(QLabel("Time Range:"))
-
-    #     self.time_min_box = QSpinBox()
-    #     time_range_layout.addWidget(self.time_min_box)
-
-    #     self.time_max_box = QSpinBox()
-    #     time_range_layout.addWidget(self.time_max_box)
-
-    #     layout.addLayout(time_range_layout)
-
-    #     # Create the combobox and populate it with the dictionary keys
-    #     self.rpu_params_combo = QComboBox()
-    #     for key in AVAIL_RPUS.keys():
-    #         self.rpu_params_combo.addItem(key)
-
-    #     hb = QHBoxLayout()
-    #     hb.addWidget(QLabel("Select RPU Parameters:"))
-    #     hb.addWidget(self.rpu_params_combo)
-    #     layout.addLayout(hb)
-
-    # def update_p_selection_mode(self):
-    #     """Show or hide the multiple P selection widget based on radio button selection"""
-    #     if self.select_ps_radio.isChecked():
-    #         self.multi_p_widget.setVisible(True)
-    #     else:
-    #         self.multi_p_widget.setVisible(False)
-
-    # def add_p_to_selection(self):
-    #     """Add a P value to the selection table"""
-    #     try:
-    #         p_value = int(self.p_dropdown.currentText())
-    #     except BaseException:
-    #         return
-
-    #     # Check if this P is already in the selection
-    #     if p_value in self.selected_ps:
-    #         return
-
-    #     # Add to our set of selected Ps
-    #     self.selected_ps.add(p_value)
-
-    #     # Update the table
-    #     row_position = self.selected_ps_table.rowCount()
-    #     self.selected_ps_table.insertRow(row_position)
-
-    #     # Add P value
-    #     self.selected_ps_table.setItem(
-    #         row_position, 0, QTableWidgetItem(
-    #             str(p_value)))
-
-    #     # Add remove button
-    #     remove_button = QPushButton("Remove")
-    #     remove_button.clicked.connect(
-    #         lambda: self.remove_p_from_selection(p_value))
-    #     self.selected_ps_table.setCellWidget(row_position, 1, remove_button)
-
-    #     # Update dropdown to remove this P
-    #     current_index = self.p_dropdown.currentIndex()
-    #     self.p_dropdown.removeItem(current_index)
-
-    # def remove_p_from_selection(self, p_value):
-    #     """Remove a P value from the selection"""
-    #     if p_value in self.selected_ps:
-    #         self.selected_ps.remove(p_value)
-
-    #         # Find and remove the row from the table
-    #         for row in range(self.selected_ps_table.rowCount()):
-    #             if int(self.selected_ps_table.item(row, 0).text()) == p_value:
-    #                 self.selected_ps_table.removeRow(row)
-    #                 break
-
-    #         # Add the P value back to the dropdown
-    #         # Sort the items to keep them in numerical order
-    #         self.p_dropdown.addItem(str(p_value))
-    #         items = [
-    #             self.p_dropdown.itemText(i) for i in range(
-    #                 self.p_dropdown.count())]
-    #         items = sorted(items, key=int)
-
-    #         self.p_dropdown.clear()
-    #         for item in items:
-    #             self.p_dropdown.addItem(item)
-
-    # def get_selected_ps(self):
-    #     """Return the selected P values based on the current mode"""
-    #     if self.use_current_p_radio.isChecked():  # Return P from view area
-    #         return [self.slider_p.value()]
-    #     else:
-    #         # Multiple P mode - return the set of selected Ps
-    #         return list(self.selected_ps)
-
-    # def plot_fluorescence_signal(self):
-    #     if not hasattr(self, 'image_data'):
-    #         return
-
-    #     selected_ps = self.get_selected_ps()
-    #     c = int(self.channel_combo.currentText())
-    #     rpu = AVAIL_RPUS[self.rpu_params_combo.currentText()]
-    #     t_s, t_e = self.time_min_box.value(), self.time_max_box.value()  # Time range
-
-    #     # Initialize lists for combined data
-    #     combined_fluo = []
-    #     combined_timestamp = []
-
-    #     # Process each selected position
-    #     for p in selected_ps:
-    #         fluo, timestamp = analyze_fluorescence_singlecell(
-    #             self.image_data.segmentation_cache[t_s:t_e, p, 0],
-    #             self.image_data.data[t_s:t_e, p, c],
-    #             rpu)
-    #         combined_fluo.append(fluo)
-    #         combined_timestamp.append(timestamp)
-
-    #     # TEST: parallel
-    #     # import concurrent.futures
-
-    #     # # Process each selected position in parallel
-    #     # def process_position(p):
-    #     #     fluo, timestamp = analyze_fluorescence_singlecell(
-    #     #         self.image_data.segmentation_cache[t_s:t_e, p, 0],
-    #     #         self.image_data.data[t_s:t_e, p, c],
-    #     #         rpu)
-    #     #     return fluo, timestamp
-
-    #     # with concurrent.futures.ThreadPoolExecutor() as executor:
-    #     #     results = list(executor.map(process_position, selected_ps))
-
-    #     # # Combine results
-    #     # combined_fluo = [result[0] for result in results]
-    #     # combined_timestamp = [result[1] for result in results]
-
-    #     # Handle combined_fluo as a list of lists
-    #     all_fluo_data = []
-    #     all_timestamp_data = []
-
-    #     # Iterate through each position's data
-    #     for pos_idx, (fluo_list, timestamp_list) in enumerate(zip(combined_fluo, combined_timestamp)):
-    #         for t_idx, (t, fluo_values) in enumerate(zip(timestamp_list, fluo_list)):
-    #             for f in fluo_values:
-    #                 all_fluo_data.append(f)
-    #                 all_timestamp_data.append(t)
-
-    #     # Convert to numpy arrays for efficient processing
-    #     all_fluo_data = np.array(all_fluo_data)
-    #     all_timestamp_data = np.array(all_timestamp_data)
-
-    #     self.population_figure.clear()
-    #     ax = self.population_figure.add_subplot(111)
-
-    #     plot_timestamp = []
-    #     plot_fluo = []
-    #     fluo_mean = []
-    #     fluo_std = []
-
-    #     # Calculate mean and std for each timestamp
-    #     unique_timestamps = np.unique(all_timestamp_data)
-    #     for t in unique_timestamps:
-    #         fluo_data = all_fluo_data[all_timestamp_data == t]
-    #         fluo_mean.append(np.mean(fluo_data))
-    #         fluo_std.append(np.std(fluo_data))
-    #         for f in fluo_data:
-    #             plot_timestamp.append(t)
-    #             plot_fluo.append(f)
-
-    #     fluo_mean = np.array(fluo_mean)
-    #     fluo_std = np.array(fluo_std)
-
-    #     npoints = 500
-    #     # Randomly select up to npoints points for plotting
-    #     points = np.array(list(zip(plot_timestamp, plot_fluo)))
-    #     if len(points) > npoints:
-    #         points = points[np.random.choice(
-    #             points.shape[0], npoints, replace=False)]
-    #         plot_timestamp, plot_fluo = zip(*points)
-
-    #     ax.scatter(
-    #         plot_timestamp,
-    #         plot_fluo,
-    #         color='blue',
-    #         alpha=0.5,
-    #         marker='+')
-    #     ax.plot(unique_timestamps, fluo_mean, color='red', label='Mean')
-    #     ax.fill_between(
-    #         unique_timestamps,
-    #         fluo_mean - fluo_std,
-    #         fluo_mean + fluo_std,
-    #         color='red',
-    #         alpha=0.2,
-    #         label='Std Dev')
-    #     ax.set_title(f'Fluorescence signal for Positions {selected_ps}')
-    #     ax.set_xlabel('T')
-    #     ax.set_ylabel('Cell activity in RPUs')
-    #     self.population_canvas.draw()

@@ -174,9 +174,10 @@ class PopulationWidget(QWidget):
         epsilon = 0.1
         valid = grouped.filter(pl.col("mean_metric") > epsilon)
 
-        factor = self.experiment.interval
+        # Interval is in seconds, divide by 60 to get minutes
+        factor = self.experiment.interval 
         result = valid.with_columns(
-            (pl.col("time") * factor).alias("scaled_time")
+            (pl.col("time") * factor / 3600).alias("scaled_time")
         )
 
         times = result["scaled_time"].to_numpy()
@@ -188,7 +189,7 @@ class PopulationWidget(QWidget):
         ax = self.population_figure.add_subplot(111)
         ax.plot(times, mean_metric, color="red", label=f"Mean {metric_name}")
         ax.fill_between(times, mean_metric - std_metric, mean_metric + std_metric, color="red", alpha=0.2, label="Std Dev")
-        ax.set_xlabel("Time")
+        ax.set_xlabel("Time [h]")
         ax.set_ylabel(f"Mean Cell {metric_name}")
         ax.set_title(f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})")
         ax.legend()
