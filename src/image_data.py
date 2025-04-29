@@ -33,7 +33,23 @@ class ImageData:
 
     def _get_raw_image(self, t, p, c):
         """Helper method to retrieve raw images"""
-        return self.data[t, p, c].compute()
+        
+        if len(self.data.shape) == 5:  # - has channel
+            raw_image = self.data[t, p, c]
+        elif len(self.data.shape) == 4:  # - no channel
+            raw_image = self.data[t, p]
+        else:
+            print(f"Unusual data format: {len(self.data.shape)} dimensions")
+            if len(self.data.shape) >= 3:
+                raw_image = self.data[t, p]
+            else:
+                raw_image = self.data[t]
+        
+        # Compute if it's a dask array
+        if hasattr(raw_image, 'compute'):
+            raw_image = raw_image.compute()
+        
+        return raw_image
 
     def _access(self, time, position, channel):
         

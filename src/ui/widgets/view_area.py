@@ -365,7 +365,18 @@ class ViewAreaWidget(QWidget):
         _shape = image_data.data.shape
         t_max = _shape[0] - 1
         p_max = _shape[1] - 1
-        c_max = _shape[2] - 1
+        
+        print(f"Shape: {_shape}, Length: {len(_shape)}")
+        
+        if len(_shape) == 5:  # T, P, C, Y, X format
+            c_max = _shape[2] - 1
+            self.has_channels = True
+        elif len(_shape) == 4:  # T, P, Y, X format (no channels)
+            c_max = 0  # Default to single channel
+            self.has_channels = False
+        else:
+            c_max = 0
+            self.has_channels = False
         
         # Update slider ranges
         self.slider_t.setMaximum(max(0, t_max))
