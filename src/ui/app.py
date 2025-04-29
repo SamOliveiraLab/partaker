@@ -581,10 +581,6 @@ class App(QMainWindow):
     def initMorphologyTimeTab(self):
         layout = QVBoxLayout(self.morphologyTimeTab)
 
-        # Process button
-        self.segment_button = QPushButton("Process Morphology Over Time")
-        layout.addWidget(self.segment_button)
-
         # Create a horizontal layout for the tracking buttons
         tracking_buttons_layout = QHBoxLayout()
 
@@ -628,10 +624,6 @@ class App(QMainWindow):
         # Progress Bar
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
-
-        # Connect Process Button
-        self.segment_button.clicked.connect(
-            self.process_morphology_time_series)
 
     def visualize_tracking(self, tracks):
         """
@@ -2707,7 +2699,7 @@ class App(QMainWindow):
         self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphology_widget, "Morphology")
-        self.tab_widget.addTab(self.morphologyTimeTab, "Morphology / Time")
+        self.tab_widget.addTab(self.morphologyTimeTab, "Tracking - Lineage Tree")
         self.tab_widget.addTab(
             self.morphologyVisualizationTab,
             "Morphology Visualization")

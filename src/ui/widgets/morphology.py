@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                                QComboBox, QTableWidget, QTableWidgetItem, 
-                               QMessageBox, QFileDialog, QTabWidget)
+                               QMessageBox, QFileDialog, QTabWidget, QDialog)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap, QColor
 import matplotlib.pyplot as plt
@@ -48,15 +48,35 @@ class MorphologyWidget(QWidget):
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_current_view_changed, "current_view_changed")
         pub.subscribe(self.set_tracking_data, "tracking_data_available")
+        pub.subscribe(self.process_morphology_time_series, "process_morphology_time_series_requested")
     
     def initUI(self):
         layout = QVBoxLayout(self)
         
-        # Add the fetch metrics button at the top
+        buttons_layout = QHBoxLayout()
+    
+        buttons_layout.addSpacing(20)
+        
+        # Add the classify cells button
         self.fetch_metrics_button = QPushButton("Classify Cells")
         self.fetch_metrics_button.clicked.connect(self.fetch_metrics_from_service)
         self.fetch_metrics_button.setStyleSheet("background-color: black; color: white; font-weight: bold;")
-        layout.addWidget(self.fetch_metrics_button)
+        self.fetch_metrics_button.setFixedHeight(40) 
+        buttons_layout.addWidget(self.fetch_metrics_button)
+        
+        buttons_layout.addSpacing(20)
+        
+        # Add Process Morphology Over Time button
+        self.process_morphology_button = QPushButton("Process Morphology Over Time")
+        self.process_morphology_button.clicked.connect(self.process_morphology_time_series)
+        self.process_morphology_button.setStyleSheet("background-color: black; color: white; font-weight: bold;")
+        self.process_morphology_button.setFixedHeight(40)  
+        buttons_layout.addWidget(self.process_morphology_button)
+        
+        buttons_layout.addSpacing(20)
+    
+        layout.addLayout(buttons_layout)
+    
         
         # Create QTabWidget for inner tabs
         inner_tab_widget = QTabWidget()
@@ -67,25 +87,25 @@ class MorphologyWidget(QWidget):
         inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
         inner_tab_widget.addTab(self.table_tab, "Metrics Table")
         
-        # Set up scatter plot tab (PCA)
         scatter_layout = QVBoxLayout(self.scatter_tab)
-        
-        # Annotated image display
-        self.annotated_image_label = QLabel("Annotated image will be displayed here.")
-        self.annotated_image_label.setFixedSize(300, 300)
-        self.annotated_image_label.setAlignment(Qt.AlignCenter)
-        self.annotated_image_label.setScaledContents(True)
-        scatter_layout.addWidget(self.annotated_image_label)
-        
-        # PCA scatter plot display (no color by dropdown)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1) 
+        self.save_plot_button = QPushButton("Save Plot")
+        self.save_plot_button.setStyleSheet("background-color: white; color: black; font-size: 12px;")
+        self.save_plot_button.clicked.connect(self.save_pca_plot)
+        self.save_plot_button.setFixedWidth(120)
+        button_layout.addWidget(self.save_plot_button)
+        scatter_layout.addLayout(button_layout)
+
+        # PCA scatter plot display 
         self.figure_annot_scatter = plt.figure()
         self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
-        scatter_layout.addWidget(self.canvas_annot_scatter)
+        scatter_layout.addWidget(self.canvas_annot_scatter, 1)
         
         # Metrics table tab
         table_layout = QVBoxLayout(self.table_tab)
         
-        # Add Export button with tracking GIF capability
         self.button_layout = QHBoxLayout()
         
         # Export to CSV button
@@ -104,8 +124,25 @@ class MorphologyWidget(QWidget):
         self.metrics_table.itemClicked.connect(self.on_table_item_click)
         table_layout.addWidget(self.metrics_table)
         
-        # Add tabs to main layout
         layout.addWidget(inner_tab_widget)
+        
+    def save_pca_plot(self):
+        """Save the PCA scatter plot to a file"""
+        if not hasattr(self, "figure_annot_scatter"):
+            QMessageBox.warning(self, "Error", "No plot available to save.")
+            return
+            
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save PCA Plot", "", "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)")
+        
+        if file_path:
+            try:
+                self.figure_annot_scatter.savefig(file_path, dpi=300, bbox_inches='tight')
+                QMessageBox.information(
+                    self, "Success", f"PCA plot saved to {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save plot: {str(e)}")
+            
     
     def fetch_metrics_from_service(self):
         """Fetch cell metrics and classification from the metrics service dataframe"""
@@ -633,3 +670,56 @@ class MorphologyWidget(QWidget):
         """Handler for when the current view changes (time/position/channel)"""
         # Update display if needed for new t/p/c values
         pass
+    
+    
+    def process_morphology_time_series(self):
+        """Process morphology across time points using metrics service"""
+        if not self.metrics_service:
+            QMessageBox.warning(self, "Error", "Metrics service not available.")
+            return
+        
+        # Get current position and channel
+        p = pub.sendMessage("get_current_p", default=0)
+        c = pub.sendMessage("get_current_c", default=0)
+        
+        # Query metrics for all timepoints for this position and channel
+        df = self.metrics_service.query(position=p, channel=c)
+        
+        if df.is_empty():
+            QMessageBox.warning(self, "No Data", "No metrics available.")
+            return
+        
+        # Convert to pandas
+        metrics_df = df.to_pandas()
+        
+        # Group by time and morphology class
+        time_class_counts = metrics_df.groupby(['time', 'morphology_class']).size()
+        
+        # Plot results
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111)
+        
+        # Plot each morphology class over time
+        for morph_class in metrics_df['morphology_class'].unique():
+            times = []
+            counts = []
+            for (t, cls), count in time_class_counts.items():
+                if cls == morph_class:
+                    times.append(t)
+                    counts.append(count)
+            
+            color = self.morphology_colors_rgb.get(morph_class, (0.5, 0.5, 0.5))
+            ax.plot(times, counts, 'o-', label=morph_class, color=color)
+        
+        ax.set_title("Morphology Classes Over Time")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Cell Count")
+        ax.legend()
+        
+        # Show in dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Morphology Over Time")
+        dialog_layout = QVBoxLayout(dialog)
+        canvas = FigureCanvas(fig)
+        dialog_layout.addWidget(canvas)
+        dialog.exec_()
