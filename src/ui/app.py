@@ -650,9 +650,6 @@ class App(QMainWindow):
             print(f"No segmentation available for T={time}, P={position}, C={channel}")
             return
         
-        # Import the morphology function
-        from morphology import annotate_binary_mask
-        
         # Create annotated image
         annotated_image = annotate_binary_mask(segmented_image, cell_mapping)
         

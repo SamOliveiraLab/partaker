@@ -204,12 +204,15 @@ class MetricsService:
                 "circularity": circularity,
                 "solidity": solidity,
                 "equivalent_diameter": equivalent_diameter,
-                "orientation": orientation  # Add orientation here
+                "orientation": orientation
             }
 
             # Get morphology classification
-            from morphology import classify_morphology
             morphology_class = classify_morphology(metrics_for_classification)
+
+            # Extract bounding box coordinates from regionprops
+            # bbox format in regionprops is (min_row, min_col, max_row, max_col), which maps to (y1, x1, y2, x2)
+            y1, x1, y2, x2 = prop.bbox  # (min_row, min_col, max_row, max_col)
 
             # Calculate basic shape metrics
             metrics = {
@@ -228,8 +231,13 @@ class MetricsService:
                 "circularity": circularity,
                 "solidity": solidity,
                 "equivalent_diameter": equivalent_diameter,
-                "orientation": orientation,  # Add orientation here
+                "orientation": orientation,
                 "morphology_class": morphology_class,
+                # Add bounding box coordinates
+                "y1": y1,
+                "x1": x1,
+                "y2": y2,
+                "x2": x2,
                 # Initialize fluorescence metrics to None - will be filled later
                 "mean_intensity": None,
                 "max_intensity": None,
@@ -246,6 +254,7 @@ class MetricsService:
             # Add to data collection
             self._data.append(metrics)
     
+    
     def _log_shape_metrics(self, metrics):
         """
         Log shape metrics for a cell.
@@ -260,6 +269,8 @@ class MetricsService:
         logger.info(f"  Eccentricity: {metrics['eccentricity']:.2f}")
         logger.info(
             f"  Aspect Ratio: {metrics['aspect_ratio']:.2f}" if metrics['aspect_ratio'] else "  Aspect Ratio: None")
+        logger.info(f"  Bounding Box: (y1={metrics['y1']}, x1={metrics['x1']}, y2={metrics['y2']}, x2={metrics['x2']})")
+        
 
     def _log_fluorescence_metrics(self, metrics):
         """
@@ -296,9 +307,9 @@ class MetricsService:
             f"DataFrame now has {self.df.height} rows and {self.df.width} columns")
 
     def query(self, position: Optional[int] = None,
-              time: Optional[int] = None,
-              cell_id: Optional[int] = None,
-              channel: Optional[int] = None) -> pl.DataFrame:
+          time: Optional[int] = None,
+          cell_id: Optional[int] = None,
+          channel: Optional[int] = None) -> pl.DataFrame:
         """
         Query the metrics DataFrame with optional filters.
 
@@ -315,6 +326,9 @@ class MetricsService:
             return pl.DataFrame()
 
         df = self.df
+
+        # Debug: Log the columns in the dataframe
+        logger.info(f"Querying dataframe with columns: {df.columns}")
 
         # Apply filters
         if position is not None:
