@@ -33,6 +33,7 @@ class ViewAreaWidget(QWidget):
         # Subscribe to relevant topics
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_image_ready, "image_ready")
+        pub.subscribe(self.highlight_cell, "highlight_cell_requested")
         
     def init_ui(self):
         """Initialize the user interface"""
@@ -235,7 +236,7 @@ class ViewAreaWidget(QWidget):
     def _display_raw_image(self, image):
         """Display raw microscope image"""
         # Make a copy to avoid modifying the original
-        image = image.copy()
+        self.current_image_data = image.copy()
         
         # Handle grayscale images
         if len(image.shape) == 2:
@@ -328,6 +329,11 @@ class ViewAreaWidget(QWidget):
             Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
+        
+        # Store the current image for highlighting
+        if hasattr(self, "current_image_data"):
+            self.current_image = self.current_image_data.copy()
+        
     
     @Slot(object)
     def on_display_mode_changed(self, button):
@@ -416,7 +422,108 @@ class ViewAreaWidget(QWidget):
         return colored
 
     # TODO: implement highlight cell
-    def highlight_cell(self, cell_region):
-        # Combines the current visualization with the cell region that is received
-
-        pass
+    def highlight_cell(self, cell_id):
+        """
+        Highlight a specific cell in the current image view
+        
+        Args:
+            cell_id: ID of the cell to highlight
+        """
+        print(f"ViewAreaWidget: Highlighting cell {cell_id}")
+        
+        # Get current frame information
+        t = self.current_t
+        p = self.current_p
+        c = self.current_c
+        
+        # Get the metrics service
+        metrics_service = None
+        def get_service(service):
+            nonlocal metrics_service
+            metrics_service = service
+        pub.sendMessage("get_metrics_service", callback=get_service)
+        
+        if not metrics_service:
+            print("Metrics service not available")
+            return
+        
+        # Query the metrics service for this cell
+        df = metrics_service.query(time=t, position=p, channel=c, cell_id=cell_id)
+        
+        if df.is_empty():
+            print(f"Cell {cell_id} not found in metrics service")
+            return
+        
+        # Convert to pandas for easy access
+        cell_data = df.to_pandas()
+        
+        # Check if we have a current image to work with
+        if not hasattr(self, "current_image") or self.current_image is None:
+            print("No current image available to highlight cell")
+            return
+        
+        # Make a copy of the current image for highlighting
+        highlighted_image = self.current_image.copy()
+        
+        # Get the bounding box or use centroid to create one
+        if all(col in cell_data.columns for col in ['y1', 'x1', 'y2', 'x2']):
+            # Use bounding box if available
+            y1 = int(cell_data['y1'].iloc[0])
+            x1 = int(cell_data['x1'].iloc[0])
+            y2 = int(cell_data['y2'].iloc[0])
+            x2 = int(cell_data['x2'].iloc[0])
+        elif 'centroid_y' in cell_data.columns and 'centroid_x' in cell_data.columns:
+            # Create bounding box from centroid
+            cy = int(cell_data['centroid_y'].iloc[0])
+            cx = int(cell_data['centroid_x'].iloc[0])
+            # Create a box around the centroid
+            box_size = 20  # Adjust based on your cell size
+            y1, x1 = cy - box_size, cx - box_size
+            y2, x2 = cy + box_size, cx + box_size
+        else:
+            print(f"Cell {cell_id} has no position information")
+            return
+        
+        # Draw a highlighted rectangle around the cell
+        cv2.rectangle(
+            highlighted_image, 
+            (x1, y1), 
+            (x2, y2), 
+            (0, 0, 255),  # Red color (BGR format)
+            2             # Line thickness
+        )
+        
+        # Add a text label with the cell ID
+        cv2.putText(
+            highlighted_image,
+            f"Cell {cell_id}",
+            (x1, y1 - 5),  # Position above the cell
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,           # Font scale
+            (0, 255, 0),   # Green color (BGR)
+            1              # Line thickness
+        )
+        
+        # Display the highlighted image
+        if len(highlighted_image.shape) == 2:
+            # Grayscale image
+            height, width = highlighted_image.shape
+            bytes_per_line = width
+            fmt = QImage.Format_Grayscale8
+        else:
+            # Color image
+            height, width, _ = highlighted_image.shape
+            bytes_per_line = 3 * width
+            fmt = QImage.Format_RGB888
+        
+        # Convert to QImage and display
+        q_image = QImage(highlighted_image.data, width, height, bytes_per_line, fmt)
+        pixmap = QPixmap.fromImage(q_image).scaled(
+            self.image_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        self.image_label.setPixmap(pixmap)
+        
+        # Store the highlighted image
+        self.highlighted_image = highlighted_image

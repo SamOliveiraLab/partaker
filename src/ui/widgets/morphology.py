@@ -220,13 +220,6 @@ class MorphologyWidget(QWidget):
             self.populate_metrics_table()
             self.update_annotation_scatter()
             
-            # Provide user feedback
-            QMessageBox.information(
-                self, 
-                "Metrics Loaded", 
-                f"Successfully loaded metrics for {len(self.cell_mapping)} cells from metrics service."
-            )
-            
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -692,34 +685,63 @@ class MorphologyWidget(QWidget):
         # Convert to pandas
         metrics_df = df.to_pandas()
         
-        # Group by time and morphology class
-        time_class_counts = metrics_df.groupby(['time', 'morphology_class']).size()
+        # Get all unique morphology classes
+        all_morphologies = metrics_df['morphology_class'].unique()
         
-        # Plot results
-        fig = plt.figure(figsize=(8, 6))
-        ax = fig.add_subplot(111)
+        # Group by time
+        by_time = metrics_df.groupby('time')
         
-        # Plot each morphology class over time
-        for morph_class in metrics_df['morphology_class'].unique():
-            times = []
-            counts = []
-            for (t, cls), count in time_class_counts.items():
-                if cls == morph_class:
-                    times.append(t)
-                    counts.append(count)
+        # Create data structures for plotting
+        times = sorted(metrics_df['time'].unique())
+        morphology_counts = {morphology: [] for morphology in all_morphologies}
+        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        total_cells = []
+        
+        # Calculate counts and fractions for each timepoint
+        for t in times:
+            t_data = metrics_df[metrics_df['time'] == t]
+            t_counts = t_data['morphology_class'].value_counts()
+            t_total = len(t_data)
+            total_cells.append(t_total)
             
-            color = self.morphology_colors_rgb.get(morph_class, (0.5, 0.5, 0.5))
-            ax.plot(times, counts, 'o-', label=morph_class, color=color)
+            for morph in all_morphologies:
+                count = t_counts.get(morph, 0)
+                morphology_counts[morph].append(count)
+                morphology_fractions[morph].append(count/t_total if t_total > 0 else 0)
         
-        ax.set_title("Morphology Classes Over Time")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Cell Count")
-        ax.legend()
+        # Clear the figure and create two subplots
+        self.figure_annot_scatter.clear()
+        ax1 = self.figure_annot_scatter.add_subplot(2, 1, 1)
+        ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2)
         
-        # Show in dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Morphology Over Time")
-        dialog_layout = QVBoxLayout(dialog)
-        canvas = FigureCanvas(fig)
-        dialog_layout.addWidget(canvas)
-        dialog.exec_()
+        # Plot fractions
+        for morph, fractions in morphology_fractions.items():
+            color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
+            ax1.plot(times, fractions, 'o-', label=morph, color=color)
+        
+        ax1.set_title("Morphology Fractions Over Time")
+        ax1.set_ylabel("Fraction (%)")
+        ax1.legend()
+        
+        # Plot counts
+        for morph, counts in morphology_counts.items():
+            color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
+            ax2.plot(times, counts, 'o-', label=morph, color=color)
+        
+        # Add total cells line on secondary y-axis
+        ax3 = ax2.twinx()
+        ax3.plot(times, total_cells, 'k--', label='Total Cells')
+        
+        ax2.set_title("Cell Counts By Morphology Over Time")
+        ax2.set_xlabel("Time (mins)")
+        ax2.set_ylabel("Count by Class")
+        ax3.set_ylabel("Total Cell Count")
+        
+        # Legend for second plot
+        lines1, labels1 = ax2.get_legend_handles_labels()
+        lines2, labels2 = ax3.get_legend_handles_labels()
+        ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+        
+        # Adjust layout and draw
+        self.figure_annot_scatter.tight_layout()
+        self.canvas_annot_scatter.draw()
