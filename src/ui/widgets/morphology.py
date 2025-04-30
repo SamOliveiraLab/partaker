@@ -186,6 +186,10 @@ class MorphologyWidget(QWidget):
             t = pub.sendMessage("get_current_t", default=0)
             p = pub.sendMessage("get_current_p", default=0)
             c = pub.sendMessage("get_current_c", default=0)
+            # Ensure values are not None
+            t = t if t is not None else 0
+            p = p if p is not None else 0
+            c = c if c is not None else 0
             
             print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
             

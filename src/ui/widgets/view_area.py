@@ -34,63 +34,21 @@ class ViewAreaWidget(QWidget):
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_image_ready, "image_ready")
         pub.subscribe(self.highlight_cell, "highlight_cell_requested")
-        pub.subscribe(self.draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
         
-    def draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
-        """
-        Draw bounding boxes for all cells in the current view
-        
-        Args:
-            time: Time point 
-            position: Position
-            channel: Channel
-            cell_mapping: Dictionary of cell data with bounding boxes
-        """
-        print(f"ViewAreaWidget: Drawing bounding boxes for {len(cell_mapping)} cells")
-        
-        # Ensure we have the current image
-        if not hasattr(self, "current_image_data") or self.current_image_data is None:
-            print("No current image available to annotate")
-            return
-        
-        # Make a copy of the current image for annotation
-        if len(self.current_image_data.shape) == 2:
-            # Convert grayscale to color for drawing
-            annotated_image = cv2.cvtColor(self.current_image_data, cv2.COLOR_GRAY2BGR)
-        else:
-            # Already color, just copy
-            annotated_image = self.current_image_data.copy()
-        
-        # Draw bounding boxes for all cells
-        for cell_id, cell_info in cell_mapping.items():
-            y1, x1, y2, x2 = cell_info["bbox"]
-            
-            # Draw rectangle
-            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), (0, 255, 0), 1)  # Green box
-            
-            # Add cell ID
-            cv2.putText(annotated_image, str(cell_id), (x1, y1 - 5), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
-            
-            # Add classification if available
-            if "metrics" in cell_info and "morphology_class" in cell_info["metrics"]:
-                morph_class = cell_info["metrics"]["morphology_class"]
-                cv2.putText(annotated_image, morph_class[:3], (x1, y2 + 12), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-        
-        # Display the annotated image
-        height, width = annotated_image.shape[:2]
-        bytes_per_line = annotated_image.strides[0]
-        
-        q_image = QImage(annotated_image.data, width, height, bytes_per_line, 
-                        QImage.Format_RGB888 if len(annotated_image.shape) == 3 else QImage.Format_Grayscale8)
-        
-        pixmap = QPixmap.fromImage(q_image).scaled(
-            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.image_label.setPixmap(pixmap)
-        
-        # Store the annotated image
-        self.annotated_image = annotated_image
+        pub.subscribe(self.provide_current_param, "get_current_t")
+        pub.subscribe(self.provide_current_param, "get_current_p")
+        pub.subscribe(self.provide_current_param, "get_current_c")
+
+    def provide_current_param(self, topic=pub.AUTO_TOPIC, default=0):
+        param_map = {
+            "get_current_t": self.current_t,
+            "get_current_p": self.current_p,
+            "get_current_c": self.current_c
+        }
+        topic_name = topic.getName()
+        value = param_map.get(topic_name, default)
+        print(f"ViewAreaWidget: Providing {topic_name}={value}")
+        return value
         
     def init_ui(self):
         """Initialize the user interface"""

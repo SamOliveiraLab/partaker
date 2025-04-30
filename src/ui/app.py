@@ -160,6 +160,9 @@ class App(QMainWindow):
         pub.subscribe(self.on_exp_loaded, "experiment_loaded")
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
+        pub.subscribe(self.on_draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
+    
+    
     
     def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
@@ -624,6 +627,46 @@ class App(QMainWindow):
         # Progress Bar
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
+        
+        
+    def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
+        """Handle request to draw cell bounding boxes"""
+        # Get the segmentation using the same model as the segmentation cache
+        if not hasattr(self, "image_data") or not self.image_data:
+            print("No image data available")
+            return
+        
+        # Get the current model from the cache
+        current_model = self.image_data.segmentation_cache.model_name
+        if not current_model:
+            # Default to a standard model if none set
+            current_model = "bact_phase_cp3"  # This is CELLPOSE_BACT_PHASE
+            self.image_data.segmentation_cache.with_model(current_model)
+        
+        # Get the segmentation data
+        segmented_image = self.image_data.segmentation_cache[time, position, channel]
+        
+        if segmented_image is None:
+            print(f"No segmentation available for T={time}, P={position}, C={channel}")
+            return
+        
+        # Import the morphology function
+        from morphology import annotate_binary_mask
+        
+        # Create annotated image
+        annotated_image = annotate_binary_mask(segmented_image, cell_mapping)
+        
+        # Display on the view area's image label
+        height, width = annotated_image.shape[:2]
+        qimage = QImage(annotated_image.data, width, height, 
+                    annotated_image.strides[0], QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.viewArea.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.viewArea.image_label.setPixmap(pixmap)
+        
+        # Store the annotated image
+        if hasattr(self, "annotated_image"):
+            self.annotated_image = annotated_image
 
     def visualize_tracking(self, tracks):
         """
