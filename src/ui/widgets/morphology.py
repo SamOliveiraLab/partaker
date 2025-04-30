@@ -49,6 +49,37 @@ class MorphologyWidget(QWidget):
         pub.subscribe(self.on_current_view_changed, "current_view_changed")
         pub.subscribe(self.set_tracking_data, "tracking_data_available")
         pub.subscribe(self.process_morphology_time_series, "process_morphology_time_series_requested")
+        pub.subscribe(self.provide_cell_mapping, "get_cell_mapping")
+
+    def provide_cell_mapping(self, time, position, channel, cell_id, callback):
+        """
+        Provide cell mapping data to other components upon request
+        
+        Args:
+            time: Current time point
+            position: Current position
+            channel: Current channel
+            cell_id: ID of the cell to provide mapping for
+            callback: Function to receive the mapping data
+        """
+        print(f"MorphologyWidget: provide_cell_mapping called, have {len(self.cell_mapping)} cells")
+        
+        if not self.cell_mapping:
+            print("No cell mapping data available")
+            callback(None)
+            return
+        
+        # If cell_id is specified, check if it exists
+        if cell_id is not None and cell_id not in self.cell_mapping:
+            print(f"Cell ID {cell_id} not found in cell mapping")
+            callback(None)
+            return
+        
+        # Return the mapping (full or filtered by cell_id)
+        if cell_id is not None:
+            callback({cell_id: self.cell_mapping[cell_id]})
+        else:
+            callback(self.cell_mapping)
     
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -145,14 +176,13 @@ class MorphologyWidget(QWidget):
             
     
     def fetch_metrics_from_service(self):
-        """Fetch cell metrics and classification from the metrics service dataframe"""
+        """Fetch cell metrics and classification from the metrics service dataframe and annotate image"""
         if not self.metrics_service:
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
-        
+            
         try:
-            # Get current frame information to fetch relevant metrics
-            # (These would be provided by pub/sub messages in real implementation)
+            # Get current frame information
             t = pub.sendMessage("get_current_t", default=0)
             p = pub.sendMessage("get_current_p", default=0)
             c = pub.sendMessage("get_current_c", default=0)
@@ -220,11 +250,19 @@ class MorphologyWidget(QWidget):
             self.populate_metrics_table()
             self.update_annotation_scatter()
             
+            # NEW: Send message to ViewAreaWidget to draw bounding boxes
+            pub.sendMessage("draw_cell_bounding_boxes", 
+                        time=t, 
+                        position=p, 
+                        channel=c, 
+                        cell_mapping=self.cell_mapping)
+            
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"Error fetching metrics: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to fetch metrics: {str(e)}")
+        
     
     def on_table_item_click(self, item):
         """Handle clicks on the metrics table to select and track cells"""

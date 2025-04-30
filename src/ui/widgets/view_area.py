@@ -34,6 +34,63 @@ class ViewAreaWidget(QWidget):
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_image_ready, "image_ready")
         pub.subscribe(self.highlight_cell, "highlight_cell_requested")
+        pub.subscribe(self.draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
+        
+    def draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
+        """
+        Draw bounding boxes for all cells in the current view
+        
+        Args:
+            time: Time point 
+            position: Position
+            channel: Channel
+            cell_mapping: Dictionary of cell data with bounding boxes
+        """
+        print(f"ViewAreaWidget: Drawing bounding boxes for {len(cell_mapping)} cells")
+        
+        # Ensure we have the current image
+        if not hasattr(self, "current_image_data") or self.current_image_data is None:
+            print("No current image available to annotate")
+            return
+        
+        # Make a copy of the current image for annotation
+        if len(self.current_image_data.shape) == 2:
+            # Convert grayscale to color for drawing
+            annotated_image = cv2.cvtColor(self.current_image_data, cv2.COLOR_GRAY2BGR)
+        else:
+            # Already color, just copy
+            annotated_image = self.current_image_data.copy()
+        
+        # Draw bounding boxes for all cells
+        for cell_id, cell_info in cell_mapping.items():
+            y1, x1, y2, x2 = cell_info["bbox"]
+            
+            # Draw rectangle
+            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), (0, 255, 0), 1)  # Green box
+            
+            # Add cell ID
+            cv2.putText(annotated_image, str(cell_id), (x1, y1 - 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+            
+            # Add classification if available
+            if "metrics" in cell_info and "morphology_class" in cell_info["metrics"]:
+                morph_class = cell_info["metrics"]["morphology_class"]
+                cv2.putText(annotated_image, morph_class[:3], (x1, y2 + 12), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+        
+        # Display the annotated image
+        height, width = annotated_image.shape[:2]
+        bytes_per_line = annotated_image.strides[0]
+        
+        q_image = QImage(annotated_image.data, width, height, bytes_per_line, 
+                        QImage.Format_RGB888 if len(annotated_image.shape) == 3 else QImage.Format_Grayscale8)
+        
+        pixmap = QPixmap.fromImage(q_image).scaled(
+            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.image_label.setPixmap(pixmap)
+        
+        # Store the annotated image
+        self.annotated_image = annotated_image
         
     def init_ui(self):
         """Initialize the user interface"""
@@ -436,53 +493,42 @@ class ViewAreaWidget(QWidget):
         p = self.current_p
         c = self.current_c
         
-        # Get the metrics service
-        metrics_service = None
-        def get_service(service):
-            nonlocal metrics_service
-            metrics_service = service
-        pub.sendMessage("get_metrics_service", callback=get_service)
+        # Request cell mapping from MorphologyWidget
+        cell_mapping = None
+        def receive_cell_mapping(mapping):
+            nonlocal cell_mapping
+            cell_mapping = mapping
         
-        if not metrics_service:
-            print("Metrics service not available")
+        # Send message to request cell mapping data
+        pub.sendMessage("get_cell_mapping", 
+                    time=t, 
+                    position=p, 
+                    channel=c, 
+                    cell_id=cell_id,
+                    callback=receive_cell_mapping)
+        
+        # Check if we received the cell mapping
+        if not cell_mapping or cell_id not in cell_mapping:
+            print(f"Cell {cell_id} mapping not available")
             return
         
-        # Query the metrics service for this cell
-        df = metrics_service.query(time=t, position=p, channel=c, cell_id=cell_id)
-        
-        if df.is_empty():
-            print(f"Cell {cell_id} not found in metrics service")
-            return
-        
-        # Convert to pandas for easy access
-        cell_data = df.to_pandas()
+        # Get the cell info from the mapping
+        cell_info = cell_mapping[cell_id]
         
         # Check if we have a current image to work with
-        if not hasattr(self, "current_image") or self.current_image is None:
+        if not hasattr(self, "current_image_data") or self.current_image_data is None:
             print("No current image available to highlight cell")
             return
         
         # Make a copy of the current image for highlighting
-        highlighted_image = self.current_image.copy()
+        highlighted_image = self.current_image_data.copy()
         
-        # Get the bounding box or use centroid to create one
-        if all(col in cell_data.columns for col in ['y1', 'x1', 'y2', 'x2']):
-            # Use bounding box if available
-            y1 = int(cell_data['y1'].iloc[0])
-            x1 = int(cell_data['x1'].iloc[0])
-            y2 = int(cell_data['y2'].iloc[0])
-            x2 = int(cell_data['x2'].iloc[0])
-        elif 'centroid_y' in cell_data.columns and 'centroid_x' in cell_data.columns:
-            # Create bounding box from centroid
-            cy = int(cell_data['centroid_y'].iloc[0])
-            cx = int(cell_data['centroid_x'].iloc[0])
-            # Create a box around the centroid
-            box_size = 20  # Adjust based on your cell size
-            y1, x1 = cy - box_size, cx - box_size
-            y2, x2 = cy + box_size, cx + box_size
-        else:
-            print(f"Cell {cell_id} has no position information")
-            return
+        # Convert to RGB if grayscale (for drawing colored highlights)
+        if len(highlighted_image.shape) == 2:
+            highlighted_image = cv2.cvtColor(highlighted_image, cv2.COLOR_GRAY2BGR)
+        
+        # Get the bounding box
+        y1, x1, y2, x2 = cell_info["bbox"]
         
         # Draw a highlighted rectangle around the cell
         cv2.rectangle(
@@ -504,20 +550,25 @@ class ViewAreaWidget(QWidget):
             1              # Line thickness
         )
         
+        # Add morphology class if available
+        if "metrics" in cell_info and "morphology_class" in cell_info["metrics"]:
+            morph_class = cell_info["metrics"]["morphology_class"]
+            cv2.putText(
+                highlighted_image,
+                f"Class: {morph_class}",
+                (x1, y2 + 15),  # Position below the cell
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,           # Font scale
+                (255, 255, 0),  # Yellow color (BGR)
+                1              # Line thickness
+            )
+        
         # Display the highlighted image
-        if len(highlighted_image.shape) == 2:
-            # Grayscale image
-            height, width = highlighted_image.shape
-            bytes_per_line = width
-            fmt = QImage.Format_Grayscale8
-        else:
-            # Color image
-            height, width, _ = highlighted_image.shape
-            bytes_per_line = 3 * width
-            fmt = QImage.Format_RGB888
+        height, width = highlighted_image.shape[:2]
+        bytes_per_line = 3 * width  # RGB image
         
         # Convert to QImage and display
-        q_image = QImage(highlighted_image.data, width, height, bytes_per_line, fmt)
+        q_image = QImage(highlighted_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(q_image).scaled(
             self.image_label.size(),
             Qt.KeepAspectRatio,
