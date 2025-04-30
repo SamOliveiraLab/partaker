@@ -161,7 +161,7 @@ class App(QMainWindow):
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
         pub.subscribe(self.on_draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
-    
+        pub.subscribe(self.highlight_cell, "highlight_cell_requested")
     
     
     def on_exp_loaded(self, experiment: Experiment):
@@ -664,6 +664,8 @@ class App(QMainWindow):
         # Store the annotated image
         if hasattr(self, "annotated_image"):
             self.annotated_image = annotated_image
+            
+        self.current_cell_mapping = cell_mapping
 
     def visualize_tracking(self, tracks):
         """
@@ -4313,7 +4315,56 @@ class App(QMainWindow):
         # print(
         # f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1,
         # y2, x2)}")
-
+    
+    
+    def highlight_cell(self, cell_id):
+        """Highlight a specific cell when clicked on PCA plot"""
+        print(f"App: Highlighting cell {cell_id}")
+        
+        # Ensure cell ID is an integer
+        cell_id = int(cell_id)
+        
+        # Check if we have the cell mapping
+        if not hasattr(self, "current_cell_mapping") or cell_id not in self.current_cell_mapping:
+            print(f"Cell {cell_id} not found in current mapping")
+            return
+        
+        # Get current frame parameters from ViewAreaWidget
+        t = self.viewArea.current_t
+        p = self.viewArea.current_p
+        c = self.viewArea.current_c
+        
+        try:
+            # Get the segmentation
+            segmented_image = self.image_data.segmentation_cache[t, p, c]
+            
+            if segmented_image is None:
+                print(f"No segmentation available for highlighting")
+                return
+            
+            # Create single-cell mapping for the selected cell
+            single_cell_mapping = {cell_id: self.current_cell_mapping[cell_id]}
+            
+            # Import the morphology function
+            from morphology import annotate_binary_mask
+            
+            # Create highlighted image with just the one cell
+            highlighted_image = annotate_binary_mask(segmented_image, single_cell_mapping)
+            
+            # Display on the view area's image label
+            height, width = highlighted_image.shape[:2]
+            qimage = QImage(highlighted_image.data, width, height, 
+                        highlighted_image.strides[0], QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimage).scaled(
+                self.viewArea.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.viewArea.image_label.setPixmap(pixmap)
+            
+        except Exception as e:
+            import traceback
+            print(f"Error highlighting cell: {e}")
+            traceback.print_exc()
+         
+            
     # def highlight_selected_cell(self, cell_id, cache_key):
     #     """
     #     Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.

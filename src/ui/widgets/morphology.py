@@ -291,6 +291,27 @@ class MorphologyWidget(QWidget):
             print(f"Error in table item click: {str(e)}")
             QMessageBox.warning(self, "Error", f"Failed to process cell selection: {str(e)}")
         
+    def on_pca_point_click(self, event):
+        """
+        Handle click events on the PCA scatter plot.
+        Highlight the corresponding cell in the image.
+        """
+        if event.artist not in self.figure_annot_scatter.axes[0].collections:
+            return
+
+        # Get the index of the clicked point
+        ind = event.ind[0]  # event.ind is a list of indices of the picked points
+
+        # Map the index back to the cell_id (similar to list(self.cell_mapping.keys())[ind] in the old code)
+        clicked_cell_id = self.pca_data["cell_ids"][ind]
+        print(f"Clicked PCA point for cell_id: {clicked_cell_id}")
+
+        # Store the selected cell_id
+        self.selected_cell_id = clicked_cell_id
+
+        # Highlight the cell in the image
+        self.highlight_cell_in_image(clicked_cell_id)
+        
     
     def select_cell_for_tracking(self, cell_id):
         """Select a specific cell to track across frames."""
@@ -423,44 +444,17 @@ class MorphologyWidget(QWidget):
     
     
     def highlight_cell_in_image(self, cell_id):
-        """Highlight a specific cell in the current image view"""
-        try:
-            if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-                print("No cell mapping available for highlighting")
-                return
-                
-            if int(cell_id) not in self.cell_mapping:
-                print(f"Cell ID {cell_id} not found in mapping")
-                return
-                
-            # Send message to highlight the cell in main view
-            print(f"Sending highlight request for cell {cell_id}")
-            pub.sendMessage("highlight_cell_requested", cell_id=int(cell_id))
-            
-            # Also highlight the cell in our local view if we have the annotated image
-            if hasattr(self, "annotated_image") and self.annotated_image is not None:
-                try:
-                    # Create a copy of the annotated image
-                    highlighted = self.annotated_image.copy()
-                    
-                    # Get bounding box of the cell
-                    y1, x1, y2, x2 = self.cell_mapping[int(cell_id)]["bbox"]
-                    
-                    # Draw a prominent rectangle around the cell
-                    cv2.rectangle(highlighted, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                    
-                    # Display in our widget
-                    height, width = highlighted.shape[:2]
-                    qimage = QImage(highlighted.data, width, height, 
-                                highlighted.strides[0], QImage.Format_RGB888)
-                    pixmap = QPixmap.fromImage(qimage)
-                    self.annotated_image_label.setPixmap(pixmap)
-                    
-                    print(f"Cell {cell_id} highlighted in local view")
-                except Exception as e:
-                    print(f"Failed to highlight in local view: {str(e)}")
-        except Exception as e:
-            print(f"Error highlighting cell: {str(e)}")
+        """
+        Request highlighting of a cell in the main image view
+        Called when a cell is clicked in the PCA scatter plot
+        """
+        print(f"MorphologyWidget: Requesting highlight for cell {cell_id}")
+        
+        # Ensure cell_id is an integer
+        cell_id = int(cell_id)
+        
+        # Send message to request cell highlighting
+        pub.sendMessage("highlight_cell_requested", cell_id=cell_id)
     
     def update_annotation_scatter(self):
         """Update the PCA scatter plot with current cell morphology data"""
