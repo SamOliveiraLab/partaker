@@ -44,6 +44,7 @@ from pubsub import pub
 from experiment import Experiment
 from metrics_service import MetricsService
 
+
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
     finished = Signal(object)  # Finished with results
@@ -123,47 +124,49 @@ class MorphologyWorker(QObject):
             self.error.emit(str(e))
             raise e
 
+
 class App(QMainWindow):
-    
+
     def __init__(self):
         super().__init__()
 
         # Set window properties first
         self.setWindowTitle("Partaker 3 - GUI")
         self.setGeometry(100, 100, 1000, 800)
-        
+
         # Create central widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        
+
         # Create main layout
         self.layout = QHBoxLayout(self.central_widget)
-        
+
         # Initialize services
         self.metrics_service = MetricsService()
-        
+
         # Create and add the MorphologyWidget with metrics service
-        self.morphology_widget = MorphologyWidget(metrics_service=self.metrics_service)
-        
+        self.morphology_widget = MorphologyWidget(
+            metrics_service=self.metrics_service)
+
         # Create ViewArea widget
         self.viewArea = ViewAreaWidget()
         self.layout.addWidget(self.viewArea)
-        
+
         # Initialize other UI components
         self.tab_widget = QTabWidget()
-        
+
         # Complete initialization
         self.init_ui()
         self.layout.addWidget(self.tab_widget)
-        
+
         # Subscribe to events
         pub.subscribe(self.on_exp_loaded, "experiment_loaded")
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
-        pub.subscribe(self.on_draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
+        pub.subscribe(self.on_draw_cell_bounding_boxes,
+                      "draw_cell_bounding_boxes")
         pub.subscribe(self.highlight_cell, "highlight_cell_requested")
-    
-    
+
     def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
 
@@ -508,17 +511,16 @@ class App(QMainWindow):
 
         # Store this processed image for export
         self.processed_images.append(image_data)
-        pub.sendMessage("current_view_changed", 
-                    time=t,
-                    position=p, 
-                    channel=c)
-
+        pub.sendMessage("current_view_changed",
+                        time=t,
+                        position=p,
+                        channel=c)
 
     def on_image_request(self, time, position, channel):
         """Handle requests for raw image data"""
         if not self.image_data:
             return
-        
+
         # Retrieve the image data
         try:
             if self.image_data.is_nd2:
@@ -528,16 +530,16 @@ class App(QMainWindow):
                     image = self.image_data.data[time, position]
             else:
                 image = self.image_data.data[time]
-                
+
             # Convert to NumPy array if needed
             image = np.array(image)
-            
+
             # Publish the image
-            pub.sendMessage("image_ready", 
-                        image=image,
-                        time=time, 
-                        position=position, 
-                        channel=channel)
+            pub.sendMessage("image_ready",
+                            image=image,
+                            time=time,
+                            position=position,
+                            channel=channel)
         except Exception as e:
             print(f"Error retrieving image: {e}")
 
@@ -545,26 +547,28 @@ class App(QMainWindow):
         """Handle requests for segmentation data"""
         if not self.image_data:
             return
-        
+
         try:
             # Get the appropriate segmentation model
             if model_name:
                 self.image_data.segmentation_cache.with_model(model_name)
             else:
-                self.image_data.segmentation_cache.with_model(self.model_dropdown.currentText())
-            
+                self.image_data.segmentation_cache.with_model(
+                    self.model_dropdown.currentText())
+
             # Get the segmentation
-            segmented_image = self.image_data.segmentation_cache[time, position, channel]
-            
+            segmented_image = self.image_data.segmentation_cache[time,
+                                                                 position, channel]
+
             # Publish the segmentation result
-            pub.sendMessage("segmentation_ready", 
-                        segmented_image=segmented_image,
-                        time=time, 
-                        position=position, 
-                        channel=channel)
+            pub.sendMessage("segmentation_ready",
+                            segmented_image=segmented_image,
+                            time=time,
+                            position=position,
+                            channel=channel)
         except Exception as e:
             print(f"Error retrieving segmentation: {e}")
-        
+
     def open_roi_selector(self):
         # Get the image to use for ROI selection
         image_data = self.current_image
@@ -597,7 +601,6 @@ class App(QMainWindow):
             self.overlay_tracks_on_images)
         tracking_buttons_layout.addWidget(self.overlay_video_button)
 
-
         self.motility_button = QPushButton("Analyze Cell Motility")
         self.motility_button.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold;")
@@ -607,7 +610,6 @@ class App(QMainWindow):
         # Inner Tabs for Plots
         self.plot_tabs = QTabWidget()
         self.morphology_fractions_tab = QWidget()
-
 
         # Plot for Morphology Fractions
         morphology_fractions_layout = QVBoxLayout(
@@ -619,44 +621,45 @@ class App(QMainWindow):
 
         # Progress Bar
         self.progress_bar = QProgressBar()
-        
-        
+
     def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
         """Handle request to draw cell bounding boxes"""
         # Get the segmentation using the same model as the segmentation cache
         if not hasattr(self, "image_data") or not self.image_data:
             print("No image data available")
             return
-        
+
         # Get the current model from the cache
         current_model = self.image_data.segmentation_cache.model_name
         if not current_model:
             # Default to a standard model if none set
             current_model = "bact_phase_cp3"  # This is CELLPOSE_BACT_PHASE
             self.image_data.segmentation_cache.with_model(current_model)
-        
+
         # Get the segmentation data
-        segmented_image = self.image_data.segmentation_cache[time, position, channel]
-        
+        segmented_image = self.image_data.segmentation_cache[time,
+                                                             position, channel]
+
         if segmented_image is None:
-            print(f"No segmentation available for T={time}, P={position}, C={channel}")
+            print(
+                f"No segmentation available for T={time}, P={position}, C={channel}")
             return
-        
+
         # Create annotated image
         annotated_image = annotate_binary_mask(segmented_image, cell_mapping)
-        
+
         # Display on the view area's image label
         height, width = annotated_image.shape[:2]
-        qimage = QImage(annotated_image.data, width, height, 
-                    annotated_image.strides[0], QImage.Format_RGB888)
+        qimage = QImage(annotated_image.data, width, height,
+                        annotated_image.strides[0], QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimage).scaled(
             self.viewArea.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.viewArea.image_label.setPixmap(pixmap)
-        
+
         # Store the annotated image
         if hasattr(self, "annotated_image"):
             self.annotated_image = annotated_image
-            
+
         self.current_cell_mapping = cell_mapping
 
     def visualize_tracking(self, tracks):
@@ -1036,10 +1039,10 @@ class App(QMainWindow):
                 progress.setValue(10)
                 progress.show()
                 QApplication.processEvents()
-                
+
                 self.growth_metrics = self.lineage_visualizer.calculate_growth_and_division_metrics(
                     self.lineage_tracks)
-                
+
                 progress.setValue(50)
                 progress.setLabelText("Creating visualization...")
                 QApplication.processEvents()
@@ -1048,36 +1051,41 @@ class App(QMainWindow):
             from matplotlib.figure import Figure
             # Increase figure size to fit the available space
             figure = Figure(figsize=(12, 10), dpi=100)
-            
+
             # Set up the subplots with more space between them
             gs = figure.add_gridspec(2, 2, hspace=0.4, wspace=0.4)
-            
+
             # Add the subplots
             ax1 = figure.add_subplot(gs[0, 0])  # Division Time Distribution
             ax2 = figure.add_subplot(gs[0, 1])  # Growth Rate Distribution
-            ax3 = figure.add_subplot(gs[1, 0])  # Division Time: Parent vs. Child
+            # Division Time: Parent vs. Child
+            ax3 = figure.add_subplot(gs[1, 0])
             ax4 = figure.add_subplot(gs[1, 1])  # Summary statistics
-            
+
             # 1. Histogram of division times
-            ax1.hist(self.growth_metrics['division_times'], bins=20, color='skyblue', edgecolor='black')
-            ax1.set_title('Division Time Distribution', fontsize=14, fontweight='bold')
+            ax1.hist(self.growth_metrics['division_times'],
+                     bins=20, color='skyblue', edgecolor='black')
+            ax1.set_title('Division Time Distribution',
+                          fontsize=14, fontweight='bold')
             ax1.set_xlabel('Time (frames)', fontsize=12)
             ax1.set_ylabel('Cell Count', fontsize=12)
-            ax1.axvline(self.growth_metrics['avg_division_time'], color='red', 
+            ax1.axvline(self.growth_metrics['avg_division_time'], color='red',
                         linestyle='--', label=f"Mean: {self.growth_metrics['avg_division_time']:.1f}")
-            ax1.axvline(self.growth_metrics['median_division_time'], color='green', 
+            ax1.axvline(self.growth_metrics['median_division_time'], color='green',
                         linestyle='--', label=f"Median: {self.growth_metrics['median_division_time']:.1f}")
             ax1.legend(fontsize=11)
-            
+
             # 2. Histogram of growth rates
-            ax2.hist(self.growth_metrics['growth_rates'], bins=20, color='lightgreen', edgecolor='black')
-            ax2.set_title('Growth Rate Distribution', fontsize=14, fontweight='bold')
+            ax2.hist(self.growth_metrics['growth_rates'],
+                     bins=20, color='lightgreen', edgecolor='black')
+            ax2.set_title('Growth Rate Distribution',
+                          fontsize=14, fontweight='bold')
             ax2.set_xlabel('Growth Rate (ln(2)/division time)', fontsize=12)
             ax2.set_ylabel('Cell Count', fontsize=12)
-            ax2.axvline(self.growth_metrics['avg_growth_rate'], color='red', 
+            ax2.axvline(self.growth_metrics['avg_growth_rate'], color='red',
                         linestyle='--', label=f"Mean: {self.growth_metrics['avg_growth_rate']:.4f}")
             ax2.legend(fontsize=11)
-            
+
             # 3. Parent vs child division times
             # Calculate parent-child division time pairs
             division_time_by_id = {}
@@ -1086,37 +1094,40 @@ class App(QMainWindow):
                     dt = track['t'][-1] - track['t'][0]
                     if dt > 0:
                         division_time_by_id[track['ID']] = dt
-            
+
             parent_child_division_pairs = []
             for track in self.lineage_tracks:
                 if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
                     parent_dt = division_time_by_id[track['ID']]
-                    
+
                     for child_id in track['children']:
                         if child_id in division_time_by_id:
                             child_dt = division_time_by_id[child_id]
-                            parent_child_division_pairs.append((parent_dt, child_dt))
-            
+                            parent_child_division_pairs.append(
+                                (parent_dt, child_dt))
+
             if parent_child_division_pairs:
                 parent_dts, child_dts = zip(*parent_child_division_pairs)
                 ax3.scatter(parent_dts, child_dts, alpha=0.7, color='blue')
-                ax3.set_title('Division Time: Parent vs. Child', fontsize=14, fontweight='bold')
+                ax3.set_title('Division Time: Parent vs. Child',
+                              fontsize=14, fontweight='bold')
                 ax3.set_xlabel('Parent Division Time', fontsize=12)
                 ax3.set_ylabel('Child Division Time', fontsize=12)
-                
+
                 # Add y=x reference line
                 min_val = min(min(parent_dts), min(child_dts))
                 max_val = max(max(parent_dts), max(child_dts))
-                ax3.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
-                
+                ax3.plot([min_val, max_val], [
+                         min_val, max_val], 'k--', alpha=0.5)
+
                 # Calculate correlation
                 correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
-                ax3.text(0.05, 0.95, f"Correlation: {correlation:.2f}", 
-                        transform=ax3.transAxes, 
-                        verticalalignment='top',
-                        fontsize=12,
-                        bbox=dict(facecolor='white', alpha=0.8))
-            
+                ax3.text(0.05, 0.95, f"Correlation: {correlation:.2f}",
+                         transform=ax3.transAxes,
+                         verticalalignment='top',
+                         fontsize=12,
+                         bbox=dict(facecolor='white', alpha=0.8))
+
             ax4.axis('off')
 
             # Format the summary text with clear spacing
@@ -1136,33 +1147,35 @@ class App(QMainWindow):
                 summary += f"\nParent-Child Division Time\nCorrelation: {correlation:.2f}"
 
             # Create a visible background for the summary text
-            summary_text = ax4.text(0.05, 0.95, summary, 
-                                transform=ax4.transAxes,
-                                verticalalignment='top', 
-                                horizontalalignment='left',
-                                fontfamily='monospace', 
-                                fontsize=12,
-                                bbox=dict(facecolor='white', alpha=0.9, 
-                                        boxstyle='round,pad=1.0',
-                                        edgecolor='gray'))
-            
+            summary_text = ax4.text(0.05, 0.95, summary,
+                                    transform=ax4.transAxes,
+                                    verticalalignment='top',
+                                    horizontalalignment='left',
+                                    fontfamily='monospace',
+                                    fontsize=12,
+                                    bbox=dict(facecolor='white', alpha=0.9,
+                                              boxstyle='round,pad=1.0',
+                                              edgecolor='gray'))
+
             # Create the canvas and add to layout
             canvas = FigureCanvas(figure)
             growth_layout.addWidget(canvas)
-            
+
             # Adjust plot spacing
-            figure.subplots_adjust(hspace=0.35, wspace=0.35, bottom=0.1, top=0.95, left=0.1, right=0.95)
-            
+            figure.subplots_adjust(
+                hspace=0.35, wspace=0.35, bottom=0.1, top=0.95, left=0.1, right=0.95)
+
             # Store the figure for saving later
             growth_fig = figure
-            
+
             progress.setValue(100)
             progress.close()
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            error_label = QLabel(f"Error creating growth visualization: {str(e)}")
+            error_label = QLabel(
+                f"Error creating growth visualization: {str(e)}")
             error_label.setStyleSheet("color: red")
             growth_layout.addWidget(error_label)
 
@@ -1217,10 +1230,11 @@ class App(QMainWindow):
                     "Precomputing morphology classifications...")
                 progress.setValue(10)
                 QApplication.processEvents()
-                
+
                 if hasattr(self, "cell_mapping") and self.cell_mapping:
                     self.lineage_visualizer.cell_mapping = self.cell_mapping
-                    print(f"Transferring cell mapping with {len(self.cell_mapping)} entries to lineage visualizer")
+                    print(
+                        f"Transferring cell mapping with {len(self.cell_mapping)} entries to lineage visualizer")
 
                 # Precompute morphology for consistent classification
                 self.lineage_visualizer.precompute_morphology_classifications(
@@ -2720,11 +2734,10 @@ class App(QMainWindow):
 
     def init_ui(self):
         # Initialize tabs as QWidget
-        
+
         self.segmentation_tab = SegmentationWidget()
         self.populationTab = PopulationWidget()
         self.morphologyTab = MorphologyWidget()
-
 
         self.morphologyVisualizationTab = QWidget()
         self.tracking_manager = TrackingManager()
@@ -2733,7 +2746,8 @@ class App(QMainWindow):
         self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphology_widget, "Morphology")
-        self.tab_widget.addTab(self.tracking_manager, "Tracking - Lineage Tree")
+        self.tab_widget.addTab(self.tracking_manager,
+                               "Tracking - Lineage Tree")
         self.tab_widget.addTab(
             self.morphologyVisualizationTab,
             "Morphology Visualization")
@@ -2753,7 +2767,8 @@ class App(QMainWindow):
         # New Experiment
         new_experiment_action = QAction("New Experiment", self)
         new_experiment_action.setShortcut("Ctrl+E")
-        new_experiment_action.triggered.connect(self.show_new_experiment_dialog)
+        new_experiment_action.triggered.connect(
+            self.show_new_experiment_dialog)
         file_menu.addAction(new_experiment_action)
 
         # Save action
@@ -2789,190 +2804,82 @@ class App(QMainWindow):
         about_dialog = AboutDialog()
         about_dialog.exec_()
 
+    # In your main App class (app.py)
+
     def save_to_folder(self):
+        """Save the current project to a folder"""
         folder_path = QFileDialog.getExistingDirectory(
-            self,                           # Parent widget
-            "Select Destination Folder",    # Dialog caption
-            # Default directory (empty starts in last used)
+            self,
+            "Select Destination Folder",
             "",
-            QFileDialog.ShowDirsOnly        # Option to show only directories
+            QFileDialog.ShowDirsOnly
         )
+
+        metrics_service = MetricsService()
+        metrics_saved = metrics_service.save_to_file(folder_path)
+
         if folder_path:
             # Create directory if it doesn't exist
             os.makedirs(folder_path, exist_ok=True)
 
-            # Save ImageData using existing method
+            # Save image data
             self.image_data.save(folder_path)
 
-            # Save tracking data if available
-            tracking_data = {}
-            has_tracking_data = False
+            # Save tracking data
+            tracking_saved = self.tracking_manager.tracking_widget.save_tracking_data(
+                folder_path)
 
-            if hasattr(self, "tracked_cells") and self.tracked_cells is not None:
-                tracking_data["tracked_cells"] = self.tracked_cells
-                has_tracking_data = True
+            # You could add more saving operations here for other components
 
-            if hasattr(self, "lineage_tracks") and self.lineage_tracks is not None:
-                tracking_data["lineage_tracks"] = self.lineage_tracks
-                has_tracking_data = True
-
-            if hasattr(self, "motility_results") and self.motility_results is not None:
-                tracking_data["motility_results"] = self.motility_results
-                has_tracking_data = True
-
-            if has_tracking_data:
-                tracking_path = os.path.join(folder_path, "tracking_data.pkl")
-                with open(tracking_path, 'wb') as f:
-                    pickle.dump(tracking_data, f)
-
+            # Show success message
             QMessageBox.information(
                 self, "Save Complete",
                 f"Project saved to {folder_path}" +
-                ("\nIncludes tracking data" if has_tracking_data else "")
+                ("\nIncludes tracking data" if tracking_saved else "")
             )
 
     def load_from_folder(self):
+        """Load a project from a folder"""
         folder_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Project Folder",
-            "",
-            QFileDialog.ShowDirsOnly
+            self, "Select Project Folder", "", QFileDialog.ShowDirsOnly
         )
+
         if folder_path:
             print(f"Project loaded from folder: {folder_path}")
 
-            # Load the main image data
-            self.image_data = ImageData.load(folder_path)
+            try:
+                # Load image data
+                self.image_data = ImageData.load(folder_path)
 
-            # Update controls / app state
-            if self.image_data.nd2_filename is not None:
-                self.init_controls_nd2(self.image_data.nd2_filename)
+                # Load metrics data
+                metrics_service = MetricsService()
+                metrics_loaded = metrics_service.load_from_file(folder_path)
 
-            # Check for tracking data
-            tracking_path = os.path.join(folder_path, "tracking_data.pkl")
-            has_tracking_data = False
+                # Update UI based on loaded image data
+                if hasattr(self, "viewArea"):
+                    pub.sendMessage("image_data_loaded",
+                                    image_data=self.image_data)
 
-            if os.path.exists(tracking_path):
-                try:
-                    with open(tracking_path, 'rb') as f:
-                        tracking_data = pickle.load(f)
+                # Load tracking data if available
+                tracking_loaded = False
+                if hasattr(self, "tracking_manager") and hasattr(self.tracking_manager, "tracking_widget"):
+                    tracking_loaded = self.tracking_manager.tracking_widget.load_tracking_data(
+                        folder_path)
 
-                    if "tracked_cells" in tracking_data and tracking_data["tracked_cells"]:
-                        self.tracked_cells = tracking_data["tracked_cells"]
-                        has_tracking_data = True
+                # Show success message
+                message = f"Project loaded from {folder_path}"
+                if metrics_loaded:
+                    message += "\nMetrics data loaded successfully"
+                if tracking_loaded:
+                    message += "\nTracking data loaded successfully"
 
-                    if "lineage_tracks" in tracking_data and tracking_data["lineage_tracks"]:
-                        self.lineage_tracks = tracking_data["lineage_tracks"]
-                        has_tracking_data = True
+                QMessageBox.information(self, "Project Loaded", message)
 
-                    if "motility_results" in tracking_data and tracking_data["motility_results"]:
-                        self.motility_results = tracking_data["motility_results"]
-                        has_tracking_data = True
-
-                    # Update UI to reflect loaded tracking data
-                    if hasattr(self, "lineage_button") and self.lineage_tracks:
-                        self.lineage_button.setText(
-                            "Visualize Lineage Tree (Loaded)")
-                        self.lineage_button.setStyleSheet(
-                            "background-color: #4CAF50; color: white;")
-
-                    if hasattr(self, "overlay_video_button") and self.tracked_cells:
-                        self.overlay_video_button.setText(
-                            "Tracking Video (Loaded)")
-                        self.overlay_video_button.setStyleSheet(
-                            "background-color: #4CAF50; color: white;")
-
-                    if hasattr(self, "motility_button") and self.lineage_tracks:
-                        self.motility_button.setStyleSheet(
-                            "background-color: #4CAF50; color: white; font-weight: bold;")
-
-                    # Update visualization if tracking data is loaded
-                    if hasattr(self, "tracked_cells") and self.tracked_cells:
-                        self.visualize_tracking(self.tracked_cells)
-
-                except Exception as e:
-                    QMessageBox.warning(
-                        self, "Warning", f"Error loading tracking data: {str(e)}"
-                    )
-
-            QMessageBox.information(
-                self, "Project Loaded",
-                f"Project loaded from {folder_path}" +
-                ("\nTracking data loaded successfully" if has_tracking_data else "")
-            )
-
-    # def initMorphologyTab(self):
-    #     layout = QVBoxLayout(self.morphologyTab)
-
-    #     # Create QTabWidget for inner tabs
-    #     inner_tab_widget = QTabWidget()
-    #     self.scatter_tab = QWidget()
-    #     self.table_tab = QWidget()
-
-    #     # Add tabs to the inner tab widget
-    #     inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
-    #     inner_tab_widget.addTab(self.table_tab, "Metrics Table")
-
-    #     # Scatter plot tab layout (PCA)
-    #     scatter_layout = QVBoxLayout(self.scatter_tab)
-
-    #     # Annotated image display (adjusted size)
-    #     self.annotated_image_label = QLabel(
-    #         "Annotated image will be displayed here.")
-    #     self.annotated_image_label.setFixedSize(
-    #         300, 300)  # Adjust size as needed
-    #     self.annotated_image_label.setAlignment(Qt.AlignCenter)
-    #     self.annotated_image_label.setScaledContents(True)
-    #     scatter_layout.addWidget(self.annotated_image_label)
-
-    #     # Dropdown for selecting metric to color PCA scatter plot
-    #     self.color_dropdown_annot = QComboBox()
-    #     self.color_dropdown_annot.addItems(
-    #         [
-    #             "area",
-    #             "perimeter",
-    #             "aspect_ratio",
-    #             "extent",
-    #             "solidity",
-    #             "equivalent_diameter",
-    #             "orientation",
-    #         ]
-    #     )
-
-    #     # Add dropdown for coloring
-    #     # dropdown_layout = QHBoxLayout()
-    #     # dropdown_layout.addWidget(QLabel("Color by:"))
-    #     # dropdown_layout.addWidget(self.color_dropdown_annot)
-    #     # scatter_layout.addLayout(dropdown_layout)
-
-    #     # PCA scatter plot display
-    #     self.figure_annot_scatter = plt.figure()
-    #     self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
-    #     scatter_layout.addWidget(self.canvas_annot_scatter)
-
-    #     # Connect dropdown change to PCA plot update
-    #     self.color_dropdown_annot.currentTextChanged.connect(
-    #         self.update_annotation_scatter)
-
-    #     # Table tab layout (Metrics Table)
-    #     table_layout = QVBoxLayout(self.table_tab)
-    #     # Add the Export Button at the top of the table layout
-    #     self.export_button = QPushButton("Export to CSV")
-    #     self.export_button.setStyleSheet(
-    #         "background-color: white; color: black; font-size: 14px;")
-    #     table_layout.addWidget(self.export_button)
-
-    #     # Connect the button to the export function (use annotation or define
-    #     # it here)
-    #     self.export_button.clicked.connect(self.export_metrics_to_csv)
-
-    #     self.metrics_table = QTableWidget()  # Create the table widget
-    #     # Connect the table item click signal to the handler
-    #     self.metrics_table.itemClicked.connect(self.on_table_item_click)
-    #     table_layout.addWidget(self.metrics_table)
-
-    #     # Add the inner tab widget to the annotated tab layout
-    #     layout.addWidget(inner_tab_widget)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                QMessageBox.warning(
+                    self, "Error", f"Failed to load project: {str(e)}")
 
     def initMorphologyVisualizationTab(self):
         layout = QVBoxLayout(self.morphologyVisualizationTab)
@@ -4307,56 +4214,55 @@ class App(QMainWindow):
         # print(
         # f"✅ Successfully highlighted cell {cell_id} at bounding box {(y1, x1,
         # y2, x2)}")
-    
-    
+
     def highlight_cell(self, cell_id):
         """Highlight a specific cell when clicked on PCA plot"""
         print(f"App: Highlighting cell {cell_id}")
-        
+
         # Ensure cell ID is an integer
         cell_id = int(cell_id)
-        
+
         # Check if we have the cell mapping
         if not hasattr(self, "current_cell_mapping") or cell_id not in self.current_cell_mapping:
             print(f"Cell {cell_id} not found in current mapping")
             return
-        
+
         # Get current frame parameters from ViewAreaWidget
         t = self.viewArea.current_t
         p = self.viewArea.current_p
         c = self.viewArea.current_c
-        
+
         try:
             # Get the segmentation
             segmented_image = self.image_data.segmentation_cache[t, p, c]
-            
+
             if segmented_image is None:
                 print(f"No segmentation available for highlighting")
                 return
-            
+
             # Create single-cell mapping for the selected cell
             single_cell_mapping = {cell_id: self.current_cell_mapping[cell_id]}
-            
+
             # Import the morphology function
             from morphology import annotate_binary_mask
-            
+
             # Create highlighted image with just the one cell
-            highlighted_image = annotate_binary_mask(segmented_image, single_cell_mapping)
-            
+            highlighted_image = annotate_binary_mask(
+                segmented_image, single_cell_mapping)
+
             # Display on the view area's image label
             height, width = highlighted_image.shape[:2]
-            qimage = QImage(highlighted_image.data, width, height, 
-                        highlighted_image.strides[0], QImage.Format_RGB888)
+            qimage = QImage(highlighted_image.data, width, height,
+                            highlighted_image.strides[0], QImage.Format_RGB888)
             pixmap = QPixmap.fromImage(qimage).scaled(
                 self.viewArea.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.viewArea.image_label.setPixmap(pixmap)
-            
+
         except Exception as e:
             import traceback
             print(f"Error highlighting cell: {e}")
             traceback.print_exc()
-         
-            
+
     # def highlight_selected_cell(self, cell_id, cache_key):
     #     """
     #     Highlights a selected cell on the segmented image when a point on the scatter plot is clicked.

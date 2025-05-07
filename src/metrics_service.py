@@ -5,6 +5,8 @@ from pubsub import pub
 from typing import Optional, Dict
 import logging
 from morphology import classify_morphology
+import os
+import pickle
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -99,10 +101,10 @@ class MetricsService:
         # TODO: make it aware of the fluorescence channels
         for _chan in range(1, 3):
             pub.sendMessage("raw_image_request",
-                        time=time,
-                        position=position,
-                        channel=_chan)
-    
+                            time=time,
+                            position=position,
+                            channel=_chan)
+
     def _process_fluorescence_image(self, image, time, position, channel):
         """
         Process raw fluorescence images using stored segmentation labels.
@@ -115,7 +117,7 @@ class MetricsService:
         """
         cache_key = (time, position)
         # TODO: compute fluorescence values per channel!
-        
+
         # Check if we have segmentation labels for this image
         if cache_key not in self._segmentation_cache:
             logger.warning(
@@ -127,8 +129,9 @@ class MetricsService:
 
         # Find metrics for this time/position/channel in our data
         matching_metrics = [
-            (i, m) for i, m in enumerate(self._data) 
-            if m["time"] == time and m["position"] == position # and m["channel"] == channel
+            (i, m) for i, m in enumerate(self._data)
+            # and m["channel"] == channel
+            if m["time"] == time and m["position"] == position
         ]
 
         if not matching_metrics:
@@ -142,8 +145,9 @@ class MetricsService:
 
         # Calculate background intensity (areas with no cells)
         background_mask = labeled_image == 0
-        background_intensity = np.mean(image[background_mask]) if np.any(background_mask) else 0
-        
+        background_intensity = np.mean(
+            image[background_mask]) if np.any(background_mask) else 0
+
         # Fluorescence measurement key
         fluo_metric_key = f"fluo_{channel}"
 
@@ -161,7 +165,7 @@ class MetricsService:
                 # metrics["integrated_intensity"] = np.sum(cell_pixels)
                 # metrics["background_intensity"] = background_intensity
                 # metrics["normalized_intensity"] = metrics["mean_intensity"] / background_intensity if background_intensity > 0 else None
-                
+
                 # Log the fluorescence metrics
                 self._log_fluorescence_metrics(metrics)
 
@@ -170,8 +174,7 @@ class MetricsService:
 
         # Update the DataFrame
         self._update_dataframe()
-    
-    
+
     def _calculate_metrics(self, labeled_image, time, position, channel):
         """
         Calculate basic shape metrics for all cells in a labeled image.
@@ -189,11 +192,13 @@ class MetricsService:
         for prop in props:
             cell_id = prop.label
 
-            circularity = (4 * np.pi * prop.area) / (prop.perimeter**2) if prop.perimeter > 0 else 0
+            circularity = (4 * np.pi * prop.area) / \
+                (prop.perimeter**2) if prop.perimeter > 0 else 0
             solidity = prop.solidity
             equivalent_diameter = prop.equivalent_diameter
-            aspect_ratio = prop.major_axis_length / prop.minor_axis_length if prop.minor_axis_length > 0 else 1.0
-            
+            aspect_ratio = prop.major_axis_length / \
+                prop.minor_axis_length if prop.minor_axis_length > 0 else 1.0
+
             # Add orientation explicitly
             orientation = prop.orientation
 
@@ -253,8 +258,7 @@ class MetricsService:
 
             # Add to data collection
             self._data.append(metrics)
-    
-    
+
     def _log_shape_metrics(self, metrics):
         """
         Log shape metrics for a cell.
@@ -269,8 +273,8 @@ class MetricsService:
         logger.info(f"  Eccentricity: {metrics['eccentricity']:.2f}")
         logger.info(
             f"  Aspect Ratio: {metrics['aspect_ratio']:.2f}" if metrics['aspect_ratio'] else "  Aspect Ratio: None")
-        logger.info(f"  Bounding Box: (y1={metrics['y1']}, x1={metrics['x1']}, y2={metrics['y2']}, x2={metrics['x2']})")
-        
+        logger.info(
+            f"  Bounding Box: (y1={metrics['y1']}, x1={metrics['x1']}, y2={metrics['y2']}, x2={metrics['x2']})")
 
     def _log_fluorescence_metrics(self, metrics):
         """
@@ -279,11 +283,13 @@ class MetricsService:
         Args:
             metrics: Dictionary of cell metrics
         """
-        logger.info(f"Fluorescence metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']}")
-        for _chan in range(1, 3): # 1 and 2
+        logger.info(
+            f"Fluorescence metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']}")
+        for _chan in range(1, 3):  # 1 and 2
             try:
                 fluo_metric_key = f"fluo_{_chan}"
-                logger.info(f"  Average fluorescence for channel {_chan}: {metrics[fluo_metric_key]:.2f}")
+                logger.info(
+                    f"  Average fluorescence for channel {_chan}: {metrics[fluo_metric_key]:.2f}")
             except:
                 logger.info(f"  Channel {fluo_metric_key} not present!")
                 continue
@@ -292,7 +298,7 @@ class MetricsService:
         # logger.info(f"  Integrated Intensity: {metrics['integrated_intensity']:.2f}")
         # logger.info(f"  Background Intensity: {metrics['background_intensity']:.2f}")
         # logger.info(f"  Normalized Intensity: {metrics['normalized_intensity']:.2f}" if metrics['normalized_intensity'] else "  Normalized Intensity: None")
-    
+
     def _update_dataframe(self):
         """Update the Polars DataFrame with collected data"""
         if not self._data:
@@ -307,9 +313,9 @@ class MetricsService:
             f"DataFrame now has {self.df.height} rows and {self.df.width} columns")
 
     def query(self, position: Optional[int] = None,
-          time: Optional[int] = None,
-          cell_id: Optional[int] = None,
-          channel: Optional[int] = None) -> pl.DataFrame:
+              time: Optional[int] = None,
+              cell_id: Optional[int] = None,
+              channel: Optional[int] = None) -> pl.DataFrame:
         """
         Query the metrics DataFrame with optional filters.
 
@@ -347,3 +353,56 @@ class MetricsService:
         self._data = []
         self.df = pl.DataFrame()
         logger.info("Cleared all metrics data")
+
+    def save_to_file(self, folder_path):
+        """Save metrics data to a file"""
+        try:
+            if not self.df.is_empty():
+                # Create the path
+                metrics_path = os.path.join(folder_path, "metrics_data.csv")
+                # Write to CSV
+                self.df.write_csv(metrics_path)
+                logger.info(f"Metrics data saved to {metrics_path}")
+                return True
+            else:
+                logger.info("No metrics data to save")
+                return False
+        except Exception as e:
+            logger.error(f"Error saving metrics data: {e}")
+            return False
+
+    def load_from_file(self, folder_path):
+        """Load metrics data from a file"""
+        try:
+            metrics_path = os.path.join(folder_path, "metrics_data.csv")
+            if os.path.exists(metrics_path):
+                # Read from CSV
+                import polars as pl
+                self.df = pl.read_csv(metrics_path)
+                logger.info(f"Loaded metrics data with {self.df.height} rows")
+                return True
+            else:
+                logger.warning(f"No metrics data found at {metrics_path}")
+                return False
+        except Exception as e:
+            logger.error(f"Error loading metrics data: {e}")
+            return False
+
+    def has_data_for(self, position=None, time=None, channel=None):
+        """Check if metrics data exists for the given parameters"""
+        if self.df.is_empty():
+            return False
+
+        # Start with all rows
+        filtered = self.df
+
+        # Apply filters if provided
+        if position is not None:
+            filtered = filtered.filter(pl.col("position") == position)
+        if time is not None:
+            filtered = filtered.filter(pl.col("time") == time)
+        if channel is not None:
+            filtered = filtered.filter(pl.col("channel") == channel)
+
+        # Return True if we have any matching data
+        return filtered.height > 0
