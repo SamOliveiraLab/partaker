@@ -37,7 +37,7 @@ from tracking import track_cells, visualize_cell_regions, enhanced_motility_inde
 from .roisel import PolygonROISelector
 
 from .dialogs import AboutDialog, ExperimentDialog
-from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget
+from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget, TrackingManager
 
 from pubsub import pub
 
@@ -582,7 +582,6 @@ class App(QMainWindow):
         print(f"ROI mask created with shape: {self.roi_mask.shape}")
 
     def initMorphologyTimeTab(self):
-        layout = QVBoxLayout(self.morphologyTimeTab)
 
         # Create a horizontal layout for the tracking buttons
         tracking_buttons_layout = QHBoxLayout()
@@ -598,8 +597,6 @@ class App(QMainWindow):
             self.overlay_tracks_on_images)
         tracking_buttons_layout.addWidget(self.overlay_video_button)
 
-        # Add the horizontal button layout to the main layout
-        layout.addLayout(tracking_buttons_layout)
 
         self.motility_button = QPushButton("Analyze Cell Motility")
         self.motility_button.setStyleSheet(
@@ -611,10 +608,6 @@ class App(QMainWindow):
         self.plot_tabs = QTabWidget()
         self.morphology_fractions_tab = QWidget()
 
-        self.plot_tabs.addTab(
-            self.morphology_fractions_tab,
-            "Morphology Fractions & Lineage Tracking")
-        layout.addWidget(self.plot_tabs)
 
         # Plot for Morphology Fractions
         morphology_fractions_layout = QVBoxLayout(
@@ -626,7 +619,6 @@ class App(QMainWindow):
 
         # Progress Bar
         self.progress_bar = QProgressBar()
-        layout.addWidget(self.progress_bar)
         
         
     def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
@@ -2734,14 +2726,14 @@ class App(QMainWindow):
         self.morphologyTab = MorphologyWidget()
 
 
-        self.morphologyTimeTab = QWidget()
         self.morphologyVisualizationTab = QWidget()
+        self.tracking_manager = TrackingManager()
 
         # Add tabs to the QTabWidget
         self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphology_widget, "Morphology")
-        self.tab_widget.addTab(self.morphologyTimeTab, "Tracking - Lineage Tree")
+        self.tab_widget.addTab(self.tracking_manager, "Tracking - Lineage Tree")
         self.tab_widget.addTab(
             self.morphologyVisualizationTab,
             "Morphology Visualization")
