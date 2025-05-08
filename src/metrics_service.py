@@ -266,15 +266,6 @@ class MetricsService:
         Args:
             metrics: Dictionary of cell metrics
         """
-        logger.info(
-            f"Shape metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']} C:{metrics['channel']}")
-        logger.info(f"  Area: {metrics['area']} pixels")
-        logger.info(f"  Perimeter: {metrics['perimeter']:.2f}")
-        logger.info(f"  Eccentricity: {metrics['eccentricity']:.2f}")
-        logger.info(
-            f"  Aspect Ratio: {metrics['aspect_ratio']:.2f}" if metrics['aspect_ratio'] else "  Aspect Ratio: None")
-        logger.info(
-            f"  Bounding Box: (y1={metrics['y1']}, x1={metrics['x1']}, y2={metrics['y2']}, x2={metrics['x2']})")
 
     def _log_fluorescence_metrics(self, metrics):
         """
@@ -283,15 +274,15 @@ class MetricsService:
         Args:
             metrics: Dictionary of cell metrics
         """
-        logger.info(
-            f"Fluorescence metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']}")
+        # logger.info(
+        #     f"Fluorescence metrics - T:{metrics['time']} P:{metrics['position']} Cell:{metrics['cell_id']}")
         for _chan in range(1, 3):  # 1 and 2
             try:
                 fluo_metric_key = f"fluo_{_chan}"
-                logger.info(
-                    f"  Average fluorescence for channel {_chan}: {metrics[fluo_metric_key]:.2f}")
+                # logger.info(
+                #     f"  Average fluorescence for channel {_chan}: {metrics[fluo_metric_key]:.2f}")
             except:
-                logger.info(f"  Channel {fluo_metric_key} not present!")
+                # logger.info(f"  Channel {fluo_metric_key} not present!")
                 continue
         # logger.info(f"  Mean Intensity: {metrics['mean_intensity']:.2f}")
         # logger.info(f"  Max Intensity: {metrics['max_intensity']:.2f}")
@@ -308,9 +299,9 @@ class MetricsService:
         self.df = pl.DataFrame(self._data)
 
         # Log summary of the updated DataFrame
-        logger.info(f"Updated DataFrame with {len(self._data)} rows")
-        logger.info(
-            f"DataFrame now has {self.df.height} rows and {self.df.width} columns")
+        # logger.info(f"Updated DataFrame with {len(self._data)} rows")
+        # logger.info(
+        #     f"DataFrame now has {self.df.height} rows and {self.df.width} columns")
 
     def query(self, position: Optional[int] = None,
               time: Optional[int] = None,

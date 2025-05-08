@@ -39,6 +39,24 @@ class ViewAreaWidget(QWidget):
         pub.subscribe(self.provide_current_param, "get_current_t")
         pub.subscribe(self.provide_current_param, "get_current_p")
         pub.subscribe(self.provide_current_param, "get_current_c")
+        pub.subscribe(self.on_segmentation_cache_miss, "segmentation_cache_miss")
+
+    def on_segmentation_cache_miss(self, time, position, channel, model):
+        """Handle when cached segmentation is not available"""
+        if (time == self.current_t and 
+            position == self.current_p and 
+            channel == self.current_c):
+            # Notify the user
+            print(f"No cached segmentation found for T={time}, P={position}, C={channel}")
+            
+            # Request segmentation without use_cached flag
+            pub.sendMessage("segmented_image_request",
+                            time=time,
+                            position=position,
+                            channel=channel,
+                            mode=self.current_mode,
+                            model=self.current_model,
+                            use_cached=False)  # Force computing new segmentation
 
     def provide_current_param(self, topic=pub.AUTO_TOPIC, default=0):
         param_map = {
@@ -218,28 +236,7 @@ class ViewAreaWidget(QWidget):
         # This is a placeholder - implement as needed
         pass
 
-    @Slot()
-    def on_slider_changed(self):
-        """Handle slider value changes and request appropriate image"""
-        # Update current values
-        self.current_t = self.slider_t.value()
-        self.current_p = self.slider_p.value()
-        self.current_c = self.slider_c.value()
-
-        # Send different requests based on display mode
-        if self.current_mode == "normal":
-            pub.sendMessage("raw_image_request",
-                            time=self.current_t,
-                            position=self.current_p,
-                            channel=self.current_c)
-        else:
-            pub.sendMessage("segmented_image_request",
-                            time=self.current_t,
-                            position=self.current_p,
-                            channel=self.current_c,
-                            mode=self.current_mode,
-                            model=self.current_model)
-
+    
     def on_image_ready(self, image, time, position, channel, mode):
         """Handle both raw and segmented image responses"""
         # Check if this is the image we're currently expecting
@@ -363,6 +360,50 @@ class ViewAreaWidget(QWidget):
         if hasattr(self, "current_image_data"):
             self.current_image = self.current_image_data.copy()
 
+    def check_cache_status(self, t, p, c, model):
+        """
+        Check and print the status of the segmentation cache for a specific frame.
+        """
+        image_data = None
+        def receive_image_data(data):
+            nonlocal image_data
+            image_data = data
+        pub.sendMessage("get_image_data", callback=receive_image_data)
+        
+        cache_exists = False
+        if image_data and hasattr(image_data, "segmentation_cache"):
+            cache = image_data.segmentation_cache
+            
+            print("CACHE STATUS:")
+            print(f"  Current model: {cache.model_name}")
+            
+            if model in cache.mmap_arrays_idx:
+                array, indices = cache.mmap_arrays_idx[model]
+                print(f"  Model {model} has {len(indices)} cached entries")
+                
+                # Check for our specific key in different formats
+                simple_key = (t, p, c)
+                model_key = (t, p, c, model)
+                
+                if simple_key in indices:
+                    print(f"  ✓ Frame T={t}, P={p}, C={c} exists with simple key format")
+                    cache_exists = True
+                elif model_key in indices:
+                    print(f"  ✓ Frame T={t}, P={p}, C={c} exists with model key format")
+                    cache_exists = True
+                else:
+                    # Print some sample keys to debug
+                    sample_keys = list(indices)[:3] if indices else []
+                    print(f"  ✗ Frame T={t}, P={p}, C={c} NOT found in cache")
+                    print(f"  Sample cached keys: {sample_keys}")
+            else:
+                print(f"  ✗ Model {model} not found in cache")
+                print(f"  Available models: {list(cache.mmap_arrays_idx.keys())}")
+        else:
+            print("  ✗ No image data or segmentation cache available")
+        
+        return cache_exists
+
     @Slot(object)
     def on_display_mode_changed(self, button):
         """Handle display mode changes"""
@@ -378,33 +419,66 @@ class ViewAreaWidget(QWidget):
         elif button == self.radio_labeled_segmentation:
             self.current_mode = "labeled"
 
-        # If changing to a segmentation mode, check if metrics data exists
-        if old_mode == "normal" and self.current_mode in ["segmented", "overlay", "labeled"]:
-            from metrics_service import MetricsService
-            metrics_service = MetricsService()
+        print(f"Display mode changed from '{old_mode}' to '{self.current_mode}'")
 
-            # Check if metrics exist for current frame
+        # If changing to a segmentation mode, check if metrics data exists
+        if self.current_mode in ["segmented", "overlay", "labeled"]:
+            # Get current frame parameters
             t = self.current_t
             p = self.current_p
             c = self.current_c
+            
+            # Check and print cache status
+            cache_exists = self.check_cache_status(t, p, c, self.current_model)
+            
+            # Check metrics data
+            from metrics_service import MetricsService
+            metrics_service = MetricsService()
+            has_metrics = not metrics_service.query(time=t, position=p, channel=c).is_empty()
+            
+            print(f"Frame T={t}, P={p}, C={c}: Cache exists={cache_exists}, Metrics exist={has_metrics}")
 
-            has_metrics = not metrics_service.query(
-                time=t, position=p, channel=c).is_empty()
-
-            if has_metrics:
-                print(
-                    f"Using existing metrics for T={t}, P={p}, C={c} - no need to re-segment")
-                # Use pre-loaded metrics data
-                # Just update the display
-                pub.sendMessage("raw_image_request",
-                                time=t,
-                                position=p,
-                                channel=c)
+            if cache_exists:
+                print(f"Using cached segmentation for T={t}, P={p}, C={c}")
+                # Request image with the current mode
+                self.on_slider_changed()
+                return
+            elif has_metrics:
+                print(f"Using existing metrics for T={t}, P={p}, C={c} - but need to regenerate segmentation")
+                # Use pre-loaded metrics data but need to regenerate segmentation
+                self.on_slider_changed()
                 return
 
         # Request new image with updated mode
         self.on_slider_changed()
+    
+    @Slot()
+    def on_slider_changed(self):
+        """Handle slider value changes and request appropriate image"""
+        # Update current values
+        self.current_t = self.slider_t.value()
+        self.current_p = self.slider_p.value()
+        self.current_c = self.slider_c.value()
 
+        print(f"DEBUG: Sliders changed to T={self.current_t}, P={self.current_p}, C={self.current_c}")
+
+        # Send different requests based on display mode
+        if self.current_mode == "normal":
+            print(f"DEBUG: Requesting raw image for T={self.current_t}, P={self.current_p}, C={self.current_c}")
+            pub.sendMessage("raw_image_request",
+                            time=self.current_t,
+                            position=self.current_p,
+                            channel=self.current_c)
+        else:
+            print(f"DEBUG: Requesting segmented image for T={self.current_t}, P={self.current_p}, C={self.current_c} with mode={self.current_mode}, model={self.current_model}")
+            pub.sendMessage("segmented_image_request",
+                            time=self.current_t,
+                            position=self.current_p,
+                            channel=self.current_c,
+                            mode=self.current_mode,
+                            model=self.current_model)
+        
+    
     @Slot(str)
     def on_model_changed(self, model_name):
         """Handle segmentation model changes"""
