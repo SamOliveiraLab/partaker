@@ -2957,6 +2957,11 @@ class App(QMainWindow):
                 print(f"ERROR: Failed to save metrics: {str(e)}")
                 import traceback
                 traceback.print_exc()
+                
+            population_saved = False
+            if hasattr(self, "populationTab"):
+                population_saved = self.populationTab.save_population_data(folder_path)
+                print(f"Population data saved: {population_saved}")
 
             # Save tracking data
             tracking_saved = self.tracking_manager.tracking_widget.save_tracking_data(
@@ -2992,6 +2997,11 @@ class App(QMainWindow):
                 if hasattr(self, "viewArea"):
                     pub.sendMessage("image_data_loaded",
                                     image_data=self.image_data)
+                    
+                population_loaded = False
+                if hasattr(self, "populationTab"):
+                    population_loaded = self.populationTab.load_population_data(folder_path)
+                    print(f"Population data loaded: {population_loaded}")
 
                 # Load tracking data if available
                 tracking_loaded = False
