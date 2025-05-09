@@ -2851,9 +2851,7 @@ class App(QMainWindow):
         self.tab_widget.addTab(self.morphology_widget, "Morphology")
         self.tab_widget.addTab(self.tracking_manager,
                                "Tracking - Lineage Tree")
-        self.tab_widget.addTab(
-            self.morphologyVisualizationTab,
-            "Morphology Visualization")
+        # self.tab_widget.addTab(self.morphologyVisualizationTab, "Morphology Visualization")
 
         # self.initMorphologyTab()
         self.initMorphologyTimeTab()
