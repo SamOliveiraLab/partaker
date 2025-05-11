@@ -15,11 +15,12 @@ class MotilityDialog(QDialog):
     Dialog for analyzing and visualizing cell motility.
     """
     
-    def __init__(self, tracked_cells, lineage_tracks, parent=None):
+    def __init__(self, tracked_cells, lineage_tracks, image_data=None, parent=None):
         super().__init__(parent)
         
         self.tracked_cells = tracked_cells
         self.lineage_tracks = lineage_tracks
+        self.image_data = image_data  # Store image data for accessing segmentation cache
         self.motility_metrics = None
         
         # Set dialog properties
@@ -88,12 +89,31 @@ class MotilityDialog(QDialog):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         
         try:
-            # Get chamber dimensions
+            # Get current position and channel
             p = pub.sendMessage("get_current_p", default=0)
+            if p is None:
+                p = 0
+                print(f"Current position was None, defaulting to position {p}")
+            
             c = pub.sendMessage("get_current_c", default=0)
+            if c is None:
+                c = 0
+                print(f"Current channel was None, defaulting to channel {c}")
+            
+            print(f"Using position={p}, channel={c}")
             
             # Determine chamber dimensions from image data
             chamber_dimensions = (1392, 1040)  # default
+            if self.image_data and hasattr(self.image_data, "data"):
+                if len(self.image_data.data.shape) >= 4:
+                    height = self.image_data.data.shape[-2]
+                    width = self.image_data.data.shape[-1]
+                    chamber_dimensions = (width, height)
+                    print(f"Using chamber dimensions from image data: {chamber_dimensions}")
+            
+            # Collect all cell positions
+            all_cell_positions = self.collect_cell_positions(p, c)
+            print(f"Collected {len(all_cell_positions)} cell positions for visualization")
             
             # Calculate motility metrics
             from tracking import enhanced_motility_index
@@ -101,7 +121,7 @@ class MotilityDialog(QDialog):
                 self.tracked_cells, chamber_dimensions)
             
             # Create visualizations
-            self.create_visualizations(chamber_dimensions)
+            self.create_visualizations(chamber_dimensions, all_cell_positions)
             
             # Update summary
             self.update_summary()
@@ -114,14 +134,54 @@ class MotilityDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
     
-    def create_visualizations(self, chamber_dimensions):
+    def collect_cell_positions(self, p, c):
+        """Collect cell positions from segmentation cache or tracks"""
+        all_cell_positions = []
+        
+        # Try to use segmentation cache if available
+        if self.image_data and hasattr(self.image_data, 'segmentation_cache'):
+            try:
+                # Determine number of time frames
+                t_max = 20
+                if hasattr(self.image_data, 'data'):
+                    t_max = min(20, self.image_data.data.shape[0])
+                
+                for t in range(t_max):
+                    try:
+                        binary_image = self.image_data.segmentation_cache[t, p, c]
+                        if binary_image is not None:
+                            labeled_image = label(binary_image)
+                            regions = regionprops(labeled_image)
+                            for region in regions:
+                                y, x = region.centroid
+                                all_cell_positions.append((x, y))
+                        else:
+                            print(f"Frame {t}: No binary image found")
+                    except Exception as frame_error:
+                        print(f"Error processing frame {t}: {str(frame_error)}")
+                
+            except Exception as e:
+                print(f"Error collecting cell positions from segmentation: {str(e)}")
+                all_cell_positions = []
+        
+        # Fall back to using tracks if needed
+        if not all_cell_positions:
+            print(f"Falling back to collecting positions from tracks")
+            for track in self.lineage_tracks:
+                if 'x' in track and 'y' in track:
+                    all_cell_positions.extend(list(zip(track['x'], track['y'])))
+            print(f"Collected {len(all_cell_positions)} cell positions from tracks")
+        
+        return all_cell_positions
+    
+    def create_visualizations(self, chamber_dimensions, all_cell_positions):
         """Create motility visualizations"""
         from tracking import (visualize_motility_with_chamber_regions, visualize_motility_map,
                             visualize_motility_metrics, analyze_motility_by_region)
         
         # Combined visualization
         combined_fig, _ = visualize_motility_with_chamber_regions(
-            self.tracked_cells, [], chamber_dimensions, self.motility_metrics)
+            self.tracked_cells, all_cell_positions, chamber_dimensions, self.motility_metrics)
         combined_canvas = FigureCanvas(combined_fig)
         self.combined_layout.addWidget(combined_canvas)
         self.combined_fig = combined_fig

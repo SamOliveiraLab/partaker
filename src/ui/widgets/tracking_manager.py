@@ -31,9 +31,9 @@ class TrackingManager(QWidget):
         dialog = LineageDialog(lineage_tracks, self)
         dialog.exec()
     
-    def show_motility_dialog(self, tracked_cells, lineage_tracks):
-        """Show the motility dialog"""
-        dialog = MotilityDialog(tracked_cells, lineage_tracks, self)
+    def show_motility_dialog(self, tracked_cells, lineage_tracks, image_data=None):
+        """Show the motility analysis dialog"""
+        dialog = MotilityDialog(tracked_cells, lineage_tracks, image_data, self)
         dialog.exec()
     
     def show_time_comparison(self, lineage_tracks):

@@ -461,5 +461,6 @@ class TrackingWidget(QWidget):
 
         # Open the MotilityDialog
         pub.sendMessage("show_motility_dialog_request",
-                        tracked_cells=self.tracked_cells,
-                        lineage_tracks=self.lineage_tracks)
+                tracked_cells=self.tracked_cells,
+                lineage_tracks=self.lineage_tracks,
+                image_data=self.image_data)
