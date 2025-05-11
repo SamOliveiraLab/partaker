@@ -94,13 +94,12 @@ class TrackingWidget(QWidget):
         self.canvas.draw()
 
     def track_cells(self):
-        """Process cell tracking with lineage detection"""
+        """Process cell tracking with lineage detection - using segmentation cache like the old architecture"""
         print("\n======= track_cells method called =======")
 
         # Check if we already have tracking data
         if hasattr(self, "lineage_tracks") and self.lineage_tracks:
-            print(
-                f"TRACKING DATA EXISTS: Found {len(self.lineage_tracks)} existing lineage tracks")
+            print(f"TRACKING DATA EXISTS: Found {len(self.lineage_tracks)} existing lineage tracks")
 
             # If we have lineage_tracks but no tracked_cells, generate them
             if not hasattr(self, "tracked_cells") or not self.tracked_cells:
@@ -108,17 +107,15 @@ class TrackingWidget(QWidget):
                 # Filter tracks by length
                 MIN_TRACK_LENGTH = 2  # Using a smaller value since 5 might be too restrictive
                 filtered_tracks = [track for track in self.lineage_tracks if
-                                   'x' in track and len(track['x']) >= MIN_TRACK_LENGTH]
+                                'x' in track and len(track['x']) >= MIN_TRACK_LENGTH]
                 filtered_tracks.sort(
                     key=lambda track: len(track['x']), reverse=True)
 
                 MAX_TRACKS_TO_DISPLAY = 100
                 self.tracked_cells = filtered_tracks[:MAX_TRACKS_TO_DISPLAY]
-                print(
-                    f"Generated {len(self.tracked_cells)} tracked_cells from lineage data")
+                print(f"Generated {len(self.tracked_cells)} tracked_cells from lineage data")
             else:
-                print(
-                    f"TRACKED CELLS EXIST: Found {len(self.tracked_cells)} tracked cells")
+                print(f"TRACKED CELLS EXIST: Found {len(self.tracked_cells)} tracked cells")
 
             # Enable UI elements
             self.lineage_button.setEnabled(True)
@@ -145,9 +142,17 @@ class TrackingWidget(QWidget):
                 self, "Error", "Tracking requires an ND2 dataset.")
             return
 
-        # Get current position and channel
+        # Get current position and channel with proper handling of None values
         p = pub.sendMessage("get_current_p", default=0)
+        if p is None:
+            p = 0
+            print(f"Current position was None, defaulting to position {p}")
+        
         c = pub.sendMessage("get_current_c", default=0)
+        if c is None:
+            c = 0
+            print(f"Current channel was None, defaulting to channel {c}")
+        
         print(f"Using position={p}, channel={c}")
 
         try:
@@ -160,38 +165,80 @@ class TrackingWidget(QWidget):
             progress.setWindowModality(Qt.WindowModal)
             progress.show()
 
-            # Prepare data for tracking using metrics service
+            # Set up segmentation cache with current model (if this attribute/method exists)
+            segmentation_cache_available = False
+            if hasattr(self.image_data, 'segmentation_cache'):
+                if hasattr(self.image_data.segmentation_cache, 'with_model'):
+                    # Get current model name - adapt this to how your UI stores the current model
+                    current_model = "unet"  # Default value
+                    if hasattr(self, 'model_dropdown') and hasattr(self.model_dropdown, 'currentText'):
+                        current_model = self.model_dropdown.currentText()
+                    
+                    # Set up the segmentation cache with the current model
+                    try:
+                        self.image_data.segmentation_cache.with_model(current_model)
+                        segmentation_cache_available = True
+                    except Exception as e:
+                        print(f"Error setting up segmentation cache: {str(e)}")
+                else:
+                    # Cache exists but no with_model method - assume it's already configured
+                    segmentation_cache_available = True
+            
+            if not segmentation_cache_available:
+                print("Segmentation cache not available, will use metrics service for all frames")
+            
+            # Prepare frames for tracking
             labeled_frames = []
+            
             for i in range(t_max):
                 if progress.wasCanceled():
                     return
                 progress.setValue(i)
 
-                # Get metrics for this time point, position and channel
-                metrics_df = self.metrics_service.query(
-                    time=i, position=p, channel=c)
-
-                if not metrics_df.is_empty():
-                    # Create a blank labeled frame
-                    frame_shape = (shape[2], shape[3]) if len(
-                        shape) == 4 else (shape[3], shape[4])
-                    labeled_frame = np.zeros(frame_shape, dtype=np.int32)
-
-                    # Fill in the cells based on bounding boxes and cell IDs
-                    for row in metrics_df.to_pandas().itertuples():
-                        y1, x1, y2, x2 = row.y1, row.x1, row.y2, row.x2
-                        cell_id = row.cell_id
-
-                        # Create a simple mask for this cell based on its bounding box
-                        labeled_frame[y1:y2, x1:x2] = cell_id
-
-                    labeled_frames.append(labeled_frame)
+                # Try to use segmentation cache first (like old architecture)
+                segmented = None
+                
+                if segmentation_cache_available:
+                    try:
+                        # Get segmented image from cache - exactly like old architecture
+                        segmented = self.image_data.segmentation_cache[i, p, c]
+                    except Exception as cache_error:
+                        print(f"Error accessing segmentation cache for frame {i}: {str(cache_error)}")
+                        segmented = None
+                
+                if segmented is not None:
+                    # Apply connected component labeling - exactly like old architecture
+                    labeled = label(segmented)
+                    num_objects = np.max(labeled)
+                    labeled_frames.append(labeled)
                 else:
-                    # If no metrics for this frame, add an empty frame
-                    frame_shape = (shape[2], shape[3]) if len(
-                        shape) == 4 else (shape[3], shape[4])
-                    labeled_frames.append(
-                        np.zeros(frame_shape, dtype=np.int32))
+                    # Fall back to metrics-based approach if segmentation cache not available
+                    print(f"Frame {i}: Segmentation cache not available, falling back to metrics")
+                    
+                    metrics_df = self.metrics_service.query(time=i, position=p, channel=c)
+                    
+                    if not metrics_df.is_empty():
+                        # Create frame dimensions
+                        frame_shape = (shape[2], shape[3]) if len(shape) == 4 else (shape[3], shape[4])
+                        
+                        # Create binary mask from bounding boxes
+                        binary_mask = np.zeros(frame_shape, dtype=bool)
+                        
+                        for row in metrics_df.to_pandas().itertuples():
+                            y1, x1, y2, x2 = row.y1, row.x1, row.y2, row.x2
+                            binary_mask[y1:y2, x1:x2] = True
+                        
+                        # Apply connected component labeling
+                        labeled_frame = label(binary_mask)
+                        num_objects = np.max(labeled_frame)
+                        print(f"Frame {i}: Using metrics fallback - {num_objects} objects detected")
+                        
+                        labeled_frames.append(labeled_frame)
+                    else:
+                        # If no metrics for this frame, add an empty frame
+                        frame_shape = (shape[2], shape[3]) if len(shape) == 4 else (shape[3], shape[4])
+                        labeled_frames.append(np.zeros(frame_shape, dtype=np.int32))
+                        print(f"Frame {i}: No data found, adding empty frame")
 
             progress.setValue(t_max)
 
@@ -201,9 +248,14 @@ class TrackingWidget(QWidget):
                 return
 
             labeled_frames = np.array(labeled_frames)
-
-            # Perform tracking (delegated to LineageAnalysis module)
-            progress.setLabelText("Running cell tracking...")
+            print(f"Prepared {len(labeled_frames)} frames for tracking")
+            
+            # Print object statistics
+            total_objects = sum(np.max(frame) for frame in labeled_frames)
+            print(f"Total objects across all frames: {total_objects}")
+            
+            # Perform tracking
+            progress.setLabelText("Running cell tracking with lineage detection...")
             progress.setValue(0)
             progress.setMaximum(100)
 
@@ -211,7 +263,6 @@ class TrackingWidget(QWidget):
             all_tracks, _ = track_cells(labeled_frames)
             self.lineage_tracks = all_tracks
 
-            # The rest of your existing code stays the same...
             # Filter tracks by length for display
             MIN_TRACK_LENGTH = 5
             filtered_tracks = [track for track in all_tracks if len(
@@ -233,22 +284,27 @@ class TrackingWidget(QWidget):
             # Visualize tracks
             self.visualize_tracks()
 
-            # Show success message
+            # Show success message with detailed stats
+            total_tracks = len(all_tracks)
+            long_tracks = len(filtered_tracks)
+            displayed_tracks = len(self.tracked_cells)
+            
             QMessageBox.information(
                 self, "Tracking Complete",
-                f"Cell tracking completed successfully.\n"
-                f"Total tracks: {len(all_tracks)}\n"
-                f"Long tracks: {len(filtered_tracks)}\n"
-                f"Displayed tracks: {len(self.tracked_cells)}")
+                f"Cell tracking completed successfully.\n\n"
+                f"Total tracks detected: {total_tracks}\n"
+                f"Tracks spanning {MIN_TRACK_LENGTH}+ frames: {long_tracks}\n"
+                f"Tracks displayed: {displayed_tracks}"
+            )
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             QMessageBox.warning(
                 self, "Error", f"Failed to track cells: {str(e)}")
-
+    
     def visualize_tracks(self):
-        """Visualize tracked cell trajectories"""
+        """Visualize tracked cell trajectories with statistics"""
         if not self.tracked_cells:
             return
 
@@ -258,6 +314,21 @@ class TrackingWidget(QWidget):
         import matplotlib.cm as cm
         cmap = cm.get_cmap('tab20', min(20, len(self.tracked_cells)))
 
+        # Calculate displacement statistics
+        displacements = []
+        for track in self.tracked_cells:
+            if len(track['x']) >= 2:  # Need at least start and end points
+                # Calculate displacement (distance from start to end)
+                start_x, start_y = track['x'][0], track['y'][0]
+                end_x, end_y = track['x'][-1], track['y'][-1]
+                displacement = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
+                displacements.append(displacement)
+
+        # Calculate statistics
+        avg_displacement = np.mean(displacements) if displacements else 0
+        max_displacement = np.max(displacements) if displacements else 0
+
+        # Plot each track
         for i, track in enumerate(self.tracked_cells):
             color = cmap(i % 20)
             ax.plot(track['x'], track['y'], '-', color=color,
@@ -269,13 +340,24 @@ class TrackingWidget(QWidget):
             ax.plot(track['x'][-1], track['y'][-1],
                     's', color=color, markersize=5)
 
+        # Add statistics box
+        stats_text = f"Displaying top {len(self.tracked_cells)} tracks\n"
+        stats_text += f"Avg displacement: {avg_displacement:.1f}px\n"
+        stats_text += f"Max displacement: {max_displacement:.1f}px"
+        
+        # Add text box with statistics
+        props = dict(boxstyle='round', facecolor='white', alpha=0.8)
+        ax.text(0.05, 0.05, stats_text, transform=ax.transAxes, fontsize=10,
+                verticalalignment='bottom', horizontalalignment='left', bbox=props)
+
+        # Set title and labels
         ax.set_title('Cell Trajectories')
         ax.set_xlabel('X Position')
         ax.set_ylabel('Y Position')
 
         self.figure.tight_layout()
         self.canvas.draw()
-
+    
     def show_lineage_dialog(self):
         """Open the lineage visualization dialog"""
         if not self.lineage_tracks:
