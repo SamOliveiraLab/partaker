@@ -940,95 +940,98 @@ def plot_motility_gauge(ax, motility_index):
         fontweight='bold')
 
 
-
 def visualize_cell_regions(tracks, chamber_dimensions=(1392, 1040)):
     """Visualize cell positions with color-coded regions."""
     import matplotlib.pyplot as plt
     import numpy as np
     from matplotlib.patches import Rectangle
-    
+
     # Extract all x,y positions from tracks
     all_x = []
     all_y = []
     for track in tracks:
         all_x.extend(track['x'])
         all_y.extend(track['y'])
-    
+
     # Create figure
     plt.figure(figsize=(12, 9))
-    
+
     # Define region boundaries
     width, height = chamber_dimensions
     edge_margin = 50
     corner_size = 100
     right_channel_x = 1300
     right_channel_width = 50
-    
+
     # Create background for regions
     # Corner regions
     corner_color = 'mistyrose'
-    plt.gca().add_patch(Rectangle((0, 0), corner_size, corner_size, 
-                                 color=corner_color, alpha=0.3))  # Top-left
-    plt.gca().add_patch(Rectangle((0, height-corner_size), corner_size, corner_size, 
-                                 color=corner_color, alpha=0.3))  # Bottom-left
-    plt.gca().add_patch(Rectangle((width-corner_size, 0), corner_size, corner_size, 
-                                 color=corner_color, alpha=0.3))  # Top-right
-    plt.gca().add_patch(Rectangle((width-corner_size, height-corner_size), corner_size, corner_size, 
-                                 color=corner_color, alpha=0.3))  # Bottom-right
-    
+    plt.gca().add_patch(Rectangle((0, 0), corner_size, corner_size,
+                                  color=corner_color, alpha=0.3))  # Top-left
+    plt.gca().add_patch(Rectangle((0, height-corner_size), corner_size, corner_size,
+                                  color=corner_color, alpha=0.3))  # Bottom-left
+    plt.gca().add_patch(Rectangle((width-corner_size, 0), corner_size, corner_size,
+                                  color=corner_color, alpha=0.3))  # Top-right
+    plt.gca().add_patch(Rectangle((width-corner_size, height-corner_size), corner_size, corner_size,
+                                  color=corner_color, alpha=0.3))  # Bottom-right
+
     # Edge regions (excluding corners)
     edge_color = 'lightblue'
-    plt.gca().add_patch(Rectangle((0, corner_size), edge_margin, height-2*corner_size, 
-                                 color=edge_color, alpha=0.3))  # Left edge
-    plt.gca().add_patch(Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size, 
-                                 color=edge_color, alpha=0.3))  # Right edge
-    plt.gca().add_patch(Rectangle((corner_size, 0), width-2*corner_size, edge_margin, 
-                                 color=edge_color, alpha=0.3))  # Top edge
-    plt.gca().add_patch(Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin, 
-                                 color=edge_color, alpha=0.3))  # Bottom edge
-    
+    plt.gca().add_patch(Rectangle((0, corner_size), edge_margin, height-2*corner_size,
+                                  color=edge_color, alpha=0.3))  # Left edge
+    plt.gca().add_patch(Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size,
+                                  color=edge_color, alpha=0.3))  # Right edge
+    plt.gca().add_patch(Rectangle((corner_size, 0), width-2*corner_size, edge_margin,
+                                  color=edge_color, alpha=0.3))  # Top edge
+    plt.gca().add_patch(Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin,
+                                  color=edge_color, alpha=0.3))  # Bottom edge
+
     # Right channel
-    plt.gca().add_patch(Rectangle((right_channel_x, 0), right_channel_width, height, 
-                                 color='lightgreen', alpha=0.3))
-    
+    plt.gca().add_patch(Rectangle((right_channel_x, 0), right_channel_width, height,
+                                  color='lightgreen', alpha=0.3))
+
     # Left edge (inlet)
-    plt.gca().add_patch(Rectangle((0, 0), edge_margin, height, 
-                                 color='lightyellow', alpha=0.3))
-    
+    plt.gca().add_patch(Rectangle((0, 0), edge_margin, height,
+                                  color='lightyellow', alpha=0.3))
+
     # Create scatter plot of cell positions
     plt.scatter(all_x, all_y, alpha=0.3, s=1, color='blue')
-    
+
     # Add labels and title
     plt.xlabel('X Position (pixels)')
     plt.ylabel('Y Position (pixels)')
     plt.title('Color-Coded Chamber Regions with Cell Positions')
-    
+
     # Add region labels
-    plt.text(25, height/2, 'INLET', rotation=90, ha='center', va='center', fontsize=12)
-    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL', 
+    plt.text(25, height/2, 'INLET', rotation=90,
+             ha='center', va='center', fontsize=12)
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL',
              rotation=90, ha='center', va='center', fontsize=12)
-    plt.text(width/2, height/2, 'CENTER', ha='center', va='center', fontsize=14)
-    plt.text(corner_size/2, corner_size/2, 'CORNER', ha='center', va='center', fontsize=10)
-    plt.text(width-corner_size/2, height-corner_size/2, 'CORNER', ha='center', va='center', fontsize=10)
-    
+    plt.text(width/2, height/2, 'CENTER',
+             ha='center', va='center', fontsize=14)
+    plt.text(corner_size/2, corner_size/2, 'CORNER',
+             ha='center', va='center', fontsize=10)
+    plt.text(width-corner_size/2, height-corner_size/2,
+             'CORNER', ha='center', va='center', fontsize=10)
+
     # Add legend for regions
     from matplotlib.patches import Patch
-    
+
     # Add grid and set limits
     plt.grid(True, linestyle='--', alpha=0.3)
     plt.xlim(0, width)
     plt.ylim(0, height)
-    
+
     # Save and show the color-coded plot
     # plt.tight_layout()
     # plt.savefig('color_coded_chamber_regions.png', dpi=300, bbox_inches='tight')
     # plt.show()
-    
+
 
 def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_dimensions, motility_metrics=None):
     """
     Visualize cell motility patterns overlaid on the chamber regions map with all cell positions.
-    
+
     Parameters:
     -----------
     tracks : list
@@ -1044,56 +1047,69 @@ def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_
     import numpy as np
     from matplotlib.colors import Normalize
     from matplotlib.cm import ScalarMappable
-    
+
     # Calculate motility metrics if not provided
     if motility_metrics is None:
         from tracking import enhanced_motility_index
         motility_metrics = enhanced_motility_index(tracks, chamber_dimensions)
-    
+
     # Create a lookup of track_id to metrics
     metrics_by_id = {m['track_id']: m for m in motility_metrics['individual_metrics']}
-    
+
+    # Extract all motility indices for better normalization
+    all_motility_indices = [m['motility_index']
+                            for m in motility_metrics['individual_metrics']]
+
+    # Debug: Check motility value distribution
+    if all_motility_indices:
+        min_motility = min(all_motility_indices)
+        max_motility = max(all_motility_indices)
+        mean_motility = np.mean(all_motility_indices)
+        std_motility = np.std(all_motility_indices)
+        print(
+            f"Motility index stats - Min: {min_motility:.1f}, Max: {max_motility:.1f}, Mean: {mean_motility:.1f}, Std: {std_motility:.1f}")
+
     # Set up the figure
     fig, ax = plt.subplots(figsize=(12, 10))
-    
+
     # Define chamber regions
     width, height = chamber_dimensions
     edge_margin = 50
     corner_size = 100
     right_channel_x = 1200
     right_channel_width = 70
-    
+
     # Draw chamber regions (with more subtle colors)
     # Corners
     corner_color = 'mistyrose'
-    ax.add_patch(plt.Rectangle((0, 0), corner_size, corner_size, 
-                              color=corner_color, alpha=0.2))  # Bottom-left
-    ax.add_patch(plt.Rectangle((0, height-corner_size), corner_size, corner_size, 
-                              color=corner_color, alpha=0.2))  # Top-left
-    ax.add_patch(plt.Rectangle((width-corner_size, 0), corner_size, corner_size, 
-                              color=corner_color, alpha=0.2))  # Bottom-right
-    ax.add_patch(plt.Rectangle((width-corner_size, height-corner_size), corner_size, corner_size, 
-                              color=corner_color, alpha=0.2))  # Top-right
-    
+    ax.add_patch(plt.Rectangle((0, 0), corner_size, corner_size,
+                               color=corner_color, alpha=0.2))  # Bottom-left
+    ax.add_patch(plt.Rectangle((0, height-corner_size), corner_size, corner_size,
+                               color=corner_color, alpha=0.2))  # Top-left
+    ax.add_patch(plt.Rectangle((width-corner_size, 0), corner_size, corner_size,
+                               color=corner_color, alpha=0.2))  # Bottom-right
+    ax.add_patch(plt.Rectangle((width-corner_size, height-corner_size), corner_size, corner_size,
+                               color=corner_color, alpha=0.2))  # Top-right
+
     # Edges
     edge_color = 'lightblue'
-    ax.add_patch(plt.Rectangle((0, corner_size), edge_margin, height-2*corner_size, 
-                              color=edge_color, alpha=0.2))  # Left edge
-    ax.add_patch(plt.Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size, 
-                              color=edge_color, alpha=0.2))  # Right edge
-    ax.add_patch(plt.Rectangle((corner_size, 0), width-2*corner_size, edge_margin, 
-                              color=edge_color, alpha=0.2))  # Bottom edge
-    ax.add_patch(plt.Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin, 
-                              color=edge_color, alpha=0.2))  # Top edge
-                              
+    ax.add_patch(plt.Rectangle((0, corner_size), edge_margin, height-2*corner_size,
+                               color=edge_color, alpha=0.2))  # Left edge
+    ax.add_patch(plt.Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size,
+                               color=edge_color, alpha=0.2))  # Right edge
+    ax.add_patch(plt.Rectangle((corner_size, 0), width-2*corner_size, edge_margin,
+                               color=edge_color, alpha=0.2))  # Bottom edge
+    ax.add_patch(plt.Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin,
+                               color=edge_color, alpha=0.2))  # Top edge
+
     # Right channel
-    ax.add_patch(plt.Rectangle((right_channel_x, 0), right_channel_width, height, 
-                             color='lightgreen', alpha=0.2))
-    
+    ax.add_patch(plt.Rectangle((right_channel_x, 0), right_channel_width, height,
+                               color='lightgreen', alpha=0.2))
+
     # Left edge (inlet)
-    ax.add_patch(plt.Rectangle((0, 0), edge_margin, height, 
-                             color='lightyellow', alpha=0.2))
-    
+    ax.add_patch(plt.Rectangle((0, 0), edge_margin, height,
+                               color='lightyellow', alpha=0.2))
+
     # 1. Plot all cell positions as small, semi-transparent dots
     if all_cell_positions:
         # Extract x, y coordinates
@@ -1113,50 +1129,172 @@ def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_
             # Numpy array of points [N, 2]
             x_all = all_cell_positions[:, 0]
             y_all = all_cell_positions[:, 1]
-        
+
         # Plot as a scatter with blue, semi-transparent dots
         plt.scatter(x_all, y_all, s=2, color='blue', alpha=0.1)
-    
+
     # 2. Set up colormap for motility index
-    cmap = plt.cm.viridis
-    norm = Normalize(vmin=0, vmax=100)  # Motility index 0-100
+    # Use a colormap with more perceptual variation
+    cmap = plt.cm.plasma  # Changed from viridis to plasma for better differentiation
+
+    # Adjust normalization to better fit data range
+    if all_motility_indices:
+        # Dynamically adjust normalization based on data distribution
+        min_val = max(0, mean_motility - 2.5 * std_motility)
+        max_val = min(100, mean_motility + 2.5 * std_motility)
+
+        # Ensure range is at least 20 to show variation
+        if max_val - min_val < 20:
+            center = (max_val + min_val) / 2
+            min_val = max(0, center - 10)
+            max_val = min(100, center + 10)
+
+        print(f"Using color scale range: {min_val:.1f} - {max_val:.1f}")
+        norm = Normalize(vmin=min_val, vmax=max_val)
+    else:
+        # Default normalization if no data available
+        norm = Normalize(vmin=0, vmax=100)
+
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    
+
+    # Create a dictionary to store track information for hover
+    track_plots = []
+
     # 3. Plot tracked cell trajectories with color based on motility
     for track in tracks:
         track_id = track.get('ID', -1)
         if track_id in metrics_by_id:
             metrics = metrics_by_id[track_id]
             motility_index = metrics['motility_index']
-            
+
             # Get track coordinates
             x = track['x']
             y = track['y']
-            
+
             # Plot track colored by motility index
-            plt.plot(x, y, '-', linewidth=2, alpha=0.8, 
-                    color=cmap(norm(motility_index)))
-            
+            track_color = cmap(norm(motility_index))
+            line, = plt.plot(x, y, '-', linewidth=2, alpha=0.8,
+                             color=track_color, picker=5)
+
             # Mark start and end points
-            plt.plot(x[0], y[0], 'o', markersize=4, color=cmap(norm(motility_index)))
-            plt.plot(x[-1], y[-1], 's', markersize=4, color=cmap(norm(motility_index)))
-    
+            start, = plt.plot(x[0], y[0], 'o', markersize=4,
+                              color=track_color, picker=5)
+            end, = plt.plot(x[-1], y[-1], 's', markersize=4,
+                            color=track_color, picker=5)
+
+            # Store track information for hover functionality
+            track_info = {
+                'track_id': track_id,
+                'motility_index': motility_index,
+                'track_length': len(x),
+                'path_length': metrics.get('path_length', 0),
+                'avg_velocity': metrics.get('avg_velocity', 0),
+                'confinement_ratio': metrics.get('confinement_ratio', 0),
+                'directional_persistence': metrics.get('directional_persistence', 0),
+                'plot_objects': [line, start, end]
+            }
+            track_plots.append(track_info)
+
+    # Setup hover annotation
+    annot = ax.annotate("", xy=(0, 0), xytext=(20, 20),
+                        textcoords="offset points",
+                        bbox=dict(boxstyle="round", fc="w", alpha=0.9),
+                        arrowprops=dict(arrowstyle="->"))
+    annot.set_visible(False)
+
+    def update_annot(track_info, point):
+        """Update the annotation with track info at the given point"""
+        # Set annotation position to the mouse pointer location
+        annot.xy = point
+
+        # Create the annotation text with track details
+        text = (f"Track ID: {track_info['track_id']}\n"
+                f"Motility Index: {track_info['motility_index']:.1f}\n"
+                f"Track Length: {track_info['track_length']} frames\n"
+                f"Path Length: {track_info['path_length']:.1f} px\n"
+                f"Avg Velocity: {track_info['avg_velocity']:.2f} px/frame\n"
+                f"Confinement: {track_info['confinement_ratio']:.2f}\n"
+                f"Persistence: {track_info['directional_persistence']:.2f}")
+
+        annot.set_text(text)
+
+    def hover(event):
+        """Handle mouse hover events"""
+        if event.inaxes == ax:
+            # Flag to track if any track is being hovered
+            hovering = False
+
+            for track_info in track_plots:
+                hovering_this_track = False
+
+                # Check if we're hovering over any part of this track
+                for i, plot_obj in enumerate(track_info['plot_objects']):
+                    cont, _ = plot_obj.contains(event)
+                    if cont:
+                        hovering_this_track = True
+                        hovering = True
+                        break
+
+                # If hovering over this track, highlight it and show annotation
+                if hovering_this_track:
+                    # Store original linewidths before modifying if not already stored
+                    for i, plot_obj in enumerate(track_info['plot_objects']):
+                        if not hasattr(plot_obj, '_original_linewidth'):
+                            if hasattr(plot_obj, 'get_linewidth'):
+                                plot_obj._original_linewidth = plot_obj.get_linewidth()
+                            else:
+                                plot_obj._original_linewidth = 2 if i == 0 else 4
+
+                        # Highlight by increasing linewidth
+                        if i == 0:  # Main line
+                            plot_obj.set_linewidth(4)  # Thicker line for track
+                        else:  # Start/end points
+                            plot_obj.set_markersize(6)  # Larger markers
+
+                    # Update annotation
+                    update_annot(track_info, (event.xdata, event.ydata))
+                    annot.set_visible(True)
+                else:
+                    # Restore to original appearance if not hovering
+                    for i, plot_obj in enumerate(track_info['plot_objects']):
+                        if hasattr(plot_obj, '_original_linewidth'):
+                            if i == 0:  # Main line
+                                plot_obj.set_linewidth(
+                                    plot_obj._original_linewidth)
+                            else:  # Markers
+                                # Original marker size
+                                plot_obj.set_markersize(4)
+
+            # If not hovering over any track, hide the annotation
+            if not hovering and annot.get_visible():
+                annot.set_visible(False)
+
+            # Redraw only if needed
+            fig.canvas.draw_idle()
+
+    # Connect the hover event
+    fig.canvas.mpl_connect("motion_notify_event", hover)
+
     # Add region labels
-    plt.text(edge_margin/2, height/2, 'INLET', rotation=90, ha='center', va='center', fontsize=12)
-    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL', 
+    plt.text(edge_margin/2, height/2, 'INLET', rotation=90,
+             ha='center', va='center', fontsize=12)
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL',
              rotation=90, ha='center', va='center', fontsize=12)
-    plt.text(width/2, height/2, 'CENTER', ha='center', va='center', fontsize=14)
-    plt.text(corner_size/2, corner_size/2, 'CORNER', ha='center', va='center', fontsize=10)
-    plt.text(width-corner_size/2, height-corner_size/2, 'CORNER', ha='center', va='center', fontsize=10)
-    
+    plt.text(width/2, height/2, 'CENTER',
+             ha='center', va='center', fontsize=14)
+    plt.text(corner_size/2, corner_size/2, 'CORNER',
+             ha='center', va='center', fontsize=10)
+    plt.text(width-corner_size/2, height-corner_size/2,
+             'CORNER', ha='center', va='center', fontsize=10)
+
     # Add colorbar
     cbar = plt.colorbar(sm, ax=ax)
     cbar.set_label('Motility Index (0-100)')
-    
+
     # Add legend for regions
     from matplotlib.patches import Patch
-    
+
     # Add statistical summary
     summary_text = (
         f"Population Metrics:\n"
@@ -1165,33 +1303,162 @@ def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_
         f"Heterogeneity: {motility_metrics['population_heterogeneity']:.2f}\n"
         f"Sample Size: {motility_metrics['sample_size']} tracks"
     )
-    plt.figtext(0.02, 0.02, summary_text, bbox=dict(facecolor='white', alpha=0.8), fontsize=10)
-    
+    plt.figtext(0.02, 0.02, summary_text, bbox=dict(
+        facecolor='white', alpha=0.8), fontsize=10)
+
     # Set labels and title
     plt.xlabel('X Position (pixels)')
     plt.ylabel('Y Position (pixels)')
     plt.title('Cell Motility by Chamber Region')
     plt.grid(True, linestyle='--', alpha=0.3)
-    
+
     # Set axis limits
     plt.xlim(0, width)
     plt.ylim(0, height)
-    
+
     plt.tight_layout()
-    return fig, ax    
+    return fig, ax
+
+
+def visualize_motility_map(tracks, chamber_dimensions=None, motility_metrics=None):
+    """
+    Visualize chamber regions with all cell positions (without individual tracks).
+
+    Parameters:
+    -----------
+    tracks : list
+        List of track dictionaries
+    chamber_dimensions : tuple, optional
+        (width, height) of the chamber
+    motility_metrics : dict, optional
+        Output from enhanced_motility_index function (not used, kept for compatibility)
+
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        The figure containing the visualization
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Set up the figure
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Define chamber dimensions
+    if chamber_dimensions:
+        width, height = chamber_dimensions
+    else:
+        # Estimate dimensions from track coordinates
+        x_coords = [x for track in tracks for x in track.get('x', [])]
+        y_coords = [y for track in tracks for y in track.get('y', [])]
+        if x_coords and y_coords:
+            width = max(x_coords) + 50
+            height = max(y_coords) + 50
+        else:
+            width, height = 1000, 1000
+
+    # Set axis limits
+    plt.xlim(0, width)
+    plt.ylim(0, height)
+
+    # Define chamber regions
+    edge_margin = 50
+    corner_size = 100
+    right_channel_x = 1200
+    right_channel_width = 70
+
+    # Corners
+    corner_color = 'lightgreen'
+    ax.add_patch(plt.Rectangle((0, 0), corner_size, corner_size,
+                               color=corner_color, alpha=0.15))  # Bottom-left
+    ax.add_patch(plt.Rectangle((0, height-corner_size), corner_size, corner_size,
+                               color=corner_color, alpha=0.15))  # Top-left
+    ax.add_patch(plt.Rectangle((width-corner_size, 0), corner_size, corner_size,
+                               color=corner_color, alpha=0.15))  # Bottom-right
+    ax.add_patch(plt.Rectangle((width-corner_size, height-corner_size), corner_size, corner_size,
+                               color=corner_color, alpha=0.15))  # Top-right
+
+    # Edges
+    edge_color = 'lightblue'
+    ax.add_patch(plt.Rectangle((corner_size, 0), width-2*corner_size, edge_margin,
+                               color=edge_color, alpha=0.15))  # Bottom edge
+    ax.add_patch(plt.Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin,
+                               color=edge_color, alpha=0.15))  # Top edge
+    ax.add_patch(plt.Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size,
+                               color=edge_color, alpha=0.15))  # Right edge
+
+    # Right channel
+    ax.add_patch(plt.Rectangle((right_channel_x, 0), right_channel_width, height,
+                               color=corner_color, alpha=0.15))
+
+    # Left edge/inlet
+    inlet_color = 'lightyellow'
+    ax.add_patch(plt.Rectangle((0, corner_size), edge_margin, height-2*corner_size,
+                               color=inlet_color, alpha=0.15))  # Left edge
+
+    # Collect all cell positions
+    all_x = []
+    all_y = []
+    for track in tracks:
+        # Add all positions from the track
+        all_x.extend(track['x'])
+        all_y.extend(track['y'])
+
+    # Plot cell positions as small blue dots
+    plt.scatter(all_x, all_y, s=1, color='blue', alpha=0.3)
+
+    # Add region labels
+    plt.text(edge_margin/2, height/2, 'INLET', rotation=90,
+             ha='center', va='center', fontsize=12)
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL',
+             rotation=90, ha='center', va='center', fontsize=12)
+    plt.text(width/2, height/2, 'CENTER',
+             ha='center', va='center', fontsize=14)
+    plt.text(corner_size/2, corner_size/2, 'CORNER',
+             ha='center', va='center', fontsize=10)
+    plt.text(width-corner_size/2, height-corner_size/2,
+             'CORNER', ha='center', va='center', fontsize=10)
+
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=inlet_color, alpha=0.4,
+              edgecolor='gray', label='Inlet Region'),
+        Patch(facecolor=corner_color, alpha=0.4,
+              edgecolor='gray', label='Corner Regions'),
+        Patch(facecolor='white', alpha=0.4,
+              edgecolor='gray', label='Center Region'),
+        Patch(facecolor=corner_color, alpha=0.4,
+              edgecolor='gray', label='Right Channel'),
+        Patch(facecolor=edge_color, alpha=0.4,
+              edgecolor='gray', label='Edge Regions')
+    ]
+    ax.legend(handles=legend_elements, loc='upper center',
+              bbox_to_anchor=(0.5, -0.05), ncol=3, frameon=True)
+
+    # Set labels and title
+    plt.xlabel('X Position (pixels)')
+    plt.ylabel('Y Position (pixels)')
+    plt.title('Color-Coded Chamber Regions with Cell Positions')
+
+    # Add light grid
+    plt.grid(True, linestyle='--', alpha=0.2)
+
+    plt.tight_layout()
+    return fig, ax
 
 
 def enhanced_motility_index(tracks, chamber_dimensions=None):
     """
     Calculate a comprehensive motility index for bacterial cells.
-    
+
     Parameters:
     -----------
     tracks : list
         List of track dictionaries with x, y, t positions
     chamber_dimensions : tuple, optional
         (width, height) of the chamber for normalization
-        
+
     Returns:
     --------
     dict
@@ -1199,41 +1466,42 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
     """
     # Initialize containers for metrics
     track_metrics = []
-    
+
     # Process each track
     for track in tracks:
         if len(track.get('x', [])) < 3:  # Skip very short tracks
             continue
-            
+
         # Extract coordinates and times
         x = np.array(track['x'])
         y = np.array(track['y'])
         t = np.array(track['t']) if 't' in track else np.arange(len(x))
-        
+
         # Time intervals between frames
         dt = np.diff(t)
         dt = np.where(dt == 0, 1, dt)  # Prevent division by zero
-        
+
         # Calculate distances between consecutive points
         dx = np.diff(x)
         dy = np.diff(y)
         step_distances = np.sqrt(dx**2 + dy**2)
-        
+
         # 1. Displacement metrics
         start_point = (x[0], y[0])
         end_point = (x[-1], y[-1])
-        
-        net_displacement = np.sqrt((end_point[0] - start_point[0])**2 + 
-                                  (end_point[1] - start_point[1])**2)
+
+        net_displacement = np.sqrt((end_point[0] - start_point[0])**2 +
+                                   (end_point[1] - start_point[1])**2)
         path_length = np.sum(step_distances)
         confinement_ratio = net_displacement / path_length if path_length > 0 else 0
-        
+
         # 2. Velocity metrics
         instantaneous_velocities = step_distances / dt
         avg_velocity = np.mean(instantaneous_velocities)
         max_velocity = np.max(instantaneous_velocities)
-        velocity_cv = np.std(instantaneous_velocities) / avg_velocity if avg_velocity > 0 else 0
-        
+        velocity_cv = np.std(instantaneous_velocities) / \
+            avg_velocity if avg_velocity > 0 else 0
+
         # 3. Directional metrics
         # Calculate turning angles
         turning_angles = []
@@ -1242,38 +1510,43 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
             v1 = np.array([dx[i], dy[i]])
             # Vector 2
             v2 = np.array([dx[i+1], dy[i+1]])
-            
+
             # Normalize vectors
             v1_norm = np.linalg.norm(v1)
             v2_norm = np.linalg.norm(v2)
-            
+
             if v1_norm > 0 and v2_norm > 0:
                 # Calculate angle between vectors
-                cos_angle = np.clip(np.dot(v1, v2) / (v1_norm * v2_norm), -1.0, 1.0)
+                cos_angle = np.clip(
+                    np.dot(v1, v2) / (v1_norm * v2_norm), -1.0, 1.0)
                 angle = np.arccos(cos_angle)
                 turning_angles.append(angle)
-        
+
         # Directional persistence
-        mean_turning_angle = np.mean(turning_angles) if turning_angles else np.pi/2
-        directional_persistence = 1 - (mean_turning_angle / np.pi)  # 1 = straight, 0 = random
-        
+        mean_turning_angle = np.mean(
+            turning_angles) if turning_angles else np.pi/2
+        directional_persistence = 1 - \
+            (mean_turning_angle / np.pi)  # 1 = straight, 0 = random
+
         # MSD calculation (simplified)
         # For a full implementation, calculate MSD at multiple time lags
         msd = net_displacement**2 / len(t)
-        
+
         # 4. Regional positioning
         if chamber_dimensions:
             width, height = chamber_dimensions
             # Determine if cell is in center, edge, or corner
             center_x, center_y = width/2, height/2
-            distance_from_center = np.sqrt((np.mean(x) - center_x)**2 + (np.mean(y) - center_y)**2)
-            normalized_center_distance = distance_from_center / np.sqrt(center_x**2 + center_y**2)
-            
+            distance_from_center = np.sqrt(
+                (np.mean(x) - center_x)**2 + (np.mean(y) - center_y)**2)
+            normalized_center_distance = distance_from_center / \
+                np.sqrt(center_x**2 + center_y**2)
+
             # Higher value means closer to edge
             region_factor = normalized_center_distance
         else:
             region_factor = 0.5  # Neutral if no chamber dimensions provided
-        
+
         # Calculate combined motility index
         # Weights can be adjusted based on importance of each factor
         weights = {
@@ -1282,20 +1555,20 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
             'persistence': 0.25,
             'region': 0.25
         }
-        
+
         # Normalize each component to 0-1 scale
         norm_confinement = 1 - confinement_ratio  # Invert so higher = more motile
-        
+
         # Normalize velocity (assuming 20 pixels/frame is high motility)
-        norm_velocity = min(1.0, avg_velocity / 20) 
-        
+        norm_velocity = min(1.0, avg_velocity / 20)
+
         motility_index = (
             weights['confinement'] * norm_confinement +
             weights['velocity'] * norm_velocity +
             weights['persistence'] * directional_persistence +
             weights['region'] * region_factor
         ) * 100  # Scale to 0-100
-        
+
         # Store all metrics for this track
         track_metrics.append({
             'track_id': track.get('ID', -1),
@@ -1312,17 +1585,18 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
             'track_length': len(t),
             'motility_index': motility_index
         })
-    
+
     # Population-level statistics
     if track_metrics:
         # Calculate population metrics
         all_indices = [t['motility_index'] for t in track_metrics]
         population_avg_index = np.mean(all_indices)
         population_std_index = np.std(all_indices)
-        
+
         # Calculate motility heterogeneity (coefficient of variation)
-        heterogeneity = population_std_index / population_avg_index if population_avg_index > 0 else 0
-        
+        heterogeneity = population_std_index / \
+            population_avg_index if population_avg_index > 0 else 0
+
         result = {
             'individual_metrics': track_metrics,
             'population_avg_motility': population_avg_index,
@@ -1338,126 +1612,19 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
             'population_heterogeneity': 0,
             'sample_size': 0
         }
-    
+
     return result
 
-def visualize_motility_map(tracks, chamber_dimensions=None, motility_metrics=None):
-    """
-    Visualize cell motility patterns in relation to chamber position.
-    
-    Parameters:
-    -----------
-    tracks : list
-        List of track dictionaries
-    chamber_dimensions : tuple, optional
-        (width, height) of the chamber
-    motility_metrics : dict, optional
-        Output from enhanced_motility_index function
-        
-    Returns:
-    --------
-    matplotlib.figure.Figure
-        The figure containing the visualization
-    """
-    # Calculate motility metrics if not provided
-    if motility_metrics is None:
-        motility_metrics = enhanced_motility_index(tracks, chamber_dimensions)
-    
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(12, 10))
-    
-    # Define chamber boundaries if provided
-    if chamber_dimensions:
-        width, height = chamber_dimensions
-        plt.xlim(0, width)
-        plt.ylim(0, height)
-        
-        # Draw chamber regions (inlet, edges, corners, etc.)
-        edge_margin = 50
-        corner_size = 100
-        
-        # Corners
-        corner_color = 'mistyrose'
-        ax.add_patch(plt.Rectangle((0, 0), corner_size, corner_size, 
-                                  color=corner_color, alpha=0.3))  # Top-left
-        ax.add_patch(plt.Rectangle((0, height-corner_size), corner_size, corner_size, 
-                                  color=corner_color, alpha=0.3))  # Bottom-left
-        ax.add_patch(plt.Rectangle((width-corner_size, 0), corner_size, corner_size, 
-                                  color=corner_color, alpha=0.3))  # Top-right
-        ax.add_patch(plt.Rectangle((width-corner_size, height-corner_size), corner_size, corner_size, 
-                                  color=corner_color, alpha=0.3))  # Bottom-right
-        
-        # Edges
-        edge_color = 'lightblue'
-        ax.add_patch(plt.Rectangle((0, corner_size), edge_margin, height-2*corner_size, 
-                                  color=edge_color, alpha=0.3))  # Left edge
-        ax.add_patch(plt.Rectangle((width-edge_margin, corner_size), edge_margin, height-2*corner_size, 
-                                  color=edge_color, alpha=0.3))  # Right edge
-        ax.add_patch(plt.Rectangle((corner_size, 0), width-2*corner_size, edge_margin, 
-                                  color=edge_color, alpha=0.3))  # Top edge
-        ax.add_patch(plt.Rectangle((corner_size, height-edge_margin), width-2*corner_size, edge_margin, 
-                                  color=edge_color, alpha=0.3))  # Bottom edge
-    
-    # Create a lookup of track_id to metrics
-    metrics_by_id = {m['track_id']: m for m in motility_metrics['individual_metrics']}
-    
-    # Set up colormap for motility index
-    cmap = plt.cm.viridis
-    norm = Normalize(vmin=0, vmax=100)  # Motility index 0-100
-    sm = ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    
-    # Plot each track with color based on motility
-    for track in tracks:
-        track_id = track.get('ID', -1)
-        if track_id in metrics_by_id:
-            metrics = metrics_by_id[track_id]
-            motility_index = metrics['motility_index']
-            
-            # Get track coordinates
-            x = track['x']
-            y = track['y']
-            
-            # Plot track colored by motility index
-            plt.plot(x, y, '-', linewidth=1.5, alpha=0.7, 
-                    color=cmap(norm(motility_index)))
-            
-            # Mark start and end points
-            plt.plot(x[0], y[0], 'o', markersize=4, color=cmap(norm(motility_index)))
-            plt.plot(x[-1], y[-1], 's', markersize=4, color=cmap(norm(motility_index)))
-    
-    # Add colorbar
-    cbar = plt.colorbar(sm, ax=ax)
-    cbar.set_label('Motility Index (0-100)')
-    
-    # Add statistical summary
-    summary_text = (
-        f"Population Metrics:\n"
-        f"Avg Motility: {motility_metrics['population_avg_motility']:.1f}\n"
-        f"Std Dev: {motility_metrics['population_std_motility']:.1f}\n"
-        f"Heterogeneity: {motility_metrics['population_heterogeneity']:.2f}\n"
-        f"Sample Size: {motility_metrics['sample_size']} tracks"
-    )
-    plt.figtext(0.02, 0.02, summary_text, bbox=dict(facecolor='white', alpha=0.8), fontsize=10)
-    
-    # Set labels and title
-    plt.xlabel('X Position')
-    plt.ylabel('Y Position')
-    plt.title('Cell Motility Map: Trajectories Colored by Motility Index')
-    plt.grid(True, linestyle='--', alpha=0.3)
-    
-    plt.tight_layout()
-    return fig, ax
 
 def visualize_motility_metrics(motility_metrics):
     """
     Create detailed visualizations of motility metrics.
-    
+
     Parameters:
     -----------
     motility_metrics : dict
         Output from enhanced_motility_index function
-        
+
     Returns:
     --------
     matplotlib.figure.Figure
@@ -1465,14 +1632,14 @@ def visualize_motility_metrics(motility_metrics):
     """
     # Extract individual metrics
     metrics = motility_metrics['individual_metrics']
-    
+
     if not metrics:
         print("No metrics available to visualize")
         return None
-    
+
     # Create figure with subplots
     fig = plt.figure(figsize=(15, 12))
-    
+
     # 1. Motility Index Distribution
     ax1 = fig.add_subplot(221)
     motility_indices = [m['motility_index'] for m in metrics]
@@ -1480,82 +1647,83 @@ def visualize_motility_metrics(motility_metrics):
     ax1.set_xlabel('Motility Index')
     ax1.set_ylabel('Number of Cells')
     ax1.set_title('Distribution of Motility Indices')
-    
+
     # Add population mean line
-    ax1.axvline(motility_metrics['population_avg_motility'], color='red', 
-               linestyle='--', label=f"Mean: {motility_metrics['population_avg_motility']:.1f}")
+    ax1.axvline(motility_metrics['population_avg_motility'], color='red',
+                linestyle='--', label=f"Mean: {motility_metrics['population_avg_motility']:.1f}")
     ax1.legend()
-    
+
     # 2. Confinement Ratio vs Average Velocity
     ax2 = fig.add_subplot(222)
     cr_values = [m['confinement_ratio'] for m in metrics]
     vel_values = [m['avg_velocity'] for m in metrics]
     mi_values = [m['motility_index'] for m in metrics]
-    
-    scatter = ax2.scatter(cr_values, vel_values, c=mi_values, cmap='viridis', 
-                        alpha=0.7, s=50, edgecolor='white')
+
+    scatter = ax2.scatter(cr_values, vel_values, c=mi_values, cmap='viridis',
+                          alpha=0.7, s=50, edgecolor='white')
     ax2.set_xlabel('Confinement Ratio')
     ax2.set_ylabel('Average Velocity (pixels/frame)')
     ax2.set_title('Velocity vs. Confinement')
     cbar = plt.colorbar(scatter, ax=ax2)
     cbar.set_label('Motility Index')
-    
+
     # 3. Path Length vs Directional Persistence
     ax3 = fig.add_subplot(223)
     path_values = [m['path_length'] for m in metrics]
     dp_values = [m['directional_persistence'] for m in metrics]
-    
-    scatter = ax3.scatter(path_values, dp_values, c=mi_values, cmap='viridis', 
-                        alpha=0.7, s=50, edgecolor='white')
+
+    scatter = ax3.scatter(path_values, dp_values, c=mi_values, cmap='viridis',
+                          alpha=0.7, s=50, edgecolor='white')
     ax3.set_xlabel('Path Length (pixels)')
     ax3.set_ylabel('Directional Persistence')
     ax3.set_title('Path Length vs. Persistence')
     cbar = plt.colorbar(scatter, ax=ax3)
     cbar.set_label('Motility Index')
-    
+
     # 4. Relationship between metrics
     ax4 = fig.add_subplot(224)
-    
+
     # Group cells by motility quartiles
     sorted_indices = np.argsort(motility_indices)
     quartile_size = len(sorted_indices) // 4
-    
+
     quartiles = {
         'Q1 (Low)': sorted_indices[:quartile_size],
         'Q2': sorted_indices[quartile_size:2*quartile_size],
         'Q3': sorted_indices[2*quartile_size:3*quartile_size],
         'Q4 (High)': sorted_indices[3*quartile_size:]
     }
-    
-    metrics_to_plot = ['confinement_ratio', 'avg_velocity', 
+
+    metrics_to_plot = ['confinement_ratio', 'avg_velocity',
                        'directional_persistence', 'region_factor']
-    
+
     colors = ['#FF9999', '#FFCC99', '#CCFF99', '#99CCFF']
-    
+
     # Calculate means for each quartile and metric
     quartile_means = {}
-    
+
     for q_name, q_indices in quartiles.items():
         quartile_means[q_name] = {}
         for metric in metrics_to_plot:
             metric_values = [metrics[i][metric] for i in q_indices]
             quartile_means[q_name][metric] = np.mean(metric_values)
-    
+
     # Normalize values between 0 and 1 for radar chart
     normalized_values = {}
-    
+
     for metric in metrics_to_plot:
         all_values = [m[metric] for m in metrics]
         min_val = min(all_values)
         max_val = max(all_values)
         range_val = max_val - min_val if max_val > min_val else 1
-        
+
         for q_name in quartiles.keys():
             if metric not in normalized_values:
                 normalized_values[metric] = {}
             normalized_values[q_name] = normalized_values.get(q_name, {})
-            normalized_values[q_name][metric] = (quartile_means[q_name][metric] - min_val) / range_val
-    
+            normalized_values[q_name][metric] = (
+                quartile_means[q_name][metric] - min_val) / range_val
+
     # Plot radar chart
     from matplotlib.patches import Circle, RegularPolygon
     from matplotlib.path import Path
@@ -1563,63 +1731,64 @@ def visualize_motility_metrics(motility_metrics):
     from matplotlib.projections import register_projection
     from matplotlib.spines import Spine
     from matplotlib.transforms import Affine2D
-    
+
     def radar_factory(num_vars, frame='circle'):
         # Based on matplotlib examples
         theta = np.linspace(0, 2*np.pi, num_vars, endpoint=False)
+
         class RadarAxes(PolarAxes):
             name = 'radar'
-            
+
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 self.set_theta_zero_location('N')
-                
+
             def fill(self, *args, **kwargs):
                 return super().fill_between(np.linspace(0, 2*np.pi, len(args[0])+1),
-                                           np.hstack((args[0], args[0][0])), **kwargs)
-                
+                                            np.hstack((args[0], args[0][0])), **kwargs)
+
             def plot(self, *args, **kwargs):
                 lines = super().plot(*args, **kwargs)
                 return lines
-        
+
         register_projection(RadarAxes)
-        fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(projection='radar'))
-        
+        fig, ax = plt.subplots(
+            figsize=(6, 6), subplot_kw=dict(projection='radar'))
+
         # Fix axis to go from 0 to 1
         ax.set_ylim(0, 1)
-        
+
         # Set labels
         ax.set_yticklabels([])
-        
+
         # Draw circles and lines
         ax.grid(True)
-        
+
         return fig, ax
-    
+
     # Create radar chart
     labels = ['Confinement', 'Velocity', 'Persistence', 'Edge Proximity']
-    
+
     fig_radar, ax_radar = radar_factory(len(labels))
     ax4.set_visible(False)  # Hide the original ax4
-    
+
     for i, (q_name, q_indices) in enumerate(quartiles.items()):
         values = [normalized_values[q_name][m] for m in metrics_to_plot]
-        ax_radar.plot(np.linspace(0, 2*np.pi, len(values), endpoint=False), 
-                     values, label=q_name, color=colors[i], linewidth=2)
+        ax_radar.plot(np.linspace(0, 2*np.pi, len(values), endpoint=False),
+                      values, label=q_name, color=colors[i], linewidth=2)
         ax_radar.fill(values, alpha=0.1, color=colors[i])
-    
-    
+
     # Set radar chart labels manually
     angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
     angles += angles[:1]  # Close the circle
-        
+
     # Set labels at the correct angles
     for i, label in enumerate(labels):
         angle = angles[i]
         # Adjust label position slightly outside the chart
         x = 1.1 * np.cos(angle)
         y = 1.1 * np.sin(angle)
-        
+
         # Handle label alignment based on position
         ha, va = 'center', 'center'
         if np.cos(angle) < -0.1:
@@ -1630,19 +1799,20 @@ def visualize_motility_metrics(motility_metrics):
             va = 'top'
         elif np.sin(angle) > 0.1:
             va = 'bottom'
-            
+
         ax_radar.text(x, y, label, ha=ha, va=va)
-    
+
     ax_radar.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
     ax_radar.set_title('Motility Components by Quartile')
-    
+
     plt.tight_layout()
     return fig
+
 
 def analyze_motility_by_region(tracks, chamber_dimensions, motility_metrics=None):
     """
     Analyze how motility varies across different regions of the chamber.
-    
+
     Parameters:
     -----------
     tracks : list
@@ -1651,7 +1821,7 @@ def analyze_motility_by_region(tracks, chamber_dimensions, motility_metrics=None
         (width, height) of the chamber
     motility_metrics : dict, optional
         Output from enhanced_motility_index function
-        
+
     Returns:
     --------
     dict
@@ -1662,55 +1832,55 @@ def analyze_motility_by_region(tracks, chamber_dimensions, motility_metrics=None
     # Calculate motility metrics if not provided
     if motility_metrics is None:
         motility_metrics = enhanced_motility_index(tracks, chamber_dimensions)
-    
+
     width, height = chamber_dimensions
     edge_margin = 50
     corner_size = 100
-    
+
     # Define regions
     regions = {
-        'center': (corner_size + edge_margin, edge_margin, 
-                  width - 2*(corner_size + edge_margin), height - 2*edge_margin),
+        'center': (corner_size + edge_margin, edge_margin,
+                   width - 2*(corner_size + edge_margin), height - 2*edge_margin),
         'left_edge': (corner_size, edge_margin, edge_margin, height - 2*edge_margin),
-        'right_edge': (width - corner_size - edge_margin, edge_margin, 
-                      edge_margin, height - 2*edge_margin),
+        'right_edge': (width - corner_size - edge_margin, edge_margin,
+                       edge_margin, height - 2*edge_margin),
         'top_edge': (corner_size, 0, width - 2*corner_size, edge_margin),
-        'bottom_edge': (corner_size, height - edge_margin, 
-                       width - 2*corner_size, edge_margin),
+        'bottom_edge': (corner_size, height - edge_margin,
+                        width - 2*corner_size, edge_margin),
         'top_left': (0, 0, corner_size, corner_size),
         'top_right': (width - corner_size, 0, corner_size, corner_size),
         'bottom_left': (0, height - corner_size, corner_size, corner_size),
-        'bottom_right': (width - corner_size, height - corner_size, 
-                        corner_size, corner_size)
+        'bottom_right': (width - corner_size, height - corner_size,
+                         corner_size, corner_size)
     }
-    
+
     # Function to check if a point is in a region
     def point_in_region(x, y, region):
         rx, ry, rw, rh = region
         return rx <= x <= rx + rw and ry <= y <= ry + rh
-    
+
     # Store metrics by region
     metrics_by_region = {region: [] for region in regions}
-    
+
     # Assign tracks to regions based on their average position
     for metric in motility_metrics['individual_metrics']:
         track_id = metric['track_id']
         track = next((t for t in tracks if t.get('ID', -1) == track_id), None)
-        
+
         if track:
             # Calculate average position
             avg_x = np.mean(track['x'])
             avg_y = np.mean(track['y'])
-            
+
             # Determine region
             for region_name, region_coords in regions.items():
                 if point_in_region(avg_x, avg_y, region_coords):
                     metrics_by_region[region_name].append(metric)
                     break
-    
+
     # Calculate average motility index for each region
     regional_metrics = {}
-    
+
     for region, metrics in metrics_by_region.items():
         if metrics:
             motility_indices = [m['motility_index'] for m in metrics]
@@ -1735,50 +1905,50 @@ def analyze_motility_by_region(tracks, chamber_dimensions, motility_metrics=None
                     'directional_persistence': 0
                 }
             }
-    
+
     # Create heatmap visualization
     fig, ax = plt.subplots(figsize=(12, 10))
-    
+
     # Draw regions with color based on average motility
     cmap = plt.cm.viridis
     norm = Normalize(vmin=0, vmax=100)  # Motility index 0-100
-    
+
     for region_name, region_coords in regions.items():
         x, y, w, h = region_coords
         avg_motility = regional_metrics[region_name]['avg_motility']
         cell_count = regional_metrics[region_name]['cell_count']
-        
-        rect = plt.Rectangle((x, y), w, h, 
-                           color=cmap(norm(avg_motility)), 
-                           alpha=0.7 if cell_count > 0 else 0.3)
+
+        rect = plt.Rectangle((x, y), w, h,
+                             color=cmap(norm(avg_motility)),
+                             alpha=0.7 if cell_count > 0 else 0.3)
         ax.add_patch(rect)
-        
+
         # Add text for cell count and average motility
         if cell_count > 0:
-            plt.text(x + w/2, y + h/2, 
-                   f"{region_name}\n{cell_count} cells\nMI: {avg_motility:.1f}", 
-                   ha='center', va='center', 
-                   color='white' if avg_motility > 50 else 'black',
-                   fontsize=9, fontweight='bold')
-    
+            plt.text(x + w/2, y + h/2,
+                     f"{region_name}\n{cell_count} cells\nMI: {avg_motility:.1f}",
+                     ha='center', va='center',
+                     color='white' if avg_motility > 50 else 'black',
+                     fontsize=9, fontweight='bold')
+
     # Set limits
     plt.xlim(0, width)
     plt.ylim(0, height)
-    
+
     # Add colorbar
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax)
     cbar.set_label('Average Motility Index (0-100)')
-    
+
     # Add title and labels
     plt.title('Regional Motility Analysis')
     plt.xlabel('X Position')
     plt.ylabel('Y Position')
-    
+
     regional_analysis = {
         'metrics_by_region': regional_metrics,
         'regions': regions
     }
-    
+
     return regional_analysis, fig
