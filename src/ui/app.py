@@ -33,7 +33,7 @@ from morphology import (
     extract_cells_and_metrics,
 )
 from segmentation.segmentation_models import SegmentationModels
-from tracking import track_cells, visualize_cell_regions, enhanced_motility_index, visualize_motility_map, visualize_motility_metrics, analyze_motility_by_region, visualize_motility_with_chamber_regions
+from tracking import track_cells, visualize_cell_regions, enhanced_motility_index, visualize_motility_map, visualize_motility_with_chamber_regions
 from .roisel import PolygonROISelector
 
 from .dialogs import AboutDialog, ExperimentDialog
