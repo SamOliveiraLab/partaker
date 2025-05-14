@@ -107,6 +107,58 @@ class MotilityDialog(QDialog):
         layout.addWidget(self.status_bar)
         
         
+        self.velocity_time_tab = QWidget()
+        self.velocity_time_layout = QVBoxLayout(self.velocity_time_tab)
+        self.tab_widget.addTab(self.velocity_time_tab, "Velocity vs. Time")
+
+        # Create a split layout with controls on left, graph on right
+        velocity_split = QHBoxLayout()
+        self.velocity_time_layout.addLayout(velocity_split)
+
+        # Left side: Controls
+        control_panel = QWidget()
+        control_layout = QVBoxLayout(control_panel)
+        control_panel.setMaximumWidth(300)
+
+        # Track selector
+        control_layout.addWidget(QLabel("Select Tracks:"))
+        self.velocity_track_list = QTableWidget()
+        self.velocity_track_list.setColumnCount(2)
+        self.velocity_track_list.setHorizontalHeaderLabels(["Track ID", "Show"])
+        self.velocity_track_list.horizontalHeader().setStretchLastSection(True)
+        control_layout.addWidget(self.velocity_track_list)
+
+        # Add control buttons
+        button_layout = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.clicked.connect(self.select_all_velocity_tracks)
+        clear_all_btn = QPushButton("Clear All")
+        clear_all_btn.clicked.connect(self.clear_all_velocity_tracks)
+        button_layout.addWidget(select_all_btn)
+        button_layout.addWidget(clear_all_btn)
+        control_layout.addLayout(button_layout)
+
+        # Options
+        self.show_average_checkbox = QCheckBox("Show Population Average")
+        self.show_average_checkbox.setChecked(True)
+        self.show_average_checkbox.stateChanged.connect(self.update_velocity_plot)
+        control_layout.addWidget(self.show_average_checkbox)
+
+        self.show_divisions_checkbox = QCheckBox("Show Division Events")
+        self.show_divisions_checkbox.setChecked(True)
+        self.show_divisions_checkbox.stateChanged.connect(self.update_velocity_plot)
+        control_layout.addWidget(self.show_divisions_checkbox)
+
+        # Right side: Graph
+        self.velocity_fig = plt.figure(figsize=(8, 6))
+        self.velocity_canvas = FigureCanvas(self.velocity_fig)
+        self.velocity_ax = self.velocity_fig.add_subplot(111)
+
+        # Add both sides to the layout
+        velocity_split.addWidget(control_panel)
+        velocity_split.addWidget(self.velocity_canvas, 1)  # Graph gets more space
+        
+        
         
         # Connect tab changed signal to update the summary visibility
         self.tab_widget.currentChanged.connect(self.update_summary_visibility)
@@ -207,6 +259,10 @@ class MotilityDialog(QDialog):
         """Create motility visualizations"""
         from tracking import (visualize_motility_with_chamber_regions, visualize_motility_map)
         
+        # Store chamber dimensions for later use
+        self.chamber_dimensions = chamber_dimensions
+        self.all_cell_positions = all_cell_positions
+        
         # Combined visualization
         combined_fig, self.combined_ax = visualize_motility_with_chamber_regions(
             self.tracked_cells, all_cell_positions, chamber_dimensions, self.motility_metrics)
@@ -217,6 +273,7 @@ class MotilityDialog(QDialog):
         
         # Populate track selector
         self.populate_track_selector()
+        self.populate_velocity_track_list()
         
         # Motility map
         map_fig, _ = visualize_motility_map(
@@ -436,3 +493,188 @@ class MotilityDialog(QDialog):
                 QMessageBox.information(
                     export_dialog, "Export Complete",
                     f"Results exported to {base_path}_*.png/csv")
+                
+
+    def populate_velocity_track_list(self):
+        """Populate the track list for velocity-time analysis"""
+        self.velocity_track_list.setRowCount(0)
+        
+        # Create a lookup for metrics
+        metrics_lookup = {}
+        if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
+            metrics_lookup = {m.get('track_id'): m for m in self.motility_metrics['individual_metrics']}
+        
+        # Get tracks with metrics
+        valid_tracks = []
+        for track in self.tracked_cells:
+            if 'ID' in track and track['ID'] in metrics_lookup:
+                valid_tracks.append(track)
+        
+        # Sort by motility index
+        valid_tracks.sort(key=lambda t: metrics_lookup[t['ID']]['motility_index'], reverse=True)
+        
+        # Add to table
+        self.velocity_track_list.setRowCount(len(valid_tracks))
+        for i, track in enumerate(valid_tracks):
+            # Track ID
+            id_item = QTableWidgetItem(str(track['ID']))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)  # Make read-only
+            self.velocity_track_list.setItem(i, 0, id_item)
+            
+            # Checkbox
+            checkbox = QTableWidgetItem()
+            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            checkbox.setCheckState(Qt.Unchecked)
+            self.velocity_track_list.setItem(i, 1, checkbox)
+        
+        # Connect to update plot when selection changes
+        self.velocity_track_list.itemChanged.connect(self.update_velocity_plot)
+
+    def get_selected_velocity_tracks(self):
+        """Get list of track IDs that are selected in the velocity tab"""
+        selected_ids = []
+        for i in range(self.velocity_track_list.rowCount()):
+            if self.velocity_track_list.item(i, 1).checkState() == Qt.Checked:
+                track_id = int(self.velocity_track_list.item(i, 0).text())
+                selected_ids.append(track_id)
+        return selected_ids
+
+    def select_all_velocity_tracks(self):
+        """Select all tracks in the velocity analysis tab"""
+        for i in range(self.velocity_track_list.rowCount()):
+            self.velocity_track_list.item(i, 1).setCheckState(Qt.Checked)
+
+    def clear_all_velocity_tracks(self):
+        """Deselect all tracks in the velocity analysis tab"""
+        for i in range(self.velocity_track_list.rowCount()):
+            self.velocity_track_list.item(i, 1).setCheckState(Qt.Unchecked)
+
+    
+    def update_velocity_plot(self):
+        """Update the velocity-time plot based on selected tracks"""
+        # Clear the axis
+        self.velocity_ax.clear()
+        
+        # Get selected tracks
+        selected_ids = self.get_selected_velocity_tracks()
+        
+        # Default calibration if not set (µm/pixel)
+        calibration = getattr(self, 'calibration', 0.5)
+        
+        # Assume frames are 60 minutes apart (1 hour)
+        # You can adjust this value based on your actual time between frames
+        hours_per_frame = 1
+        
+        # Calculate instantaneous velocities for each selected track
+        for track_id in selected_ids:
+            track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
+            if not track or 'x' not in track or 'y' not in track:
+                continue
+                
+            # Calculate instantaneous velocities
+            times_hours = []
+            velocities_um_per_s = []
+            
+            x = track['x']
+            y = track['y']
+            t = track['t'] if 't' in track else range(len(x))
+            
+            for i in range(len(t) - 1):
+                dx = x[i+1] - x[i]
+                dy = y[i+1] - y[i]
+                dt_frames = max(1, t[i+1] - t[i])  # Prevent division by zero
+                
+                # Calculate distance in pixels
+                distance_pixels = np.sqrt(dx**2 + dy**2)
+                
+                # Convert to µm
+                distance_um = distance_pixels * calibration
+                
+                # Convert time to hours and seconds
+                dt_hours = dt_frames * hours_per_frame
+                dt_seconds = dt_hours * 3600  # Convert hours to seconds for velocity
+                
+                # Calculate velocity in µm/s
+                velocity = distance_um / dt_seconds
+                    
+                # Store time in hours from start
+                time_hours = t[i] * hours_per_frame
+                times_hours.append(time_hours)
+                velocities_um_per_s.append(velocity)
+            
+            # Plot this track's velocity
+            from matplotlib.cm import viridis
+            color = viridis(selected_ids.index(track_id) / max(1, len(selected_ids)))
+            self.velocity_ax.plot(times_hours, velocities_um_per_s, '-o', label=f"Track {track_id}", 
+                                color=color, markersize=3, alpha=0.8)
+            
+            # Add division markers if enabled
+            if self.show_divisions_checkbox.isChecked() and 'children' in track and track['children']:
+                last_time = t[-1] * hours_per_frame
+                if velocities_um_per_s:  # Make sure we have velocity data
+                    last_velocity = velocities_um_per_s[-1] if len(velocities_um_per_s) == len(times_hours) else 0
+                    self.velocity_ax.plot(last_time, last_velocity, 'r*', markersize=10, 
+                                        label=f"Division (Track {track_id})")
+        
+        # Add population average if requested
+        if self.show_average_checkbox.isChecked() and selected_ids:
+            self.add_population_average(hours_per_frame, calibration)
+        
+        # Set labels and title
+        self.velocity_ax.set_xlabel('Time (hours)')
+        self.velocity_ax.set_ylabel('Velocity (µm/s)')
+        self.velocity_ax.set_title('Cell Velocity vs. Time')
+        
+        # Add grid and legend
+        self.velocity_ax.grid(True, linestyle='--', alpha=0.7)
+        if selected_ids:
+            self.velocity_ax.legend(loc='upper right')
+        
+        # Redraw
+        self.velocity_fig.tight_layout()
+        self.velocity_canvas.draw()
+
+    def add_population_average(self, hours_per_frame=1, calibration=0.5):
+        """Add population average velocity to the plot"""
+        # Collect all velocities across all time points
+        time_to_velocities = {}
+        
+        for track in self.tracked_cells:
+            if 'x' not in track or 'y' not in track:
+                continue
+                
+            x = track['x']
+            y = track['y']
+            t = track['t'] if 't' in track else range(len(x))
+            
+            for i in range(len(t) - 1):
+                dx = x[i+1] - x[i]
+                dy = y[i+1] - y[i]
+                dt_frames = max(1, t[i+1] - t[i])
+                
+                # Calculate distance in pixels and convert to µm
+                distance_pixels = np.sqrt(dx**2 + dy**2)
+                distance_um = distance_pixels * calibration
+                
+                # Convert time to hours and seconds
+                dt_hours = dt_frames * hours_per_frame
+                dt_seconds = dt_hours * 3600  # Convert to seconds for velocity calculation
+                
+                # Calculate velocity in µm/s
+                velocity = distance_um / dt_seconds
+                
+                # Store time in hours from start
+                time_hours = t[i] * hours_per_frame
+                
+                if time_hours not in time_to_velocities:
+                    time_to_velocities[time_hours] = []
+                
+                time_to_velocities[time_hours].append(velocity)
+        
+        # Calculate average at each time point
+        times = sorted(time_to_velocities.keys())
+        avg_velocities = [np.mean(time_to_velocities[t]) for t in times]
+        
+        # Plot the average
+        self.velocity_ax.plot(times, avg_velocities, 'k--', 
+                            label="Population Average", linewidth=2, alpha=0.7)
