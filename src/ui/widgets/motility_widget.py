@@ -565,6 +565,10 @@ class MotilityDialog(QDialog):
         # You can adjust this value based on your actual time between frames
         hours_per_frame = 1
         
+        # Add a text box with summary statistics
+        if selected_ids:
+            self.add_summary_stats_box(selected_ids, calibration, hours_per_frame)
+        
         # Calculate instantaneous velocities for each selected track
         for track_id in selected_ids:
             track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
@@ -634,6 +638,70 @@ class MotilityDialog(QDialog):
         self.velocity_fig.tight_layout()
         self.velocity_canvas.draw()
 
+    def add_summary_stats_box(self, selected_ids, calibration=0.5, hours_per_frame=1):
+        """Add a box with summary statistics for selected tracks"""
+        stats_text = []
+        
+        for track_id in selected_ids:
+            track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
+            if not track or 'x' not in track or 'y' not in track:
+                continue
+                
+            # Calculate average velocity in both units
+            x = track['x']
+            y = track['y']
+            t = track['t'] if 't' in track else range(len(x))
+            
+            total_distance_px = 0
+            for i in range(len(x) - 1):
+                dx = x[i+1] - x[i]
+                dy = y[i+1] - y[i]
+                distance = np.sqrt(dx**2 + dy**2)
+                total_distance_px += distance
+            
+            # Calculate average velocities
+            total_time_frames = t[-1] - t[0] if len(t) > 1 else 1
+            avg_velocity_px_frame = total_distance_px / total_time_frames
+            
+            # Convert to µm/s
+            total_distance_um = total_distance_px * calibration
+            total_time_hours = total_time_frames * hours_per_frame
+            total_time_seconds = total_time_hours * 3600
+            avg_velocity_um_s = total_distance_um / total_time_seconds
+            
+            # Find track metrics if available
+            metrics_str = ""
+            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
+                track_metric = next((m for m in self.motility_metrics['individual_metrics'] 
+                                if m.get('track_id') == track_id), None)
+                if track_metric:
+                    metrics_str = f"MI: {track_metric.get('motility_index', 0):.1f}"
+            
+            # Add to stats text
+            stats_text.append(
+                f"Track {track_id} {metrics_str}\n"
+                f"Avg: {avg_velocity_um_s:.3f} µm/s\n"
+                f"     {avg_velocity_px_frame:.2f} px/frame\n"
+                f"Length: {len(x)} frames"
+            )
+        
+        # If we have stats, add the text box
+        if stats_text:
+            # Position in upper left corner
+            self.velocity_ax.text(
+                0.02, 0.98, 
+                "\n\n".join(stats_text),
+                transform=self.velocity_ax.transAxes,
+                va='top', ha='left',
+                bbox=dict(
+                    boxstyle='round',
+                    facecolor='white',
+                    alpha=0.8,
+                    edgecolor='gray'
+                ),
+                fontsize=9
+            )
+            
     def add_population_average(self, hours_per_frame=1, calibration=0.5):
         """Add population average velocity to the plot"""
         # Collect all velocities across all time points
