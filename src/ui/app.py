@@ -161,11 +161,10 @@ class App(QMainWindow):
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
     
+    # Sets experiment and loads image data
     def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
-
-        # Instance ImageData and load the first nd2 file
-        self.image_data = ImageData.load_nd2(experiment.nd2_files[0])
+        self.image_data = ImageData.load_nd2(experiment.nd2_files)
         pub.sendMessage("image_data_loaded", image_data=self.image_data)
 
     def load_from_folder(self, folder_path):
