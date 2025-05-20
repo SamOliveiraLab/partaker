@@ -7,6 +7,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.cm import plasma
+from matplotlib.colors import Normalize
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from skimage.measure import label, regionprops
 import pandas as pd
@@ -536,7 +538,7 @@ class MotilityDialog(QDialog):
                 
 
     def populate_velocity_track_list(self):
-        """Populate the track list for velocity-time analysis"""
+        """Populate the track list for velocity-time analysis with motility information"""
         self.velocity_track_list.setRowCount(0)
         
         # Create a lookup for metrics
@@ -548,24 +550,56 @@ class MotilityDialog(QDialog):
         valid_tracks = []
         for track in self.tracked_cells:
             if 'ID' in track and track['ID'] in metrics_lookup:
-                valid_tracks.append(track)
+                valid_tracks.append((track, metrics_lookup[track['ID']]))
         
         # Sort by motility index
-        valid_tracks.sort(key=lambda t: metrics_lookup[t['ID']]['motility_index'], reverse=True)
+        valid_tracks.sort(key=lambda item: item[1].get('motility_index', 0), reverse=True)
+        
+        # Add to table with three columns: ID, Motility, Show
+        self.velocity_track_list.setColumnCount(3)
+        self.velocity_track_list.setHorizontalHeaderLabels(["Track ID", "Motility", "Show"])
         
         # Add to table
         self.velocity_track_list.setRowCount(len(valid_tracks))
-        for i, track in enumerate(valid_tracks):
+        
+        # Use the same colormap for consistent visualization
+        from matplotlib.cm import plasma
+        from matplotlib.colors import to_hex
+        
+        for i, (track, metrics) in enumerate(valid_tracks):
             # Track ID
             id_item = QTableWidgetItem(str(track['ID']))
             id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)  # Make read-only
             self.velocity_track_list.setItem(i, 0, id_item)
             
+            # Motility Index
+            motility_value = metrics.get('motility_index', 0)
+            motility_item = QTableWidgetItem(f"{motility_value:.1f}")
+            motility_item.setFlags(motility_item.flags() & ~Qt.ItemIsEditable)  # Make read-only
+            
+            # Set background color based on motility (matching the visualization color)
+            color_value = plasma(motility_value / 100)
+            # Convert to hex color for QTableWidgetItem
+            hex_color = to_hex(color_value)
+            motility_item.setBackground(QColor(hex_color))
+            
+            # Make text white or black depending on background brightness for readability
+            # A simple heuristic: if the sum of RGB values is less than 384 (avg 128 per channel), use white text
+            r, g, b = [int(255 * c) for c in color_value[:3]]
+            if r + g + b < 384:
+                motility_item.setForeground(QColor('white'))
+            
+            self.velocity_track_list.setItem(i, 1, motility_item)
+            
             # Checkbox
             checkbox = QTableWidgetItem()
             checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             checkbox.setCheckState(Qt.Unchecked)
-            self.velocity_track_list.setItem(i, 1, checkbox)
+            self.velocity_track_list.setItem(i, 2, checkbox)
+        
+        # Adjust column widths
+        self.velocity_track_list.setColumnWidth(0, 60)  # ID column
+        self.velocity_track_list.setColumnWidth(1, 60)  # Motility column
         
         # Connect to update plot when selection changes
         self.velocity_track_list.itemChanged.connect(self.update_velocity_plot)
@@ -575,7 +609,7 @@ class MotilityDialog(QDialog):
         """Get list of track IDs that are selected in the velocity tab"""
         selected_ids = []
         for i in range(self.velocity_track_list.rowCount()):
-            if self.velocity_track_list.item(i, 1).checkState() == Qt.Checked:
+            if self.velocity_track_list.item(i, 2).checkState() == Qt.Checked:  # Changed from column 1 to 2
                 track_id = int(self.velocity_track_list.item(i, 0).text())
                 selected_ids.append(track_id)
         return selected_ids
@@ -794,11 +828,52 @@ class MotilityDialog(QDialog):
                             label="Population Average", linewidth=2, alpha=0.7)
         
         
+    def calculate_sliding_window_motility(self, track, window_size=10):
+        """Calculate motility index over a sliding window"""
+        times = track['t'] if 't' in track else range(len(track['x']))
+        x, y = track['x'], track['y']
+        motilities = []
         
+        # Need at least window_size+1 points to calculate first window
+        if len(x) <= window_size:
+            # If track is shorter than window, just use whole track
+            net_displacement = np.sqrt((x[-1] - x[0])**2 + (y[-1] - y[0])**2)
+            
+            # Calculate path length
+            dx, dy = np.diff(x), np.diff(y)
+            step_distances = np.sqrt(dx**2 + dy**2)
+            path_length = np.sum(step_distances)
+            
+            # Calculate motility index (simple version)
+            motility = (net_displacement / path_length) * 100 if path_length > 0 else 0
+            return [motility] * len(times)
+        
+        # For each time point, calculate motility using previous window_size points
+        for i in range(window_size, len(times)):
+            # Get window positions (including current point)
+            window_x = x[i-window_size:i+1]
+            window_y = y[i-window_size:i+1]
+            
+            # Calculate net displacement in window
+            net_displacement = np.sqrt((window_x[-1] - window_x[0])**2 + 
+                                    (window_y[-1] - window_y[0])**2)
+            
+            # Calculate path length in window
+            window_dx, window_dy = np.diff(window_x), np.diff(window_y)
+            window_steps = np.sqrt(window_dx**2 + window_dy**2)
+            path_length = np.sum(window_steps)
+            
+            # Calculate motility index
+            motility = (net_displacement / path_length) * 100 if path_length > 0 else 0
+            motilities.append(motility)
+        
+        # Pad beginning with first calculated value
+        padding = [motilities[0]] * window_size
+        return padding + motilities
         
     def update_comparison_plots(self):
         """Update both motility and velocity plots for direct comparison"""
-        # Get selected tracks (could reuse from velocity tab or create new selection)
+        # Get selected tracks
         selected_ids = self.get_selected_velocity_tracks()
         
         # Clear axes
@@ -809,28 +884,60 @@ class MotilityDialog(QDialog):
         calibration = self.calibration
         hours_per_frame = 1  # Assume 1 hour between frames
         
+        # Define sliding window size for motility calculation
+        window_size = 5  
+        
+        # Extract all motility indices for calculating normalization
+        all_motility_indices = []
+        if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
+            all_motility_indices = [m.get('motility_index', 0) for m in self.motility_metrics['individual_metrics']]
+        
+        # Calculate statistics for normalization
+        if all_motility_indices:
+            mean_motility = np.mean(all_motility_indices)
+            std_motility = np.std(all_motility_indices)
+            
+            # Use EXACTLY the same normalization calculation as in visualize_motility_with_chamber_regions
+            min_val = max(0, mean_motility - 2.5 * std_motility)
+            max_val = min(100, mean_motility + 2.5 * std_motility)
+            
+            # Ensure range is at least 20 to show variation
+            if max_val - min_val < 20:
+                center = (max_val + min_val) / 2
+                min_val = max(0, center - 10)
+                max_val = min(100, center + 10)
+            
+            # Create the normalizer
+            norm = Normalize(vmin=min_val, vmax=max_val)
+        else:
+            # Default normalization if no data available
+            norm = Normalize(vmin=0, vmax=100)
+        
         # Plot motility and velocity for each selected track
         for track_id in selected_ids:
             track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
             if not track or 'x' not in track or 'y' not in track:
                 continue
-                
-            # Get track data
+            
+            # Find the motility index for this track
+            track_motility = 50  # Default
+            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
+                for metric in self.motility_metrics['individual_metrics']:
+                    if metric.get('track_id') == track_id:
+                        track_motility = metric.get('motility_index', 50)
+                        break
+            
+            # CRITICAL: Apply the EXACT SAME color mapping as in visualize_motility_with_chamber_regions
+            color = plasma(norm(track_motility))
+            
+            # Rest of your code for calculating and plotting velocity/motility...
             x = track['x']
             y = track['y']
             t = track['t'] if 't' in track else range(len(x))
             
-            # Look up motility metrics
-            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-                track_metric = next((m for m in self.motility_metrics['individual_metrics'] 
-                                if m.get('track_id') == track_id), None)
-            else:
-                track_metric = None
-            
             # Calculate instantaneous velocities
             times_hours = []
             velocities_um_per_s = []
-            motility_values = []
             
             for i in range(len(t) - 1):
                 dx = x[i+1] - x[i]
@@ -848,27 +955,24 @@ class MotilityDialog(QDialog):
                 time_hours = t[i] * hours_per_frame
                 times_hours.append(time_hours)
                 velocities_um_per_s.append(velocity)
-                
-                # For motility, use the track's motility index as a constant value
-                # since motility is calculated for the entire track
-                if track_metric:
-                    motility_values.append(track_metric.get('motility_index', 0))
-                else:
-                    motility_values.append(0)
             
-            # Generate a consistent color for this track
-            from matplotlib.cm import viridis
-            color = viridis(selected_ids.index(track_id) / max(1, len(selected_ids)))
+            # Calculate sliding window motility values
+            sliding_motility_values = self.calculate_sliding_window_motility(track, window_size)
             
-            # Plot motility
-            self.motility_ax.plot(times_hours, motility_values, '-o', 
-                                label=f"Track {track_id}", color=color, markersize=3, alpha=0.8)
+            # Adjust lengths if necessary
+            if len(sliding_motility_values) > len(times_hours):
+                sliding_motility_values = sliding_motility_values[:len(times_hours)]
             
-            # Plot velocity
+            # Plot motility and velocity with EXACTLY the same color
+            self.motility_ax.plot(times_hours, sliding_motility_values, '-o', 
+                        label=f"Track {track_id} (MI: {track_motility:.1f})", 
+                        color=color, markersize=3, alpha=0.8)
+            
             self.velocity_comp_ax.plot(times_hours, velocities_um_per_s, '-o', 
-                                    label=f"Track {track_id}", color=color, markersize=3, alpha=0.8)
+                            label=f"Track {track_id} (MI: {track_motility:.1f})", 
+                            color=color, markersize=3, alpha=0.8)
         
-        # Set labels and titles
+        # Rest of your code for labels, titles, etc.
         self.motility_ax.set_xlabel('Time (hours)')
         self.motility_ax.set_ylabel('Motility Index (0-100)')
         self.motility_ax.set_title('Motility Index Over Time')
