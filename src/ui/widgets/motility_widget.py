@@ -27,6 +27,8 @@ class MotilityDialog(QDialog):
         self.image_data = image_data  # Store image data for accessing segmentation cache
         self.motility_metrics = None
         
+        self.calibration = 0.07
+        
         # Set dialog properties
         self.setWindowTitle("Cell Motility Analysis")
         self.setMinimumWidth(1200)  # Increased width for the velocity tab
@@ -110,6 +112,43 @@ class MotilityDialog(QDialog):
         self.velocity_time_tab = QWidget()
         self.velocity_time_layout = QVBoxLayout(self.velocity_time_tab)
         self.tab_widget.addTab(self.velocity_time_tab, "Velocity vs. Time")
+        
+        self.comparison_tab = QWidget()
+        self.comparison_layout = QHBoxLayout(self.comparison_tab)
+        self.tab_widget.addTab(self.comparison_tab, "Motility vs. Velocity")
+
+        # Create left side (Motility over time)
+        motility_time_panel = QWidget()
+        motility_time_layout = QVBoxLayout(motility_time_panel)
+        motility_time_panel.setMinimumWidth(500)
+
+        # Motility plot
+        self.motility_fig = plt.figure(figsize=(7, 5))
+        self.motility_canvas = FigureCanvas(self.motility_fig)
+        self.motility_ax = self.motility_fig.add_subplot(111)
+        motility_time_layout.addWidget(QLabel("Motility Index Over Time"))
+        motility_time_layout.addWidget(self.motility_canvas)
+
+        # Create right side (Velocity over time) - reusing existing code
+        velocity_time_panel = QWidget()
+        velocity_time_layout = QVBoxLayout(velocity_time_panel)
+        velocity_time_panel.setMinimumWidth(500)
+
+        # Velocity plot - create a new one for this tab
+        self.velocity_comp_fig = plt.figure(figsize=(7, 5))
+        self.velocity_comp_canvas = FigureCanvas(self.velocity_comp_fig)
+        self.velocity_comp_ax = self.velocity_comp_fig.add_subplot(111)
+        velocity_time_layout.addWidget(QLabel("Velocity Over Time"))
+        velocity_time_layout.addWidget(self.velocity_comp_canvas)
+
+        # Add both panels to the comparison layout
+        self.comparison_layout.addWidget(motility_time_panel)
+        self.comparison_layout.addWidget(velocity_time_panel)
+
+        # Add controls for selecting tracks
+        control_panel = QWidget()
+        control_layout = QVBoxLayout(control_panel)
+        control_panel.setFixedWidth(200)
 
         # Create a split layout with controls on left, graph on right
         velocity_split = QHBoxLayout()
@@ -159,6 +198,7 @@ class MotilityDialog(QDialog):
         velocity_split.addWidget(self.velocity_canvas, 1)  # Graph gets more space
         
         
+        self.comparison_layout.insertWidget(0, control_panel)
         
         # Connect tab changed signal to update the summary visibility
         self.tab_widget.currentChanged.connect(self.update_summary_visibility)
@@ -529,6 +569,7 @@ class MotilityDialog(QDialog):
         
         # Connect to update plot when selection changes
         self.velocity_track_list.itemChanged.connect(self.update_velocity_plot)
+        self.velocity_track_list.itemChanged.connect(self.update_comparison_plots)
 
     def get_selected_velocity_tracks(self):
         """Get list of track IDs that are selected in the velocity tab"""
@@ -559,7 +600,7 @@ class MotilityDialog(QDialog):
         selected_ids = self.get_selected_velocity_tracks()
         
         # Default calibration if not set (µm/pixel)
-        calibration = getattr(self, 'calibration', 0.5)
+        calibration = self.calibration
         
         # Assume frames are 60 minutes apart (1 hour)
         # You can adjust this value based on your actual time between frames
@@ -567,7 +608,7 @@ class MotilityDialog(QDialog):
         
         # Add a text box with summary statistics
         if selected_ids:
-            self.add_summary_stats_box(selected_ids, calibration, hours_per_frame)
+            self.add_summary_stats_box(selected_ids, hours_per_frame)
         
         # Calculate instantaneous velocities for each selected track
         for track_id in selected_ids:
@@ -622,7 +663,7 @@ class MotilityDialog(QDialog):
         
         # Add population average if requested
         if self.show_average_checkbox.isChecked() and selected_ids:
-            self.add_population_average(hours_per_frame, calibration)
+            self.add_population_average(hours_per_frame)
         
         # Set labels and title
         self.velocity_ax.set_xlabel('Time (hours)')
@@ -638,7 +679,10 @@ class MotilityDialog(QDialog):
         self.velocity_fig.tight_layout()
         self.velocity_canvas.draw()
 
-    def add_summary_stats_box(self, selected_ids, calibration=0.5, hours_per_frame=1):
+    def add_summary_stats_box(self, selected_ids, hours_per_frame=1):
+        
+        calibration = self.calibration
+        
         """Add a box with summary statistics for selected tracks"""
         stats_text = []
         
@@ -702,8 +746,10 @@ class MotilityDialog(QDialog):
                 fontsize=9
             )
             
-    def add_population_average(self, hours_per_frame=1, calibration=0.5):
+    def add_population_average(self, hours_per_frame=1):
         """Add population average velocity to the plot"""
+        # Use self.calibration instead of default
+        calibration = self.calibration
         # Collect all velocities across all time points
         time_to_velocities = {}
         
@@ -746,3 +792,100 @@ class MotilityDialog(QDialog):
         # Plot the average
         self.velocity_ax.plot(times, avg_velocities, 'k--', 
                             label="Population Average", linewidth=2, alpha=0.7)
+        
+        
+        
+        
+    def update_comparison_plots(self):
+        """Update both motility and velocity plots for direct comparison"""
+        # Get selected tracks (could reuse from velocity tab or create new selection)
+        selected_ids = self.get_selected_velocity_tracks()
+        
+        # Clear axes
+        self.motility_ax.clear()
+        self.velocity_comp_ax.clear()
+        
+        # Use calibration
+        calibration = self.calibration
+        hours_per_frame = 1  # Assume 1 hour between frames
+        
+        # Plot motility and velocity for each selected track
+        for track_id in selected_ids:
+            track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
+            if not track or 'x' not in track or 'y' not in track:
+                continue
+                
+            # Get track data
+            x = track['x']
+            y = track['y']
+            t = track['t'] if 't' in track else range(len(x))
+            
+            # Look up motility metrics
+            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
+                track_metric = next((m for m in self.motility_metrics['individual_metrics'] 
+                                if m.get('track_id') == track_id), None)
+            else:
+                track_metric = None
+            
+            # Calculate instantaneous velocities
+            times_hours = []
+            velocities_um_per_s = []
+            motility_values = []
+            
+            for i in range(len(t) - 1):
+                dx = x[i+1] - x[i]
+                dy = y[i+1] - y[i]
+                dt_frames = max(1, t[i+1] - t[i])
+                
+                # Calculate distance and velocity
+                distance_pixels = np.sqrt(dx**2 + dy**2)
+                distance_um = distance_pixels * calibration
+                dt_hours = dt_frames * hours_per_frame
+                dt_seconds = dt_hours * 3600
+                velocity = distance_um / dt_seconds
+                
+                # Store values
+                time_hours = t[i] * hours_per_frame
+                times_hours.append(time_hours)
+                velocities_um_per_s.append(velocity)
+                
+                # For motility, use the track's motility index as a constant value
+                # since motility is calculated for the entire track
+                if track_metric:
+                    motility_values.append(track_metric.get('motility_index', 0))
+                else:
+                    motility_values.append(0)
+            
+            # Generate a consistent color for this track
+            from matplotlib.cm import viridis
+            color = viridis(selected_ids.index(track_id) / max(1, len(selected_ids)))
+            
+            # Plot motility
+            self.motility_ax.plot(times_hours, motility_values, '-o', 
+                                label=f"Track {track_id}", color=color, markersize=3, alpha=0.8)
+            
+            # Plot velocity
+            self.velocity_comp_ax.plot(times_hours, velocities_um_per_s, '-o', 
+                                    label=f"Track {track_id}", color=color, markersize=3, alpha=0.8)
+        
+        # Set labels and titles
+        self.motility_ax.set_xlabel('Time (hours)')
+        self.motility_ax.set_ylabel('Motility Index (0-100)')
+        self.motility_ax.set_title('Motility Index Over Time')
+        self.motility_ax.grid(True, linestyle='--', alpha=0.7)
+        
+        self.velocity_comp_ax.set_xlabel('Time (hours)')
+        self.velocity_comp_ax.set_ylabel('Velocity (µm/s)')
+        self.velocity_comp_ax.set_title('Velocity Over Time')
+        self.velocity_comp_ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # Add legends if tracks are selected
+        if selected_ids:
+            self.motility_ax.legend(loc='upper right')
+            self.velocity_comp_ax.legend(loc='upper right')
+        
+        # Redraw
+        self.motility_fig.tight_layout()
+        self.motility_canvas.draw()
+        self.velocity_comp_fig.tight_layout()
+        self.velocity_comp_canvas.draw()

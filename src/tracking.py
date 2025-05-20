@@ -1003,9 +1003,9 @@ def visualize_cell_regions(tracks, chamber_dimensions=(1392, 1040)):
     plt.title('Color-Coded Chamber Regions with Cell Positions')
 
     # Add region labels
-    plt.text(25, height/2, 'INLET', rotation=90,
+    plt.text(25, height/2, 'CHAMBER WALL', rotation=90,
              ha='center', va='center', fontsize=12)
-    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL',
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'OPENING',
              rotation=90, ha='center', va='center', fontsize=12)
     plt.text(width/2, height/2, 'CENTER',
              ha='center', va='center', fontsize=14)
@@ -1277,9 +1277,9 @@ def visualize_motility_with_chamber_regions(tracks, all_cell_positions, chamber_
     fig.canvas.mpl_connect("motion_notify_event", hover)
 
     # Add region labels
-    plt.text(edge_margin/2, height/2, 'INLET', rotation=90,
+    plt.text(edge_margin/2, height/2, 'CHAMBER WALL', rotation=90,
              ha='center', va='center', fontsize=12)
-    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL',
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'OPENING',
              rotation=90, ha='center', va='center', fontsize=12)
     plt.text(width/2, height/2, 'CENTER',
              ha='center', va='center', fontsize=14)
@@ -1408,9 +1408,9 @@ def visualize_motility_map(tracks, chamber_dimensions=None, motility_metrics=Non
     plt.scatter(all_x, all_y, s=1, color='blue', alpha=0.3)
 
     # Add region labels
-    plt.text(edge_margin/2, height/2, 'INLET', rotation=90,
+    plt.text(edge_margin/2, height/2, 'CHAMBER WALL', rotation=90,
              ha='center', va='center', fontsize=12)
-    plt.text(right_channel_x + right_channel_width/2, height/2, 'RIGHT CHANNEL',
+    plt.text(right_channel_x + right_channel_width/2, height/2, 'OPENING',
              rotation=90, ha='center', va='center', fontsize=12)
     plt.text(width/2, height/2, 'CENTER',
              ha='center', va='center', fontsize=14)
@@ -1423,13 +1423,13 @@ def visualize_motility_map(tracks, chamber_dimensions=None, motility_metrics=Non
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor=inlet_color, alpha=0.4,
-              edgecolor='gray', label='Inlet Region'),
+              edgecolor='gray', label='Chamber Wall Region'),
         Patch(facecolor=corner_color, alpha=0.4,
               edgecolor='gray', label='Corner Regions'),
         Patch(facecolor='white', alpha=0.4,
               edgecolor='gray', label='Center Region'),
         Patch(facecolor=corner_color, alpha=0.4,
-              edgecolor='gray', label='Right Channel'),
+              edgecolor='gray', label='Opening Channel'),
         Patch(facecolor=edge_color, alpha=0.4,
               edgecolor='gray', label='Edge Regions')
     ]
