@@ -1488,6 +1488,9 @@ class MotilityDialog(QDialog):
                     font-size: 12px;
                     color: #6c757d;
                     font-weight: normal;
+                    padding: 8px 15px;
+                    border-radius: 12px;
+                    background-color: rgba(255, 255, 255, 0.8);
                 }
             """)
             desc_label.setAlignment(Qt.AlignCenter)

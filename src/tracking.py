@@ -1646,8 +1646,19 @@ def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_
                 'export_data': [], 'grid_export_data': []}
     
     # Extract x, y coordinates - all_cell_positions are tuples (x, y)
-    all_x = [pos[0] for pos in all_cell_positions]
-    all_y = [pos[1] for pos in all_cell_positions]
+    if tracks:
+        # Use positions from selected tracks for density calculation
+        all_x = []
+        all_y = []
+        for track in tracks:
+            all_x.extend(track['x'])
+            all_y.extend(track['y'])
+        print(f"Using {len(all_x)} positions from {len(tracks)} selected tracks for density grid")
+    else:
+        # Fallback to original all_cell_positions
+        all_x = [pos[0] for pos in all_cell_positions]
+        all_y = [pos[1] for pos in all_cell_positions]
+        print(f"Using {len(all_x)} positions from all_cell_positions for density grid")
     
     print(f"Using {len(all_x)} cell positions for density analysis")
     
