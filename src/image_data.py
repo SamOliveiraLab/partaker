@@ -1,14 +1,14 @@
 from pathlib import Path
 import json
 import os
-
+from typing import Union, Sequence
 import nd2
+import dask.array as da
+from pubsub import pub
 
 from segmentation.segmentation_cache import SegmentationCache
 from segmentation.segmentation_service import SegmentationService
 from segmentation.segmentation_models import SegmentationModels
-
-from pubsub import pub
 
 """
 Can hold either an ND2 file or a series of images
@@ -64,12 +64,57 @@ class ImageData:
                         mode='normal')
 
     @classmethod
-    def load_nd2(cls, file_path: str):
-        with nd2.ND2File(file_path) as nd2_file:
-            image_data = ImageData(data=nd2.imread(
-                file_path, dask=True), path=file_path, is_nd2=True)
 
-        return image_data
+    def load_nd2(cls, file_paths: Union[str, Sequence[str]]):
+        """
+        Load one or more ND2 files, verify that channel count, image height and width match,
+        crop the P-dimension (second axis) to the smallest found, concatenate along time axis,
+        and print the final shape.
+        """
+
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+
+        arrays = []
+        p_dims = []
+        channels = height = width = None
+
+        for path in file_paths:
+            arr = nd2.imread(path, dask=True) # Lazy load dask
+            shape = arr.shape
+            if len(shape) < 5:
+                raise ValueError(
+                    f"File {path} has shape {shape}; expected (T, P, C, Y, X)"
+                )
+
+            T, P, C, Y, X = shape
+
+            if channels is None:
+                # Set C, Y, X on the first file
+                channels, height, width = C, Y, X
+            else:
+                # Check if files are "castable"
+                if C != channels:
+                    raise ValueError(f"{path}: channels {C} != {channels}")
+                if Y != height:
+                    raise ValueError(f"{path}: height {Y} != {height}")
+                if X != width:
+                    raise ValueError(f"{path}: width {X} != {width}")
+
+            p_dims.append(P)
+            arrays.append(arr)
+
+        # Crop all files to the smallest P
+        # TODO: check if this is valid
+        min_p = min(p_dims)
+        cropped = [arr[:, :min_p, :, :, :] for arr in arrays]
+
+        full_data = da.concatenate(cropped, axis=0)
+
+        print(f"Loaded {len(file_paths)} file(s). "
+              f"Cropped P to {min_p}. Final array shape: {full_data.shape}")
+
+        return cls(data=full_data, path=file_paths, is_nd2=True)
 
     def save(self, filename: str):
         """Saves state to file

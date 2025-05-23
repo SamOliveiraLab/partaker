@@ -69,13 +69,13 @@ class Experiment:
                 first_reader = nd2.ND2File(first_file)
                 first_shape = first_reader.shape
                 
-                # We assume compatibility means same shape except for the time dimension (first dimension)
+                # "compatibility" means same shape except for T and P (1st and 2nd dimensions)
                 if len(new_shape) != len(first_shape):
                     reader.close()
                     first_reader.close()
                     raise ValueError(f"File {file_path} has different dimensions ({len(new_shape)}) than existing files ({len(first_shape)}).")
                     
-                if new_shape[1:] != first_shape[1:]:
+                if new_shape[2:] != first_shape[2:]:
                     reader.close()
                     first_reader.close()
                     raise ValueError(f"File {file_path} shape {new_shape} is not compatible with existing files shape {first_shape}.")

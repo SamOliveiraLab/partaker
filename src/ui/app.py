@@ -180,9 +180,7 @@ class App(QMainWindow):
 
     def on_exp_loaded(self, experiment: Experiment):
         self.curr_experiment = experiment
-
-        # Instance ImageData and load the first nd2 file
-        self.image_data = ImageData.load_nd2(experiment.nd2_files[0])
+        self.image_data = ImageData.load_nd2(experiment.nd2_files)
         pub.sendMessage("image_data_loaded", image_data=self.image_data)
 
     
