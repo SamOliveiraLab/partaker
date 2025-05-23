@@ -1169,7 +1169,7 @@ class MotilityDialog(QDialog):
         scope = "all" if all_radio.isChecked() else "filtered"
         
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Cell Tracking Data", f"cell_tracking_{scope}.csv", "CSV Files (*.csv)")
+            self, "Export Cell Tracking Data", f"forcast_data_{scope}_tracks.csv", "CSV Files (*.csv)")
         
         if file_path:
             # Create enhanced data with IDs and time points
