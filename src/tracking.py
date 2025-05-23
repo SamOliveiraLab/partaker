@@ -1614,3 +1614,102 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
         }
 
     return result
+
+
+def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_dimensions, grid_size=50):
+    """
+    Create density-based regions from the EXACT SAME data used in 'Motility by Region'.
+    Uses all_cell_positions that creates the blue dots.
+    
+    Parameters:
+    -----------
+    all_cell_positions : list of tuples
+        (x, y) coordinates from collect_cell_positions method
+    chamber_dimensions : tuple
+        (width, height) of the chamber
+    grid_size : int
+        Size of pixel blocks for density calculation
+    
+    Returns:
+    --------
+    dict : Contains density data and export data for Hamed
+    """
+    width, height = chamber_dimensions
+    
+    # Create grid
+    x_bins = np.arange(0, width + grid_size, grid_size)
+    y_bins = np.arange(0, height + grid_size, grid_size)
+    
+    if not all_cell_positions:
+        return {'density_grid': np.zeros((len(y_bins)-1, len(x_bins)-1)), 
+                'export_data': [], 'grid_export_data': []}
+    
+    # Extract x, y coordinates - all_cell_positions are tuples (x, y)
+    all_x = [pos[0] for pos in all_cell_positions]
+    all_y = [pos[1] for pos in all_cell_positions]
+    
+    print(f"Using {len(all_x)} cell positions for density analysis (same as blue dots in motility by region)")
+    
+    # Create 2D histogram (density map) - EXACT same as the blue dots
+    density_grid, x_edges, y_edges = np.histogram2d(all_x, all_y, bins=[x_bins, y_bins])
+    density_grid = density_grid.T  # Transpose to match image coordinates
+    
+    # Calculate density thresholds
+    flat_density = density_grid.flatten()
+    non_zero_density = flat_density[flat_density > 0]
+    
+    if len(non_zero_density) > 0:
+        low_threshold = np.percentile(non_zero_density, 33)
+        high_threshold = np.percentile(non_zero_density, 67)
+    else:
+        low_threshold = high_threshold = 0
+    
+    # Prepare export data - convert positions to proper format for Hamed
+    export_data = []
+    for i, (x, y) in enumerate(zip(all_x, all_y)):
+        export_data.append({
+            'position_id': i,
+            'x_position_pixels': x,
+            'y_position_pixels': y,
+            'x_position_um': x * 0.07,
+            'y_position_um': y * 0.07,
+            'source': 'forecast_plot_positions'
+        })
+    
+    # Prepare grid export data for Hamed
+    grid_export_data = []
+    for i in range(density_grid.shape[0]):
+        for j in range(density_grid.shape[1]):
+            x_center = x_bins[j] + grid_size / 2
+            y_center = y_bins[i] + grid_size / 2
+            cell_count = density_grid[i, j]
+            
+            # Determine density region
+            if cell_count == 0:
+                region_type = "Empty"
+            elif cell_count <= low_threshold:
+                region_type = "Low-Density"
+            elif cell_count <= high_threshold:
+                region_type = "Medium-Density"
+            else:
+                region_type = "High-Density"
+            
+            grid_export_data.append({
+                'grid_x_center': x_center,
+                'grid_y_center': y_center,
+                'grid_size': grid_size,
+                'cell_count': int(cell_count),
+                'density_per_1000px': (cell_count * 1000) / (grid_size ** 2),
+                'region_type': region_type
+            })
+    
+    return {
+        'density_grid': density_grid,
+        'x_bins': x_bins,
+        'y_bins': y_bins,
+        'export_data': export_data,  # Raw forecast plot data for Hamed
+        'grid_export_data': grid_export_data,
+        'thresholds': {'low': low_threshold, 'high': high_threshold},
+        'total_cells': len(all_x),
+        'chamber_dimensions': chamber_dimensions
+    }

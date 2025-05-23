@@ -2,8 +2,8 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QTabWidget, QWidget, QMessageBox, QProgressDialog,
                              QFileDialog, QCheckBox, QDialogButtonBox, QTextEdit, QLineEdit,
-                             QTableWidget, QTableWidgetItem, QComboBox)
-from PySide6.QtGui import QColor
+                             QTableWidget, QTableWidgetItem, QComboBox, QGridLayout)
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtCore import Qt
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,15 +26,19 @@ class MotilityDialog(QDialog):
         
         self.tracked_cells = tracked_cells
         self.lineage_tracks = lineage_tracks
-        self.image_data = image_data  # Store image data for accessing segmentation cache
+        self.image_data = image_data
         self.motility_metrics = None
+        
+        # ADD THIS LINE - Import and initialize MetricsService
+        from metrics_service import MetricsService
+        self.metrics_service = MetricsService()
         
         self.calibration = 0.07
         
         # Set dialog properties
         self.setWindowTitle("Cell Motility Analysis")
-        self.setMinimumWidth(1200)  # Increased width for the velocity tab
-        self.setMinimumHeight(800)  # Increased height for the velocity tab
+        self.setMinimumWidth(1200)
+        self.setMinimumHeight(800)
         
         # Initialize UI
         self.init_ui()
@@ -206,8 +210,7 @@ class MotilityDialog(QDialog):
         self.tab_widget.currentChanged.connect(self.update_summary_visibility)
     
     def analyze_motility(self):
-        """Analyze cell motility"""
-        # Delegate to a worker function
+        """Analyze cell motility - UPDATED"""
         from PySide6.QtWidgets import QApplication
         QApplication.setOverrideCursor(Qt.WaitCursor)
         
@@ -245,6 +248,9 @@ class MotilityDialog(QDialog):
             
             # Create visualizations
             self.create_visualizations(chamber_dimensions, all_cell_positions)
+            
+            # ADD THIS LINE - Create density analysis
+            self.create_density_analysis()
             
             # Update summary
             self.update_summary()
@@ -993,3 +999,496 @@ class MotilityDialog(QDialog):
         self.motility_canvas.draw()
         self.velocity_comp_fig.tight_layout()
         self.velocity_comp_canvas.draw()
+        
+        
+    def create_density_analysis(self):
+        """Create density-based region analysis using the EXACT SAME data as motility by region"""
+        from tracking import create_density_based_regions_from_forecast_data
+        
+        # Use the EXACT SAME all_cell_positions that creates the blue dots in motility by region
+        # This comes from either segmentation_cache or lineage_tracks, same as the original map
+        self.density_data = create_density_based_regions_from_forecast_data(
+            self.all_cell_positions,  # This is collected in analyze_motility() from collect_cell_positions()
+            self.chamber_dimensions, 
+            grid_size=50
+        )
+        
+        # Create visualization
+        self.create_density_visualization()
+        
+
+
+    def create_density_visualization(self):
+        """Create density-based region visualization matching forecast plot"""
+        # Create new tab for density analysis
+        self.density_tab = QWidget()
+        self.density_layout = QVBoxLayout(self.density_tab)
+        self.tab_widget.addTab(self.density_tab, "Density Regions (Forecast Data)")
+        
+        # Create matplotlib figure
+        import matplotlib.pyplot as plt
+        
+        density_fig = plt.figure(figsize=(12, 8))
+        density_ax = density_fig.add_subplot(111)
+        
+        # Plot density heatmap
+        density_grid = self.density_data['density_grid']
+        x_bins = self.density_data['x_bins']
+        y_bins = self.density_data['y_bins']
+        
+        # Create heatmap overlay
+        im = density_ax.imshow(density_grid, extent=[x_bins[0], x_bins[-1], y_bins[0], y_bins[-1]], 
+                            origin='lower', cmap='viridis', alpha=0.6)
+        
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=density_ax)
+        cbar.set_label('Cell Count per Grid Block')
+        
+        # Overlay actual cell positions (recreate forecast plot)
+        export_data = self.density_data['export_data']
+        all_x = [pos['x_position_pixels'] for pos in export_data]
+        all_y = [pos['y_position_pixels'] for pos in export_data]
+        
+        density_ax.scatter(all_x, all_y, s=1, color='blue', alpha=0.3, 
+                        label=f'All Cell Positions ({len(all_x)} cells)')
+        
+        # Add grid lines to show density blocks
+        for x in x_bins[::2]:  # Show every other line to avoid clutter
+            density_ax.axvline(x, color='white', alpha=0.4, linewidth=0.5)
+        for y in y_bins[::2]:
+            density_ax.axhline(y, color='white', alpha=0.4, linewidth=0.5)
+        
+        # Labels and title
+        density_ax.set_xlabel('X Position (pixels)')
+        density_ax.set_ylabel('Y Position (pixels)')
+        density_ax.set_title('Cell Density Map - Raw Data for Flow Simulations')
+        density_ax.legend()
+        
+        # Set same limits as chamber
+        chamber_dims = self.density_data['chamber_dimensions']
+        density_ax.set_xlim(0, chamber_dims[0])
+        density_ax.set_ylim(0, chamber_dims[1])
+        
+        # Add canvas to layout
+        density_canvas = FigureCanvas(density_fig)
+        self.density_layout.addWidget(density_canvas)
+        
+        # CREATE BOTTOM PANEL WITH SUMMARY BUTTON
+        bottom_panel = QHBoxLayout()
+        
+        # Add stretch to push button to the right
+        bottom_panel.addStretch()
+        
+        # Summary and Export button
+        summary_export_btn = QPushButton("Grid Analysis & Export Data")
+        summary_export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3B82F6;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #2563EB;
+            }
+            QPushButton:pressed {
+                background-color: #1D4ED8;
+            }
+        """)
+        summary_export_btn.clicked.connect(self.show_density_summary_dialog)
+        
+        bottom_panel.addWidget(summary_export_btn)
+        self.density_layout.addLayout(bottom_panel)
+
+    def export_forecast_data(self):
+        """Export the complete forecast plot data"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Forecast Data", "forecast_data.csv", 
+            "CSV Files (*.csv)")
+        
+        if file_path:
+            import pandas as pd
+            df = pd.DataFrame(self.density_data['export_data'])
+            df.to_csv(file_path, index=False)
+            
+            total_cells = self.density_data['total_cells']
+            QMessageBox.information(
+                self, "Export Successful", 
+                f"Complete forecast plot data exported to {file_path}\n"
+                f"Contains {total_cells} cell positions across all frames.\n"
+                f"This is the raw data behind the forecast visualization."
+            )
+
+    def export_density_grid(self):
+        """Export density grid analysis"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Density Grid", "density_grid.csv", 
+            "CSV Files (*.csv)")
+        
+        if file_path:
+            import pandas as pd
+            df = pd.DataFrame(self.density_data['grid_export_data'])
+            df.to_csv(file_path, index=False)
+            
+            QMessageBox.information(
+                self, "Export Successful", 
+                f"Density grid data exported to {file_path}\n"
+                f"Contains {len(df)} grid blocks with cell counts."
+            )
+            
+    def add_density_summary(self):
+        """Add summary statistics for density regions"""
+        from PySide6.QtGui import QFont
+        
+        # Create summary widget
+        summary_widget = QWidget()
+        summary_layout = QVBoxLayout(summary_widget)
+        
+        summary_label = QLabel("Density-Based Region Summary:")
+        summary_label.setFont(QFont("Arial", 12, QFont.Bold))
+        summary_layout.addWidget(summary_label)
+        
+        total_cells = self.density_data['total_cells']
+        chamber_dims = self.density_data['chamber_dimensions']
+        thresholds = self.density_data['thresholds']
+        
+        # Count blocks by density type
+        grid_data = self.density_data['grid_export_data']
+        region_counts = {}
+        for block in grid_data:
+            region_type = block['region_type']
+            region_counts[region_type] = region_counts.get(region_type, 0) + 1
+        
+        # Add summary information
+        summary_text = f"Total cells detected: {total_cells}\n"
+        summary_text += f"Chamber dimensions: {chamber_dims[0]} x {chamber_dims[1]} pixels\n"
+        summary_text += f"Grid blocks: {len(grid_data)}\n"
+        summary_text += f"Grid size: 50x50 pixels per block\n\n"
+        summary_text += "Density regions:\n"
+        
+        for region_type, count in region_counts.items():
+            percentage = (count / len(grid_data)) * 100 if grid_data else 0
+            summary_text += f"• {region_type}: {count} blocks ({percentage:.1f}%)\n"
+        
+        summary_text += f"\nDensity thresholds:\n"
+        summary_text += f"• Low/Medium: {thresholds['low']:.1f} cells/block\n"
+        summary_text += f"• Medium/High: {thresholds['high']:.1f} cells/block"
+        
+        summary_info = QLabel(summary_text)
+        summary_layout.addWidget(summary_info)
+        
+        self.density_layout.addWidget(summary_widget)
+        
+        
+    def show_density_summary_dialog(self):
+        """Show optimized summary dialog with better layout and spacing"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Grid-Based Analysis Summary")
+        dialog.setMinimumSize(800, 700)
+        dialog.setMaximumSize(1000, 900)
+        
+        # Clean, modern styling
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+            }
+            QLabel {
+                color: #212529;
+                background-color: transparent;
+            }
+        """)
+        
+        # Main layout with proper margins
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setSpacing(25)
+        main_layout.setContentsMargins(40, 30, 40, 30)
+        
+        # HEADER SECTION
+        header_widget = QWidget()
+        header_layout = QVBoxLayout(header_widget)
+        header_layout.setSpacing(8)
+        
+        title = QLabel("Grid-Based Analysis")
+        title.setStyleSheet("""
+            QLabel {
+                font-size: 28px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-bottom: 5px;
+            }
+        """)
+        
+        subtitle = QLabel("Spatial distribution analysis of cell positions")
+        subtitle.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                color: #6c757d;
+                font-style: italic;
+            }
+        """)
+        
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle)
+        main_layout.addWidget(header_widget)
+        
+        # DENSITY DISTRIBUTION SECTION
+        density_section = QWidget()
+        density_layout = QVBoxLayout(density_section)
+        density_layout.setSpacing(15)
+        
+        density_title = QLabel("Density Distribution")
+        density_title.setStyleSheet("""
+            QLabel {
+                font-size: 20px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-bottom: 10px;
+            }
+        """)
+        density_layout.addWidget(density_title)
+        
+        # Get the actual data
+        grid_data = self.density_data['grid_export_data']
+        total_cells = self.density_data['total_cells']
+        
+        # Calculate region counts
+        region_counts = {}
+        for block in grid_data:
+            region_type = block['region_type']
+            region_counts[region_type] = region_counts.get(region_type, 0) + 1
+        
+        # Create density cards in a 2x2 grid for better space usage
+        cards_container = QWidget()
+        cards_grid = QGridLayout(cards_container)
+        cards_grid.setSpacing(12)
+        
+        density_configs = [
+            ('High-Density', '#e74c3c', '#ffffff', 0, 0),    # Red, top-left
+            ('Medium-Density', '#f39c12', '#ffffff', 0, 1),  # Orange, top-right  
+            ('Low-Density', '#3498db', '#ffffff', 1, 0),     # Blue, bottom-left
+            ('Empty', '#95a5a6', '#ffffff', 1, 1)            # Gray, bottom-right
+        ]
+        
+        for density_type, bg_color, text_color, row, col in density_configs:
+            if density_type in region_counts:
+                count = region_counts[density_type]
+                percentage = (count / len(grid_data)) * 100 if grid_data else 0
+                
+                # Create compact card
+                card = QWidget()
+                card.setFixedHeight(80)
+                card.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {bg_color};
+                        border: none;
+                        border-radius: 10px;
+                    }}
+                """)
+                
+                card_layout = QHBoxLayout(card)
+                card_layout.setContentsMargins(20, 15, 20, 15)
+                
+                # Left side: type name with bullet
+                name_label = QLabel(f"● {density_type}")
+                name_label.setStyleSheet(f"""
+                    QLabel {{
+                        font-size: 15px;
+                        font-weight: bold;
+                        color: {text_color};
+                    }}
+                """)
+                card_layout.addWidget(name_label)
+                
+                card_layout.addStretch()
+                
+                # Right side: stats
+                stats_widget = QWidget()
+                stats_layout = QVBoxLayout(stats_widget)
+                stats_layout.setContentsMargins(0, 0, 0, 0)
+                stats_layout.setSpacing(2)
+                
+                count_label = QLabel(f"{count} blocks")
+                count_label.setStyleSheet(f"""
+                    QLabel {{
+                        font-size: 15px;
+                        font-weight: bold;
+                        color: {text_color};
+                    }}
+                """)
+                count_label.setAlignment(Qt.AlignRight)
+                
+                percent_label = QLabel(f"({percentage:.1f}%)")
+                percent_label.setStyleSheet(f"""
+                    QLabel {{
+                        font-size: 13px;
+                        color: {text_color};
+                    }}
+                """)
+                percent_label.setAlignment(Qt.AlignRight)
+                
+                stats_layout.addWidget(count_label)
+                stats_layout.addWidget(percent_label)
+                card_layout.addWidget(stats_widget)
+                
+                cards_grid.addWidget(card, row, col)
+        
+        density_layout.addWidget(cards_container)
+        main_layout.addWidget(density_section)
+        
+        # SUMMARY STATISTICS SECTION
+        stats_section = QWidget()
+        stats_layout = QVBoxLayout(stats_section)
+        stats_layout.setSpacing(15)
+        
+        stats_title = QLabel("Summary Statistics")
+        stats_title.setStyleSheet("""
+            QLabel {
+                font-size: 20px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-bottom: 10px;
+            }
+        """)
+        stats_layout.addWidget(stats_title)
+        
+        # Create 2x2 grid for stats
+        stats_container = QWidget()
+        stats_grid = QGridLayout(stats_container)
+        stats_grid.setSpacing(15)
+        
+        # Define the 4 stat cards
+        stat_configs = [
+            (f"{total_cells:,}", "Total Cells", "#3498db", 0, 0),
+            (f"{len(grid_data)}", "Grid Blocks", "#2ecc71", 0, 1),
+            ("50px", "Block Size", "#9b59b6", 1, 0),
+            ("4", "Density Types", "#e67e22", 1, 1)
+        ]
+        
+        for value, label, color, row, col in stat_configs:
+            stat_card = QWidget()
+            stat_card.setFixedSize(160, 90)
+            stat_card.setStyleSheet(f"""
+                QWidget {{
+                    background-color: #ffffff;
+                    border: 2px solid {color};
+                    border-radius: 8px;
+                }}
+            """)
+            
+            stat_layout_inner = QVBoxLayout(stat_card)
+            stat_layout_inner.setAlignment(Qt.AlignCenter)
+            stat_layout_inner.setSpacing(5)
+            
+            # Value
+            value_label = QLabel(value)
+            value_label.setStyleSheet(f"""
+                QLabel {{
+                    font-size: 22px;
+                    font-weight: bold;
+                    color: {color};
+                }}
+            """)
+            value_label.setAlignment(Qt.AlignCenter)
+            
+            # Description
+            desc_label = QLabel(label)
+            desc_label.setStyleSheet("""
+                QLabel {
+                    font-size: 12px;
+                    color: #6c757d;
+                    font-weight: normal;
+                }
+            """)
+            desc_label.setAlignment(Qt.AlignCenter)
+            
+            stat_layout_inner.addWidget(value_label)
+            stat_layout_inner.addWidget(desc_label)
+            
+            stats_grid.addWidget(stat_card, row, col)
+        
+        stats_layout.addWidget(stats_container)
+        main_layout.addWidget(stats_section)
+        
+        # Add some spacing before buttons
+        main_layout.addSpacing(10)
+        
+        # EXPORT AND CLOSE BUTTONS
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)
+        
+        export_raw_btn = QPushButton("📊 Export Cell Positions")
+        export_raw_btn.setFixedHeight(45)
+        export_raw_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                color: #ffffff;
+                border: none;
+                padding: 12px 25px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+            QPushButton:pressed {
+                background-color: #004085;
+            }
+        """)
+        export_raw_btn.clicked.connect(self.export_forecast_data)
+        
+        export_grid_btn = QPushButton("🗂️ Export Density Grid")
+        export_grid_btn.setFixedHeight(45)
+        export_grid_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: #ffffff;
+                border: none;
+                padding: 12px 25px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
+        export_grid_btn.clicked.connect(self.export_density_grid)
+        
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(45)
+        close_btn.setFixedWidth(100)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: #ffffff;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:pressed {
+                background-color: #495057;
+            }
+        """)
+        close_btn.clicked.connect(dialog.accept)
+        
+        button_layout.addWidget(export_raw_btn)
+        button_layout.addWidget(export_grid_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        
+        main_layout.addLayout(button_layout)
+        
+        # Show dialog
+        dialog.exec()
