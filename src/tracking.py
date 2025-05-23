@@ -1616,10 +1616,9 @@ def enhanced_motility_index(tracks, chamber_dimensions=None):
     return result
 
 
-def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_dimensions, grid_size=50):
+def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_dimensions, grid_size=50, tracks=None):
     """
-    Create density-based regions from the EXACT SAME data used in 'Motility by Region'.
-    Uses all_cell_positions that creates the blue dots.
+    Create density-based regions with optional tracking data for enhanced export.
     
     Parameters:
     -----------
@@ -1629,10 +1628,12 @@ def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_
         (width, height) of the chamber
     grid_size : int
         Size of pixel blocks for density calculation
+    tracks : list, optional
+        List of track dictionaries with cell IDs and time points
     
     Returns:
     --------
-    dict : Contains density data and export data for Hamed
+    dict : Contains density data and enhanced export data
     """
     width, height = chamber_dimensions
     
@@ -1648,9 +1649,9 @@ def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_
     all_x = [pos[0] for pos in all_cell_positions]
     all_y = [pos[1] for pos in all_cell_positions]
     
-    print(f"Using {len(all_x)} cell positions for density analysis (same as blue dots in motility by region)")
+    print(f"Using {len(all_x)} cell positions for density analysis")
     
-    # Create 2D histogram (density map) - EXACT same as the blue dots
+    # Create 2D histogram (density map)
     density_grid, x_edges, y_edges = np.histogram2d(all_x, all_y, bins=[x_bins, y_bins])
     density_grid = density_grid.T  # Transpose to match image coordinates
     
@@ -1664,19 +1665,52 @@ def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_
     else:
         low_threshold = high_threshold = 0
     
-    # Prepare export data - convert positions to proper format for Hamed
+    # ENHANCED EXPORT DATA - Use tracks if available, otherwise fallback to positions
     export_data = []
-    for i, (x, y) in enumerate(zip(all_x, all_y)):
-        export_data.append({
-            'position_id': i,
-            'x_position_pixels': x,
-            'y_position_pixels': y,
-            'x_position_um': x * 0.07,
-            'y_position_um': y * 0.07,
-            'source': 'forecast_plot_positions'
-        })
     
-    # Prepare grid export data for Hamed
+    if tracks:
+        print(f"Creating enhanced export with tracking data from {len(tracks)} tracks")
+        # Use tracking data for rich export
+        for track in tracks:
+            track_id = track.get('ID', -1)
+            x_coords = track['x']
+            y_coords = track['y']
+            t_coords = track.get('t', list(range(len(x_coords))))
+            
+            # Get lineage information
+            parent_id = track.get('parent')
+            children_ids = track.get('children', [])
+            
+            for i, (x, y, t) in enumerate(zip(x_coords, y_coords, t_coords)):
+                export_data.append({
+                    'cell_id': track_id,
+                    'time_point': t,
+                    'position_in_track': i,
+                    'x_position_pixels': x,
+                    'y_position_pixels': y,
+                    'x_position_um': x * 0.07,
+                    'y_position_um': y * 0.07,
+                    'parent_id': parent_id,
+                    'has_children': len(children_ids) > 0,
+                    'track_length': len(x_coords),
+                    'source': 'tracking_data_with_lineage'
+                })
+    else:
+        print("No tracking data available, using position-only export")
+        # Fallback to position-only data
+        for i, (x, y) in enumerate(zip(all_x, all_y)):
+            export_data.append({
+                'position_id': i,
+                'cell_id': None,  # Unknown without tracking
+                'time_point': None,  # Unknown without tracking
+                'x_position_pixels': x,
+                'y_position_pixels': y,
+                'x_position_um': x * 0.07,
+                'y_position_um': y * 0.07,
+                'source': 'position_only_data'
+            })
+    
+    # Prepare grid export data
     grid_export_data = []
     for i in range(density_grid.shape[0]):
         for j in range(density_grid.shape[1]):
@@ -1707,7 +1741,7 @@ def create_density_based_regions_from_forecast_data(all_cell_positions, chamber_
         'density_grid': density_grid,
         'x_bins': x_bins,
         'y_bins': y_bins,
-        'export_data': export_data,  # Raw forecast plot data for Hamed
+        'export_data': export_data,  # Now includes tracking data when available
         'grid_export_data': grid_export_data,
         'thresholds': {'low': low_threshold, 'high': high_threshold},
         'total_cells': len(all_x),

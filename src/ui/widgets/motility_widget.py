@@ -2,17 +2,20 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QTabWidget, QWidget, QMessageBox, QProgressDialog,
                              QFileDialog, QCheckBox, QDialogButtonBox, QTextEdit, QLineEdit,
-                             QTableWidget, QTableWidgetItem, QComboBox, QGridLayout)
+                             QTableWidget, QTableWidgetItem, QComboBox, QGridLayout, QApplication, QRadioButton)
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtCore import Qt
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.cm import plasma
+from matplotlib.cm import plasma, viridis
+from matplotlib.colors import to_hex
 from matplotlib.colors import Normalize
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from skimage.measure import label, regionprops
 import pandas as pd
 from pubsub import pub
+from tracking import create_density_based_regions_from_forecast_data, enhanced_motility_index, visualize_motility_with_chamber_regions, visualize_motility_map
+
 
 # Modify in motility_widget.py
 
@@ -211,7 +214,6 @@ class MotilityDialog(QDialog):
     
     def analyze_motility(self):
         """Analyze cell motility - UPDATED"""
-        from PySide6.QtWidgets import QApplication
         QApplication.setOverrideCursor(Qt.WaitCursor)
         
         try:
@@ -242,7 +244,6 @@ class MotilityDialog(QDialog):
             print(f"Collected {len(all_cell_positions)} cell positions for visualization")
             
             # Calculate motility metrics
-            from tracking import enhanced_motility_index
             self.motility_metrics = enhanced_motility_index(
                 self.tracked_cells, chamber_dimensions)
             
@@ -305,7 +306,6 @@ class MotilityDialog(QDialog):
     
     def create_visualizations(self, chamber_dimensions, all_cell_positions):
         """Create motility visualizations"""
-        from tracking import (visualize_motility_with_chamber_regions, visualize_motility_map)
         
         # Store chamber dimensions for later use
         self.chamber_dimensions = chamber_dimensions
@@ -567,11 +567,7 @@ class MotilityDialog(QDialog):
         
         # Add to table
         self.velocity_track_list.setRowCount(len(valid_tracks))
-        
-        # Use the same colormap for consistent visualization
-        from matplotlib.cm import plasma
-        from matplotlib.colors import to_hex
-        
+ 
         for i, (track, metrics) in enumerate(valid_tracks):
             # Track ID
             id_item = QTableWidgetItem(str(track['ID']))
@@ -688,7 +684,6 @@ class MotilityDialog(QDialog):
                 velocities_um_per_s.append(velocity)
             
             # Plot this track's velocity
-            from matplotlib.cm import viridis
             color = viridis(selected_ids.index(track_id) / max(1, len(selected_ids)))
             self.velocity_ax.plot(times_hours, velocities_um_per_s, '-o', label=f"Track {track_id}", 
                                 color=color, markersize=3, alpha=0.8)
@@ -1002,15 +997,46 @@ class MotilityDialog(QDialog):
         
         
     def create_density_analysis(self):
-        """Create density-based region analysis using the EXACT SAME data as motility by region"""
-        from tracking import create_density_based_regions_from_forecast_data
+        """Create density-based region analysis with track selection prompt"""
         
-        # Use the EXACT SAME all_cell_positions that creates the blue dots in motility by region
-        # This comes from either segmentation_cache or lineage_tracks, same as the original map
+        # Quick dialog to choose tracks
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Density Analysis Options")
+        dialog.setFixedSize(350, 150)
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Choose data scope for density analysis:"))
+        
+        filtered_radio = QRadioButton(f"Filtered tracks ({len(self.tracked_cells)})")
+        all_radio = QRadioButton(f"All tracks ({len(self.lineage_tracks)})")
+        filtered_radio.setChecked(True)  # Default to current behavior
+        
+        layout.addWidget(filtered_radio)
+        layout.addWidget(all_radio)
+        
+        # Buttons
+        buttons = QHBoxLayout()
+        ok_btn = QPushButton("Analyze")
+        cancel_btn = QPushButton("Cancel")
+        buttons.addWidget(ok_btn)
+        buttons.addWidget(cancel_btn)
+        layout.addLayout(buttons)
+        
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return  # User cancelled
+        
+        # Use selected tracks
+        tracks_to_use = self.lineage_tracks if all_radio.isChecked() else self.tracked_cells
+        
+        # Create density analysis with selected tracks
         self.density_data = create_density_based_regions_from_forecast_data(
-            self.all_cell_positions,  # This is collected in analyze_motility() from collect_cell_positions()
+            self.all_cell_positions,
             self.chamber_dimensions, 
-            grid_size=50
+            grid_size=50,
+            tracks=tracks_to_use  # Use user's selection
         )
         
         # Create visualization
@@ -1026,7 +1052,6 @@ class MotilityDialog(QDialog):
         self.tab_widget.addTab(self.density_tab, "Density Regions (Forecast Data)")
         
         # Create matplotlib figure
-        import matplotlib.pyplot as plt
         
         density_fig = plt.figure(figsize=(12, 8))
         density_ax = density_fig.add_subplot(111)
@@ -1048,9 +1073,13 @@ class MotilityDialog(QDialog):
         export_data = self.density_data['export_data']
         all_x = [pos['x_position_pixels'] for pos in export_data]
         all_y = [pos['y_position_pixels'] for pos in export_data]
-        
-        density_ax.scatter(all_x, all_y, s=1, color='blue', alpha=0.3, 
-                        label=f'All Cell Positions ({len(all_x)} cells)')
+
+        # Calculate dynamic counts
+        unique_cells = len(set(pos.get('cell_id') for pos in export_data if pos.get('cell_id') is not None))  # Number of unique cells
+        total_positions = len(export_data)  # Total position records
+
+        density_ax.scatter(all_x, all_y, s=1, color='blue', alpha=0.5, 
+                label=f'Cell Tracking Data ({unique_cells} cells, {total_positions:,} position records)')
         
         # Add grid lines to show density blocks
         for x in x_bins[::2]:  # Show every other line to avoid clutter
@@ -1104,24 +1133,80 @@ class MotilityDialog(QDialog):
         self.density_layout.addLayout(bottom_panel)
 
     def export_forecast_data(self):
-        """Export the complete forecast plot data"""
+        """Export with dialog to choose filtered vs all tracks"""
+        
+        # Quick dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Export Options")
+        dialog.setFixedSize(350, 150)
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Choose export scope:"))
+        
+        filtered_radio = QRadioButton(f"Filtered tracks ({len(self.tracked_cells)})")
+        all_radio = QRadioButton(f"All tracks ({len(self.lineage_tracks)})")
+        filtered_radio.setChecked(True)
+        
+        layout.addWidget(filtered_radio)
+        layout.addWidget(all_radio)
+        
+        # Buttons
+        buttons = QHBoxLayout()
+        ok_btn = QPushButton("Export")
+        cancel_btn = QPushButton("Cancel")
+        buttons.addWidget(ok_btn)
+        buttons.addWidget(cancel_btn)
+        layout.addLayout(buttons)
+        
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        # Export based on choice
+        tracks = self.lineage_tracks if all_radio.isChecked() else self.tracked_cells
+        scope = "all" if all_radio.isChecked() else "filtered"
+        
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Forecast Data", "forecast_data.csv", 
-            "CSV Files (*.csv)")
+            self, "Export Cell Tracking Data", f"cell_tracking_{scope}.csv", "CSV Files (*.csv)")
         
         if file_path:
-            import pandas as pd
-            df = pd.DataFrame(self.density_data['export_data'])
+            # Create enhanced data with IDs and time points
+            export_data = []
+            for track in tracks:
+                track_id = track.get('ID', -1)
+                x_coords = track['x']
+                y_coords = track['y'] 
+                t_coords = track.get('t', list(range(len(x_coords))))
+                
+                # Get lineage information
+                parent_id = track.get('parent')
+                children_ids = track.get('children', [])
+                
+                for i, (x, y, t) in enumerate(zip(x_coords, y_coords, t_coords)):
+                    export_data.append({
+                        'cell_id': track_id,
+                        'time_point': t,
+                        'position_in_track': i,
+                        'x_pixels': x,
+                        'y_pixels': y,
+                        'x_um': x * 0.07,
+                        'y_um': y * 0.07,
+                        'parent_id': parent_id,
+                        'has_children': len(children_ids) > 0,
+                        'track_length': len(x_coords),
+                        'source': f'{scope}_tracks'
+                    })
+            
+            df = pd.DataFrame(export_data)
             df.to_csv(file_path, index=False)
             
-            total_cells = self.density_data['total_cells']
-            QMessageBox.information(
-                self, "Export Successful", 
-                f"Complete forecast plot data exported to {file_path}\n"
-                f"Contains {total_cells} cell positions across all frames.\n"
-                f"This is the raw data behind the forecast visualization."
-            )
-
+            QMessageBox.information(self, "Export Complete", 
+                f"Exported {len(tracks)} tracks with {len(export_data)} position records\n"
+                f"Each record includes cell_id, time_point, and lineage info\n"
+                f"Perfect for Hamed's flow simulations!")
+    
     def export_density_grid(self):
         """Export density grid analysis"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -1129,7 +1214,6 @@ class MotilityDialog(QDialog):
             "CSV Files (*.csv)")
         
         if file_path:
-            import pandas as pd
             df = pd.DataFrame(self.density_data['grid_export_data'])
             df.to_csv(file_path, index=False)
             
@@ -1141,7 +1225,6 @@ class MotilityDialog(QDialog):
             
     def add_density_summary(self):
         """Add summary statistics for density regions"""
-        from PySide6.QtGui import QFont
         
         # Create summary widget
         summary_widget = QWidget()
@@ -1360,9 +1443,14 @@ class MotilityDialog(QDialog):
         stats_grid.setSpacing(15)
         
         # Define the 4 stat cards
+        export_data = self.density_data['export_data']
+        unique_cells = len(set(pos.get('cell_id') for pos in export_data if pos.get('cell_id') is not None))
+        total_positions = len(export_data)
+
+        # Define the 4 stat cards with correct labels
         stat_configs = [
-            (f"{total_cells:,}", "Total Cells", "#3498db", 0, 0),
-            (f"{len(grid_data)}", "Grid Blocks", "#2ecc71", 0, 1),
+            (f"{unique_cells:,}", "Unique Cells", "#3498db", 0, 0),
+            (f"{total_positions:,}", "Position Records", "#2ecc71", 0, 1),
             ("50px", "Block Size", "#9b59b6", 1, 0),
             ("4", "Density Types", "#e67e22", 1, 1)
         ]
