@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                                QComboBox, QTableWidget, QTableWidgetItem, 
-                               QMessageBox, QFileDialog, QTabWidget)
+                               QMessageBox, QFileDialog, QTabWidget, QDialog)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap, QColor
 import matplotlib.pyplot as plt
@@ -48,15 +48,66 @@ class MorphologyWidget(QWidget):
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_current_view_changed, "current_view_changed")
         pub.subscribe(self.set_tracking_data, "tracking_data_available")
+        pub.subscribe(self.process_morphology_time_series, "process_morphology_time_series_requested")
+        pub.subscribe(self.provide_cell_mapping, "get_cell_mapping")
+
+    def provide_cell_mapping(self, time, position, channel, cell_id, callback):
+        """
+        Provide cell mapping data to other components upon request
+        
+        Args:
+            time: Current time point
+            position: Current position
+            channel: Current channel
+            cell_id: ID of the cell to provide mapping for
+            callback: Function to receive the mapping data
+        """
+        print(f"MorphologyWidget: provide_cell_mapping called, have {len(self.cell_mapping)} cells")
+        
+        if not self.cell_mapping:
+            print("No cell mapping data available")
+            callback(None)
+            return
+        
+        # If cell_id is specified, check if it exists
+        if cell_id is not None and cell_id not in self.cell_mapping:
+            print(f"Cell ID {cell_id} not found in cell mapping")
+            callback(None)
+            return
+        
+        # Return the mapping (full or filtered by cell_id)
+        if cell_id is not None:
+            callback({cell_id: self.cell_mapping[cell_id]})
+        else:
+            callback(self.cell_mapping)
     
     def initUI(self):
         layout = QVBoxLayout(self)
         
-        # Add the fetch metrics button at the top
+        buttons_layout = QHBoxLayout()
+    
+        buttons_layout.addSpacing(20)
+        
+        # Add the classify cells button
         self.fetch_metrics_button = QPushButton("Classify Cells")
         self.fetch_metrics_button.clicked.connect(self.fetch_metrics_from_service)
         self.fetch_metrics_button.setStyleSheet("background-color: black; color: white; font-weight: bold;")
-        layout.addWidget(self.fetch_metrics_button)
+        self.fetch_metrics_button.setFixedHeight(40) 
+        buttons_layout.addWidget(self.fetch_metrics_button)
+        
+        buttons_layout.addSpacing(20)
+        
+        # Add Process Morphology Over Time button
+        self.process_morphology_button = QPushButton("Process Morphology Over Time")
+        self.process_morphology_button.clicked.connect(self.process_morphology_time_series)
+        self.process_morphology_button.setStyleSheet("background-color: black; color: white; font-weight: bold;")
+        self.process_morphology_button.setFixedHeight(40)  
+        buttons_layout.addWidget(self.process_morphology_button)
+        
+        buttons_layout.addSpacing(20)
+    
+        layout.addLayout(buttons_layout)
+    
         
         # Create QTabWidget for inner tabs
         inner_tab_widget = QTabWidget()
@@ -67,25 +118,25 @@ class MorphologyWidget(QWidget):
         inner_tab_widget.addTab(self.scatter_tab, "PCA Plot")
         inner_tab_widget.addTab(self.table_tab, "Metrics Table")
         
-        # Set up scatter plot tab (PCA)
         scatter_layout = QVBoxLayout(self.scatter_tab)
-        
-        # Annotated image display
-        self.annotated_image_label = QLabel("Annotated image will be displayed here.")
-        self.annotated_image_label.setFixedSize(300, 300)
-        self.annotated_image_label.setAlignment(Qt.AlignCenter)
-        self.annotated_image_label.setScaledContents(True)
-        scatter_layout.addWidget(self.annotated_image_label)
-        
-        # PCA scatter plot display (no color by dropdown)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1) 
+        self.save_plot_button = QPushButton("Save Plot")
+        self.save_plot_button.setStyleSheet("background-color: white; color: black; font-size: 12px;")
+        self.save_plot_button.clicked.connect(self.save_pca_plot)
+        self.save_plot_button.setFixedWidth(120)
+        button_layout.addWidget(self.save_plot_button)
+        scatter_layout.addLayout(button_layout)
+
+        # PCA scatter plot display 
         self.figure_annot_scatter = plt.figure()
         self.canvas_annot_scatter = FigureCanvas(self.figure_annot_scatter)
-        scatter_layout.addWidget(self.canvas_annot_scatter)
+        scatter_layout.addWidget(self.canvas_annot_scatter, 1)
         
         # Metrics table tab
         table_layout = QVBoxLayout(self.table_tab)
         
-        # Add Export button with tracking GIF capability
         self.button_layout = QHBoxLayout()
         
         # Export to CSV button
@@ -104,21 +155,41 @@ class MorphologyWidget(QWidget):
         self.metrics_table.itemClicked.connect(self.on_table_item_click)
         table_layout.addWidget(self.metrics_table)
         
-        # Add tabs to main layout
         layout.addWidget(inner_tab_widget)
+        
+    def save_pca_plot(self):
+        """Save the PCA scatter plot to a file"""
+        if not hasattr(self, "figure_annot_scatter"):
+            QMessageBox.warning(self, "Error", "No plot available to save.")
+            return
+            
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save PCA Plot", "", "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)")
+        
+        if file_path:
+            try:
+                self.figure_annot_scatter.savefig(file_path, dpi=300, bbox_inches='tight')
+                QMessageBox.information(
+                    self, "Success", f"PCA plot saved to {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save plot: {str(e)}")
+            
     
     def fetch_metrics_from_service(self):
-        """Fetch cell metrics and classification from the metrics service dataframe"""
+        """Fetch cell metrics and classification from the metrics service dataframe and annotate image"""
         if not self.metrics_service:
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
-        
+            
         try:
-            # Get current frame information to fetch relevant metrics
-            # (These would be provided by pub/sub messages in real implementation)
+            # Get current frame information
             t = pub.sendMessage("get_current_t", default=0)
             p = pub.sendMessage("get_current_p", default=0)
             c = pub.sendMessage("get_current_c", default=0)
+            # Ensure values are not None
+            t = t if t is not None else 0
+            p = p if p is not None else 0
+            c = c if c is not None else 0
             
             print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
             
@@ -183,18 +254,19 @@ class MorphologyWidget(QWidget):
             self.populate_metrics_table()
             self.update_annotation_scatter()
             
-            # Provide user feedback
-            QMessageBox.information(
-                self, 
-                "Metrics Loaded", 
-                f"Successfully loaded metrics for {len(self.cell_mapping)} cells from metrics service."
-            )
+            # NEW: Send message to ViewAreaWidget to draw bounding boxes
+            pub.sendMessage("draw_cell_bounding_boxes", 
+                        time=t, 
+                        position=p, 
+                        channel=c, 
+                        cell_mapping=self.cell_mapping)
             
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"Error fetching metrics: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to fetch metrics: {str(e)}")
+        
     
     def on_table_item_click(self, item):
         """Handle clicks on the metrics table to select and track cells"""
@@ -218,6 +290,27 @@ class MorphologyWidget(QWidget):
         except Exception as e:
             print(f"Error in table item click: {str(e)}")
             QMessageBox.warning(self, "Error", f"Failed to process cell selection: {str(e)}")
+        
+    def on_pca_point_click(self, event):
+        """
+        Handle click events on the PCA scatter plot.
+        Highlight the corresponding cell in the image.
+        """
+        if event.artist not in self.figure_annot_scatter.axes[0].collections:
+            return
+
+        # Get the index of the clicked point
+        ind = event.ind[0]  # event.ind is a list of indices of the picked points
+
+        # Map the index back to the cell_id (similar to list(self.cell_mapping.keys())[ind] in the old code)
+        clicked_cell_id = self.pca_data["cell_ids"][ind]
+        print(f"Clicked PCA point for cell_id: {clicked_cell_id}")
+
+        # Store the selected cell_id
+        self.selected_cell_id = clicked_cell_id
+
+        # Highlight the cell in the image
+        self.highlight_cell_in_image(clicked_cell_id)
         
     
     def select_cell_for_tracking(self, cell_id):
@@ -351,44 +444,17 @@ class MorphologyWidget(QWidget):
     
     
     def highlight_cell_in_image(self, cell_id):
-        """Highlight a specific cell in the current image view"""
-        try:
-            if not hasattr(self, "cell_mapping") or not self.cell_mapping:
-                print("No cell mapping available for highlighting")
-                return
-                
-            if int(cell_id) not in self.cell_mapping:
-                print(f"Cell ID {cell_id} not found in mapping")
-                return
-                
-            # Send message to highlight the cell in main view
-            print(f"Sending highlight request for cell {cell_id}")
-            pub.sendMessage("highlight_cell_requested", cell_id=int(cell_id))
-            
-            # Also highlight the cell in our local view if we have the annotated image
-            if hasattr(self, "annotated_image") and self.annotated_image is not None:
-                try:
-                    # Create a copy of the annotated image
-                    highlighted = self.annotated_image.copy()
-                    
-                    # Get bounding box of the cell
-                    y1, x1, y2, x2 = self.cell_mapping[int(cell_id)]["bbox"]
-                    
-                    # Draw a prominent rectangle around the cell
-                    cv2.rectangle(highlighted, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                    
-                    # Display in our widget
-                    height, width = highlighted.shape[:2]
-                    qimage = QImage(highlighted.data, width, height, 
-                                highlighted.strides[0], QImage.Format_RGB888)
-                    pixmap = QPixmap.fromImage(qimage)
-                    self.annotated_image_label.setPixmap(pixmap)
-                    
-                    print(f"Cell {cell_id} highlighted in local view")
-                except Exception as e:
-                    print(f"Failed to highlight in local view: {str(e)}")
-        except Exception as e:
-            print(f"Error highlighting cell: {str(e)}")
+        """
+        Request highlighting of a cell in the main image view
+        Called when a cell is clicked in the PCA scatter plot
+        """
+        print(f"MorphologyWidget: Requesting highlight for cell {cell_id}")
+        
+        # Ensure cell_id is an integer
+        cell_id = int(cell_id)
+        
+        # Send message to request cell highlighting
+        pub.sendMessage("highlight_cell_requested", cell_id=cell_id)
     
     def update_annotation_scatter(self):
         """Update the PCA scatter plot with current cell morphology data"""
@@ -633,3 +699,85 @@ class MorphologyWidget(QWidget):
         """Handler for when the current view changes (time/position/channel)"""
         # Update display if needed for new t/p/c values
         pass
+    
+    
+    def process_morphology_time_series(self):
+        """Process morphology across time points using metrics service"""
+        if not self.metrics_service:
+            QMessageBox.warning(self, "Error", "Metrics service not available.")
+            return
+        
+        # Get current position and channel
+        p = pub.sendMessage("get_current_p", default=0)
+        c = pub.sendMessage("get_current_c", default=0)
+        
+        # Query metrics for all timepoints for this position and channel
+        df = self.metrics_service.query(position=p, channel=c)
+        
+        if df.is_empty():
+            QMessageBox.warning(self, "No Data", "No metrics available.")
+            return
+        
+        # Convert to pandas
+        metrics_df = df.to_pandas()
+        
+        # Get all unique morphology classes
+        all_morphologies = metrics_df['morphology_class'].unique()
+        
+        # Group by time
+        by_time = metrics_df.groupby('time')
+        
+        # Create data structures for plotting
+        times = sorted(metrics_df['time'].unique())
+        morphology_counts = {morphology: [] for morphology in all_morphologies}
+        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        total_cells = []
+        
+        # Calculate counts and fractions for each timepoint
+        for t in times:
+            t_data = metrics_df[metrics_df['time'] == t]
+            t_counts = t_data['morphology_class'].value_counts()
+            t_total = len(t_data)
+            total_cells.append(t_total)
+            
+            for morph in all_morphologies:
+                count = t_counts.get(morph, 0)
+                morphology_counts[morph].append(count)
+                morphology_fractions[morph].append(count/t_total if t_total > 0 else 0)
+        
+        # Clear the figure and create two subplots
+        self.figure_annot_scatter.clear()
+        ax1 = self.figure_annot_scatter.add_subplot(2, 1, 1)
+        ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2)
+        
+        # Plot fractions
+        for morph, fractions in morphology_fractions.items():
+            color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
+            ax1.plot(times, fractions, 'o-', label=morph, color=color)
+        
+        ax1.set_title("Morphology Fractions Over Time")
+        ax1.set_ylabel("Fraction (%)")
+        ax1.legend()
+        
+        # Plot counts
+        for morph, counts in morphology_counts.items():
+            color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
+            ax2.plot(times, counts, 'o-', label=morph, color=color)
+        
+        # Add total cells line on secondary y-axis
+        ax3 = ax2.twinx()
+        ax3.plot(times, total_cells, 'k--', label='Total Cells')
+        
+        ax2.set_title("Cell Counts By Morphology Over Time")
+        ax2.set_xlabel("Time (mins)")
+        ax2.set_ylabel("Count by Class")
+        ax3.set_ylabel("Total Cell Count")
+        
+        # Legend for second plot
+        lines1, labels1 = ax2.get_legend_handles_labels()
+        lines2, labels2 = ax3.get_legend_handles_labels()
+        ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+        
+        # Adjust layout and draw
+        self.figure_annot_scatter.tight_layout()
+        self.canvas_annot_scatter.draw()

@@ -9,6 +9,7 @@ import numpy as np
 from .segmentation_models import SegmentationModels
 # from .losses import pixelwise_weighted_binary_crossentropy_seg
 
+
 class SegmentationCache:
     def __init__(self, nd2_data):
         self.nd2_data = nd2_data
@@ -41,7 +42,8 @@ class SegmentationCache:
                 model_group.create_dataset(
                     'array', data=array, compression='gzip')
                 # Store the set as a JSON string
-                model_group.attrs['index_set'] = json.dumps(list(index_set))
+                index_list = [list(idx) for idx in index_set]
+                model_group.attrs['index_set'] = json.dumps(index_list)
 
             # Store nd2_data reference or metadata
             # Note: We don't store the actual nd2_data, just metadata about it
@@ -69,11 +71,32 @@ class SegmentationCache:
                 for model_name in mmap_group:
                     model_group = mmap_group[model_name]
                     array = model_group['array'][:]
-                    index_list = json.loads(model_group.attrs['index_set'])
-                    # Here we need to convert the index_list, which is read
-                    # into a list of lists, into a list of tuples
-                    index_list = [tuple(_index) for _index in index_list]
-                    index_set = set(index_list)
+
+                    # Reconstruct the indices set
+                    index_set = set()
+                    if 'index_set' in model_group.attrs:
+                        index_list_str = model_group.attrs['index_set']
+                        try:
+                            # Load the indices from JSON string
+                            index_list = json.loads(index_list_str)
+
+                            # Convert each index to a proper tuple
+                            for idx in index_list:
+                                # Ensure each index is a tuple of integers
+                                if isinstance(idx, list):
+                                    index_set.add(tuple(int(i) for i in idx))
+                                else:
+                                    print(
+                                        f"WARNING: Unexpected index format: {idx}")
+
+                            print(
+                                f"Successfully loaded {len(index_set)} indices for model {model_name}")
+                        except Exception as e:
+                            print(
+                                f"Error parsing indices for model {model_name}: {str(e)}")
+                            # Continue with empty set
+
+                    # Store the array and indices
                     cache.mmap_arrays_idx[model_name] = (array, index_set)
 
         return cache

@@ -13,6 +13,8 @@ from segmentation.segmentation_models import SegmentationModels
 """
 Can hold either an ND2 file or a series of images
 """
+
+
 class ImageData:
     def __init__(self, data, path, is_nd2=True):
         self.data = data
@@ -33,7 +35,7 @@ class ImageData:
 
     def _get_raw_image(self, t, p, c):
         """Helper method to retrieve raw images"""
-        
+
         if len(self.data.shape) == 5:  # - has channel
             raw_image = self.data[t, p, c]
         elif len(self.data.shape) == 4:  # - no channel
@@ -44,24 +46,25 @@ class ImageData:
                 raw_image = self.data[t, p]
             else:
                 raw_image = self.data[t]
-        
+
         # Compute if it's a dask array
         if hasattr(raw_image, 'compute'):
             raw_image = raw_image.compute()
-        
+
         return raw_image
 
     def _access(self, time, position, channel):
-        
+
         image = self._get_raw_image(time, position, channel)
         pub.sendMessage("image_ready",
-                       image=image,
-                       time=time,
-                       position=position,
-                       channel=channel,
-                       mode='normal')
+                        image=image,
+                        time=time,
+                        position=position,
+                        channel=channel,
+                        mode='normal')
 
     @classmethod
+
     def load_nd2(cls, file_paths: Union[str, Sequence[str]]):
         """
         Load one or more ND2 files, verify that channel count, image height and width match,
@@ -138,25 +141,29 @@ class ImageData:
     @classmethod
     def load(cls, filename):
         """Load imagedata from path"""
-        image_data = cls()
         base_dir = Path(filename)
 
-        # Load imagedata and nd2
+        # Load imagedata metadata
         meta_path = base_dir / "image_data.json"
         if meta_path.exists():
             with open(meta_path, 'r') as f:
-                _json = json.load(f)
-                image_data.nd2_filename = _json.get('nd2_filename')
-                image_data.is_nd2 = _json.get('is_nd2')
-                # Load other attributes as needed
+                meta_json = json.load(f)
+                nd2_filename = meta_json.get('nd2_filename')
+                is_nd2 = meta_json.get('is_nd2', True)
 
-        # Load nd2
-        image_data._load_nd2(image_data.nd2_filename)
+                # Use load_nd2 to create the instance properly
+                if nd2_filename and os.path.exists(nd2_filename):
+                    image_data = cls.load_nd2(nd2_filename)
 
-        # Load segmentation cache if file exists
-        cache_path = base_dir / "segmentation_cache.h5"
-        if cache_path.exists():
-            image_data.segmentation_cache = SegmentationCache.load(
-                str(cache_path), image_data.data)
+                    # Load segmentation cache if file exists
+                    cache_path = base_dir / "segmentation_cache.h5"
+                    if cache_path.exists():
+                        image_data.segmentation_cache = SegmentationCache.load(
+                            str(cache_path), image_data.data)
 
-        return image_data
+                    return image_data
+                else:
+                    raise FileNotFoundError(
+                        f"ND2 file not found: {nd2_filename}")
+        else:
+            raise FileNotFoundError(f"Metadata file not found in {filename}")
