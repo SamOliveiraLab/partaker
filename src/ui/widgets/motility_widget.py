@@ -1078,7 +1078,7 @@ class MotilityDialog(QDialog):
         unique_cells = len(set(pos.get('cell_id') for pos in export_data if pos.get('cell_id') is not None))  # Number of unique cells
         total_positions = len(export_data)  # Total position records
 
-        density_ax.scatter(all_x, all_y, s=1, color='blue', alpha=0.5, 
+        density_ax.scatter(all_x, all_y, s=1, color='blue', alpha=0.2, 
                 label=f'Cell Tracking Data ({unique_cells} cells, {total_positions:,} position records)')
         
         # Add grid lines to show density blocks
