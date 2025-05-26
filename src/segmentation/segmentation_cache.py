@@ -6,6 +6,8 @@ import pickle
 import h5py
 import numpy as np
 
+import cv2
+
 from .segmentation_models import SegmentationModels
 # from .losses import pixelwise_weighted_binary_crossentropy_seg
 
@@ -282,6 +284,12 @@ class SegmentationCache:
 
         try:
             frame = self.nd2_data[idx].compute()
+
+            # TODO: migrate to segmentation service
+            # Normalize frame first
+            frame = cv2.normalize(
+                    frame, None, 0, 65535, cv2.NORM_MINMAX).astype(np.uint16)
+
             segmented_frame = SegmentationModels().segment_images(
                 [frame], mode=self.model_name)[0]
 

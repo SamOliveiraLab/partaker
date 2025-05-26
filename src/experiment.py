@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 from typing import List, Dict, Any, Union, Tuple, Optional
-import nd2
+from nd2 import ND2File
 
 class Experiment:
     """
@@ -28,10 +28,12 @@ class Experiment:
         """
         self.name = name
         self.nd2_files = []
-        for _file in nd2_files:
-            self.add_nd2_file(_file)
         self.interval = interval
         self.rpu_values = rpu_values or {}
+        self.base_shape = ()
+        
+        for _file in nd2_files:
+            self.add_nd2_file(_file)
         
     def add_nd2_file(self, file_path: str) -> None:
         """
@@ -52,42 +54,30 @@ class Experiment:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File {file_path} does not exist.")
             
-        # Check if ND2 works
         try:
-            import nd2
-            reader = nd2.ND2File(file_path)
-        except ImportError:
-            raise ImportError("The nd2 module is required. Please install it with 'pip install nd2'.")
+            with ND2File(file_path) as reader:
+                            
+                shape = reader.shape
+
+                if len(self.base_shape) == 0:
+                    self.base_shape = shape
+
+                elif self.nd2_files:
+                    try:
+                        # "compatibility" means it can be concatenated on the first axis
+                        if len(shape) != len(self.base_shape):
+                            raise ValueError(f"File {file_path} has different dimensions ({len(shape)}) than existing files ({len(self.base_shape)}).")
+                            
+                        if shape[1:] != self.base_shape[1:]:
+                            raise ValueError(f"File {file_path} shape {shape} is not compatible with existing files shape {self.base_shape}.")
+
+                    except Exception as e:
+                        raise ValueError(f"Error checking compatibility: {str(e)}")
+                        
+                self.nd2_files.append(file_path)
+
         except Exception as e:
             raise ValueError(f"Error opening ND2 file {file_path}: {str(e)}")
-            
-        # Check if the shape is compatible
-        new_shape = reader.shape
-        if self.nd2_files:  # If we already have files
-            try:
-                first_file = self.nd2_files[0]
-                first_reader = nd2.ND2File(first_file)
-                first_shape = first_reader.shape
-                
-                # "compatibility" means same shape except for T and P (1st and 2nd dimensions)
-                if len(new_shape) != len(first_shape):
-                    reader.close()
-                    first_reader.close()
-                    raise ValueError(f"File {file_path} has different dimensions ({len(new_shape)}) than existing files ({len(first_shape)}).")
-                    
-                if new_shape[2:] != first_shape[2:]:
-                    reader.close()
-                    first_reader.close()
-                    raise ValueError(f"File {file_path} shape {new_shape} is not compatible with existing files shape {first_shape}.")
-                    
-                first_reader.close()
-            except Exception as e:
-                reader.close()
-                raise ValueError(f"Error checking compatibility: {str(e)}")
-                
-        # If all checks pass, add the file
-        self.nd2_files.append(file_path)
-        reader.close()
         
     def get_image_manager(self) -> 'ImageManager':
         """

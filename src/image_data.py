@@ -5,6 +5,8 @@ from typing import Union, Sequence
 import nd2
 import dask.array as da
 from pubsub import pub
+from functools import reduce
+import operator
 
 from segmentation.segmentation_cache import SegmentationCache
 from segmentation.segmentation_service import SegmentationService
@@ -64,7 +66,6 @@ class ImageData:
                         mode='normal')
 
     @classmethod
-
     def load_nd2(cls, file_paths: Union[str, Sequence[str]]):
         """
         Load one or more ND2 files, verify that channel count, image height and width match,
@@ -151,8 +152,10 @@ class ImageData:
                 nd2_filename = meta_json.get('nd2_filename')
                 is_nd2 = meta_json.get('is_nd2', True)
 
+                files_ok = (isinstance(nd2_filename, str) and os.path.exists(nd2_filename)) or (isinstance(nd2_filename, list) and all(os.path.exists(_fname) for _fname in nd2_filename))
+
                 # Use load_nd2 to create the instance properly
-                if nd2_filename and os.path.exists(nd2_filename):
+                if files_ok:
                     image_data = cls.load_nd2(nd2_filename)
 
                     # Load segmentation cache if file exists
@@ -160,6 +163,11 @@ class ImageData:
                     if cache_path.exists():
                         image_data.segmentation_cache = SegmentationCache.load(
                             str(cache_path), image_data.data)
+                        image_data.segmentation_service = SegmentationService(
+                            cache=image_data.segmentation_cache,
+                            models=SegmentationModels(),
+                            data_getter=image_data._get_raw_image
+                        )
 
                     return image_data
                 else:

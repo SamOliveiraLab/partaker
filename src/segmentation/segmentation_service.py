@@ -60,11 +60,12 @@ class SegmentationService:
         # If not in cache, process as normal
         segmented = self.cache.with_model(model)[cache_key]
 
-        if segmented is None:
-            # Cache miss - process and store
-            raw_image = self.get_raw_image(time, position, channel)
-            segmented = self._process_image(raw_image, model)
-            self.cache.with_model(model)[cache_key] = segmented
+        # TODO: migrate processing here
+        # if segmented is None:
+        #     # Cache miss - process and store
+        #     raw_image = self.get_raw_image(time, position, channel)
+        #     segmented = self._process_image(raw_image, model)
+        #     self.cache.with_model(model)[cache_key] = segmented
 
         # Post-process based on mode
         processed_image = self._post_process(
@@ -80,14 +81,15 @@ class SegmentationService:
                         channel=channel,
                         mode=mode)
 
-    def _process_image(self, image, model):
-        """Process raw image through segmentation pipeline"""
-        # Preprocessing
-        preprocessed = self.models.preprocess(image, model)
-        # Segmentation
-        segmented = self.models.segment([preprocessed], model)[0]
-        # Postprocessing
-        return self.models.postprocess(segmented, model)
+    # TODO: migrate processing here
+    # def _process_image(self, image, model):
+    #     """Process raw image through segmentation pipeline"""
+    #     # Preprocessing
+    #     preprocessed = self.models.preprocess(image, model)
+    #     # Segmentation
+    #     segmented = self.models.segment([preprocessed], model)[0]
+    #     # Postprocessing
+    #     return self.models.postprocess(segmented, model)
 
     def _post_process(self, raw_image, segmented, mode):
         """Apply final transformations based on display mode"""

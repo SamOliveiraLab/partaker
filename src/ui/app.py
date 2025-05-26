@@ -183,122 +183,6 @@ class App(QMainWindow):
         self.image_data = ImageData.load_nd2(experiment.nd2_files)
         pub.sendMessage("image_data_loaded", image_data=self.image_data)
 
-    
-    def load_from_folder(self):
-        """Load a project from a folder"""
-        folder_path = QFileDialog.getExistingDirectory(
-            self, "Select Project Folder", "", QFileDialog.ShowDirsOnly
-        )
-
-        if folder_path:
-            print(f"DEBUG: Loading project from folder: {folder_path}")
-
-            try:
-                # Check for segmentation cache files
-                cache_path = os.path.join(folder_path, "segmentation_cache.h5")
-                metadata_path = os.path.join(folder_path, "segmentation_metadata.json")
-                
-                if os.path.exists(cache_path):
-                    print(f"DEBUG: Found segmentation cache at {cache_path}")
-                    cache_size = os.path.getsize(cache_path)
-                    print(f"DEBUG: Cache file size: {cache_size/1024/1024:.2f} MB")
-                else:
-                    print(f"DEBUG: No segmentation cache found at {cache_path}")
-                    
-                if os.path.exists(metadata_path):
-                    print(f"DEBUG: Found segmentation metadata at {metadata_path}")
-                    import json
-                    with open(metadata_path, 'r') as f:
-                        metadata = json.load(f)
-                        print(f"DEBUG: Metadata: {metadata}")
-                else:
-                    print(f"DEBUG: No segmentation metadata found at {metadata_path}")
-
-                # Load image data
-                print(f"DEBUG: Loading image data")
-                self.image_data = ImageData.load(folder_path)
-                print(f"DEBUG: Image data loaded successfully")
-                
-                # Check segmentation cache status after loading
-                if hasattr(self.image_data, "segmentation_cache"):
-                    cache = self.image_data.segmentation_cache
-                    print("DEBUG: Inspecting segmentation cache after loading:")
-                    print(f"DEBUG: Cache model name: {cache.model_name}")
-                    
-                    # Check all models in cache
-                    for model_name in cache.mmap_arrays_idx.keys():
-                        array, indices = cache.mmap_arrays_idx[model_name]
-                        print(f"DEBUG: Model {model_name} has {len(indices)} entries")
-                        
-                        # Show some sample indices to see their format
-                        sample_indices = list(indices)[:5] if indices else []
-                        print(f"DEBUG: Sample indices: {sample_indices}")
-                        print(f"DEBUG: Array shape: {array.shape}")
-                else:
-                    print(f"DEBUG: No segmentation cache loaded")
-
-                # Load metrics data
-                print(f"DEBUG: Loading metrics data")
-                metrics_service = MetricsService()
-                metrics_loaded = metrics_service.load_from_file(folder_path)
-                print(f"DEBUG: Metrics loaded: {metrics_loaded}")
-                
-                if metrics_loaded:
-                    # Print some metrics statistics
-                    query_result = metrics_service.query()
-                    if not query_result.is_empty():
-                        print(f"DEBUG: Loaded {query_result.height} metric rows")
-                        print(f"DEBUG: Metric columns: {query_result.columns}")
-                        
-                        # Check a few specific frames
-                        for t, p, c in [(0, 0, 0), (0, 1, 0), (1, 0, 0)]:
-                            frame_metrics = metrics_service.query(time=t, position=p, channel=c)
-                            if not frame_metrics.is_empty():
-                                print(f"DEBUG: Found {frame_metrics.height} metrics for T={t}, P={p}, C={c}")
-                            else:
-                                print(f"DEBUG: No metrics found for T={t}, P={p}, C={c}")
-                    else:
-                        print(f"DEBUG: No metric rows loaded")
-
-                # Update UI based on loaded image data
-                if hasattr(self, "viewArea"):
-                    # Update the ViewAreaWidget model dropdown
-                    if hasattr(self.image_data, "segmentation_cache") and self.image_data.segmentation_cache.model_name:
-                        model_name = self.image_data.segmentation_cache.model_name
-                        index = self.viewArea.model_dropdown.findText(model_name)
-                        if index >= 0:
-                            print(f"DEBUG: Setting viewArea model dropdown to {model_name}")
-                            self.viewArea.model_dropdown.blockSignals(True)
-                            self.viewArea.model_dropdown.setCurrentIndex(index)
-                            self.viewArea.model_dropdown.blockSignals(False)
-                            self.viewArea.current_model = model_name
-                    
-                    print(f"DEBUG: Sending image_data_loaded message")
-                    pub.sendMessage("image_data_loaded", image_data=self.image_data)
-
-                # Load tracking data if available
-                tracking_loaded = False
-                if hasattr(self, "tracking_manager") and hasattr(self.tracking_manager, "tracking_widget"):
-                    tracking_loaded = self.tracking_manager.tracking_widget.load_tracking_data(
-                        folder_path)
-                    print(f"DEBUG: Tracking data loaded: {tracking_loaded}")
-
-                # Show success message
-                message = f"Project loaded from {folder_path}"
-                if metrics_loaded:
-                    message += "\nMetrics data loaded successfully"
-                if tracking_loaded:
-                    message += "\nTracking data loaded successfully"
-
-                QMessageBox.information(self, "Project Loaded", message)
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                QMessageBox.warning(
-                    self, "Error", f"Failed to load project: {str(e)}")
-            
-    
     def load_nd2_file(self, file_path):
         self.image_data = ImageData.load_nd2(file_path)
         self.init_controls_nd2(file_path)
@@ -2864,7 +2748,7 @@ class App(QMainWindow):
         file_menu = menu_bar.addMenu("File")
 
         # New Experiment
-        new_experiment_action = QAction("New Experiment", self)
+        new_experiment_action = QAction("Experiment", self)
         new_experiment_action.setShortcut("Ctrl+E")
         new_experiment_action.triggered.connect(
             self.show_new_experiment_dialog)
@@ -2970,8 +2854,7 @@ class App(QMainWindow):
                 f"Project saved to {folder_path}" +
                 ("\nIncludes tracking data" if tracking_saved else "")
             )
-    
-    
+
     def load_from_folder(self):
         """Load a project from a folder"""
         folder_path = QFileDialog.getExistingDirectory(
