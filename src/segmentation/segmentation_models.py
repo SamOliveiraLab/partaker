@@ -205,7 +205,7 @@ class SegmentationModels:
                 }
 
         masks, flows, styles = model.eval(images,**params)
-        masks = np.array(masks)  # Ensure masks are a NumPy array
+        # masks = np.array(masks)  # Ensure masks are a NumPy array
 
         return masks
 
@@ -290,15 +290,20 @@ class SegmentationModels:
                  original_shape[0]),
                 interpolation=cv2.INTER_NEAREST) for segmented_image in segmented_images]
 
-        # Apply erosion specifically for Cellpose models
-        if is_cellpose_model:
-            resized_images = self.apply_morphological_erosion(resized_images)
+        lbl_n = np.unique(resized_images[0]).shape[0]
+        print(f'[segmentation_models.py:segment_images] Segmentation has {lbl_n} labels')
 
-        # Remove artifacts (optional step that can be enabled with a parameter)
-        cleaned_images = [self.remove_artifacts_from_mask(
-            img) for img in resized_images]
+        return resized_images
 
-        return cleaned_images
+        # # Apply erosion specifically for Cellpose models
+        # if is_cellpose_model:
+        #     resized_images = self.apply_morphological_erosion(resized_images)
+
+        # # Remove artifacts (optional step that can be enabled with a parameter)
+        # cleaned_images = [self.remove_artifacts_from_mask(
+        #     img) for img in resized_images]
+
+        # return cleaned_images
 
     def remove_artifacts_from_mask(self, mask, min_area_ratio=0.2):
         """
