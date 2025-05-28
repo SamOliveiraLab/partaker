@@ -166,7 +166,14 @@ class MetricsService:
 
             if np.any(cell_mask):
                 cell_pixels = image[cell_mask]
-                metrics[fluo_metric_key] = np.mean(cell_pixels)
+                _cell_fluorescence = np.mean(cell_pixels)
+
+                # TODO: only count fluorescence if there is some signal larger than the background noise.
+                if _cell_fluorescence > background_intensity:
+                    metrics[fluo_metric_key] = _cell_fluorescence
+                else:
+                    metrics[fluo_metric_key] = 0                    
+
                 # metrics["max_intensity"] = np.max(cell_pixels)
                 # metrics["min_intensity"] = np.min(cell_pixels)
                 # metrics["std_intensity"] = np.std(cell_pixels)
