@@ -216,6 +216,7 @@ class ViewAreaWidget(QWidget):
 
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems([
+            SegmentationModels.OMNIPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_FLUOR,
             SegmentationModels.CELLPOSE,

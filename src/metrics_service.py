@@ -72,15 +72,23 @@ class MetricsService:
         if not isinstance(image, np.ndarray):
             image = np.array(image)
 
-        # For segmented images, we need to label the connected components
-        if mode == "segmented":
-            from scipy.ndimage import label
-            labeled_image, num_features = label(image > 0)
-        else:  # mode == "labeled"
-            # For labeled images, use the labels directly
-            labeled_image = image
-            num_features = np.max(
-                labeled_image) if labeled_image.size > 0 else 0
+        num_features = np.unique(image).shape[0]
+        print(f'[MetricsService] original img {num_features}')
+
+        # # For segmented images, we need to label the connected components
+        # if mode == "segmented":
+        #     from scipy.ndimage import label
+        #     labeled_image, num_features = label(image > 0)
+        # else:  # mode == "labeled"
+        #     # For labeled images, use the labels directly
+        #     labeled_image = image
+        #     num_features = np.max(
+        #         labeled_image) if labeled_image.size > 0 else 0
+
+        # lbl_n = np.unique(labeled_image).shape[0]
+        # print(f'[MetricsService] labeled img {lbl_n}')
+
+        labeled_image = image
 
         if num_features == 0:
             logger.info(
@@ -158,7 +166,14 @@ class MetricsService:
 
             if np.any(cell_mask):
                 cell_pixels = image[cell_mask]
-                metrics[fluo_metric_key] = np.mean(cell_pixels)
+                _cell_fluorescence = np.mean(cell_pixels)
+
+                # TODO: only count fluorescence if there is some signal larger than the background noise.
+                if _cell_fluorescence > background_intensity:
+                    metrics[fluo_metric_key] = _cell_fluorescence
+                else:
+                    metrics[fluo_metric_key] = 0                    
+
                 # metrics["max_intensity"] = np.max(cell_pixels)
                 # metrics["min_intensity"] = np.min(cell_pixels)
                 # metrics["std_intensity"] = np.std(cell_pixels)

@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
                               QFileDialog, QMessageBox, QDoubleSpinBox, QGroupBox,
                               QFormLayout)
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QSpinBox
+
 from pubsub import pub
 
 class ExperimentDialog(QDialog):
@@ -62,7 +64,42 @@ class ExperimentDialog(QDialog):
         
         files_group.setLayout(files_layout)
         main_layout.addWidget(files_group)
-        
+                # RPU group
+        rpu_group = QGroupBox("RPU Values")
+        rpu_layout = QFormLayout()
+        self.mcherry_rpu_spinbox = QSpinBox()
+        self.mcherry_rpu_spinbox.setRange(0, 1000000)
+        rpu_layout.addRow("mCherry RPU:", self.mcherry_rpu_spinbox)
+        self.yfp_rpu_spinbox = QSpinBox()
+        self.yfp_rpu_spinbox.setRange(0, 1000000)
+        rpu_layout.addRow("YFP RPU:", self.yfp_rpu_spinbox)
+        rpu_group.setLayout(rpu_layout)
+        main_layout.addWidget(rpu_group)
+
+        # Events group
+        events_group = QGroupBox("Events")
+        events_layout = QVBoxLayout()
+        event_input_layout = QHBoxLayout()
+        self.event_name_edit = QLineEdit()
+        self.event_name_edit.setPlaceholderText("Event Name")
+        self.event_time_spinbox = QDoubleSpinBox()
+        self.event_time_spinbox.setRange(0, 1e6)
+        self.event_time_spinbox.setDecimals(3)
+        self.event_time_spinbox.setSuffix(" s")
+        self.add_event_button = QPushButton("Add Event")
+        self.add_event_button.clicked.connect(self.add_event)
+        event_input_layout.addWidget(self.event_name_edit)
+        event_input_layout.addWidget(self.event_time_spinbox)
+        event_input_layout.addWidget(self.add_event_button)
+        events_layout.addLayout(event_input_layout)
+        self.events_list_widget = QListWidget()
+        events_layout.addWidget(self.events_list_widget)
+        events_group.setLayout(events_layout)
+        main_layout.addWidget(events_group)
+
+        # Internal list of events (tuples of (name, time))
+        self.events = []
+
         # Dialog buttons
         button_layout = QHBoxLayout()
         self.create_button = QPushButton("Create Experiment")
@@ -125,8 +162,12 @@ class ExperimentDialog(QDialog):
     def create_experiment(self):
 
         """Gather input and attempt to create an Experiment instance"""
-        # Basic input validation (UI concern)
+
         name = self.name_edit.text().strip()
+        mcherry_rpu = self.mcherry_rpu_spinbox.value()
+        yfp_rpu = self.yfp_rpu_spinbox.value()
+        events = list(self.events)
+
         if not name:
             QMessageBox.warning(self, "Input Error", "Please enter an experiment name.")
             return
@@ -145,7 +186,10 @@ class ExperimentDialog(QDialog):
             experiment = Experiment(
                 name=name,
                 nd2_files=self.file_paths,
-                interval=time_step
+                interval=time_step,
+                # mcherry_rpu=mcherry_rpu,
+                # yfp_rpu=yfp_rpu,
+                # events=events
             )
             
             # If we get here, creation was successful
@@ -174,3 +218,20 @@ class ExperimentDialog(QDialog):
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
         pub.sendMessage("experiment", experiment=experiment)
+
+    def add_event(self):
+        """Add an event (name, time) to the list"""
+        name = self.event_name_edit.text().strip()
+        time = self.event_time_spinbox.value()
+        if not name:
+            QMessageBox.warning(self, "Input Error", "Event name cannot be empty.")
+            return
+        # Optional: check for duplicates
+        for n, t in self.events:
+            if n == name and abs(t - time) < 1e-6:
+                QMessageBox.warning(self, "Duplicate Event", "This event already exists.")
+                return
+        self.events.append((name, time))
+        self.events_list_widget.addItem(f"{name} @ {time:.3f} s")
+        self.event_name_edit.clear()
+        self.event_time_spinbox.setValue(0.0)

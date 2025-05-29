@@ -166,6 +166,7 @@ class SegmentationWidget(QWidget):
         self.model_combo.clear()
         from segmentation.segmentation_models import SegmentationModels
         self.model_combo.addItems([
+            SegmentationModels.OMNIPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_FLUOR,
             SegmentationModels.CELLPOSE,

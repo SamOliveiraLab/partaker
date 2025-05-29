@@ -22,7 +22,7 @@ class SegmentationCache:
         self.model_name = model_name
         if model_name not in self.mmap_arrays_idx:
             self.mmap_arrays_idx[model_name] = (
-                np.zeros(self.shape, dtype=np.uint8), set())
+                np.zeros(self.shape, dtype=np.uint16), set())
         return self
 
     def save(self, file_path):
@@ -287,8 +287,9 @@ class SegmentationCache:
 
             # TODO: migrate to segmentation service
             # Normalize frame first
-            frame = cv2.normalize(
-                    frame, None, 0, 65535, cv2.NORM_MINMAX).astype(np.uint16)
+            if self.model_name in [SegmentationModels().UNET]:
+                frame = cv2.normalize(
+                        frame, None, 0, 65535, cv2.NORM_MINMAX).astype(np.uint16)
 
             segmented_frame = SegmentationModels().segment_images(
                 [frame], mode=self.model_name)[0]
@@ -296,7 +297,8 @@ class SegmentationCache:
             if hasattr(self, 'binary_mask') and self.binary_mask is not None:
                 segmented_frame = self.apply_binary_mask(segmented_frame)
 
-            segmented_frame = self.remove_artifacts(segmented_frame)
+            if self.model_name in [SegmentationModels().UNET]:
+                segmented_frame = self.remove_artifacts(segmented_frame)
             mmap_array[idx] = segmented_frame
             indices.add(idx)
         except Exception as e:

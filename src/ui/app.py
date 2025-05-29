@@ -17,7 +17,7 @@ from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
 
-from cellpose import utils
+from cellpose_omni import utils
 from skimage.measure import label, regionprops
 
 from sklearn.decomposition import PCA
