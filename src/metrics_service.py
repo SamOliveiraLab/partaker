@@ -7,6 +7,9 @@ import logging
 from morphology import classify_morphology
 import os
 import pickle
+from concurrent.futures import ThreadPoolExecutor
+from skimage.measure import regionprops
+import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -61,7 +64,7 @@ class MetricsService:
         """
         # Handle raw images for fluorescence analysis
         if mode == "normal" and channel != 0:
-            self._process_fluorescence_image(image, time, position, channel)
+            self._process_fluorescence_image_parallel(image, time, position, channel)
             return
 
         # Only process segmentation-related modes
@@ -103,7 +106,7 @@ class MetricsService:
         self._segmentation_cache[cache_key] = labeled_image
 
         # Calculate metrics for the segmented cells
-        self._calculate_metrics(labeled_image, time, position, channel)
+        self._calculate_metrics_parallel(labeled_image, time, position, channel)
 
         # Request raw images for fluorescence analysis
         # TODO: make it aware of the fluorescence channels
@@ -112,6 +115,63 @@ class MetricsService:
                             time=time,
                             position=position,
                             channel=_chan)
+
+    def _process_fluorescence_image_parallel(self, image, time, position, channel):
+        """
+        Process raw fluorescence images using stored segmentation labels in parallel.
+        """
+        cache_key = (time, position)
+
+        if cache_key not in self._segmentation_cache:
+            logger.warning(f"No segmentation labels found for T={time}, P={position}, C={channel}")
+            return
+
+        labeled_image = self._segmentation_cache[cache_key]
+
+        matching_metrics = [
+            (i, m) for i, m in enumerate(self._data)
+            if m["time"] == time and m["position"] == position
+        ]
+
+        if not matching_metrics:
+            logger.warning(f"No metrics found for T={time}, P={position}, C={channel}")
+            return
+
+        if not isinstance(image, np.ndarray):
+            image = np.array(image)
+
+        background_mask = labeled_image == 0
+        background_intensity = np.mean(image[background_mask]) if np.any(background_mask) else 0
+
+        fluo_metric_key = f"fluo_{channel}"
+
+        def process_cell(idx_metrics):
+            idx, metrics = idx_metrics
+            cell_id = metrics["cell_id"]
+            cell_mask = labeled_image == cell_id
+
+            if np.any(cell_mask):
+                cell_pixels = image[cell_mask]
+                _cell_fluorescence = np.mean(cell_pixels)
+
+                if _cell_fluorescence > background_intensity:
+                    metrics[fluo_metric_key] = _cell_fluorescence
+                else:
+                    metrics[fluo_metric_key] = 0
+
+                # self._log_fluorescence_metrics(metrics)  # Logging can be kept if thread-safe
+
+            return idx, metrics
+
+        results = []
+        with ThreadPoolExecutor() as executor:
+            for result in executor.map(process_cell, matching_metrics):
+                results.append(result)
+
+        for idx, updated_metrics in results:
+            self._data[idx] = updated_metrics
+
+        self._update_dataframe()
 
     def _process_fluorescence_image(self, image, time, position, channel):
         """
@@ -189,6 +249,72 @@ class MetricsService:
 
         # Update the DataFrame
         self._update_dataframe()
+
+    def _calculate_metrics_parallel(self, labeled_image, time, position, channel):
+        """
+        Calculate basic shape metrics for all cells in a labeled image in parallel using threads.
+        """
+        def process_prop(prop):
+            cell_id = prop.label
+            circularity = (4 * np.pi * prop.area) / (prop.perimeter**2) if prop.perimeter > 0 else 0
+            solidity = prop.solidity
+            equivalent_diameter = prop.equivalent_diameter
+            aspect_ratio = prop.major_axis_length / prop.minor_axis_length if prop.minor_axis_length > 0 else 1.0
+            orientation = prop.orientation
+
+            metrics_for_classification = {
+                "area": prop.area,
+                "perimeter": prop.perimeter,
+                "aspect_ratio": aspect_ratio,
+                "circularity": circularity,
+                "solidity": solidity,
+                "equivalent_diameter": equivalent_diameter,
+                "orientation": orientation
+            }
+            morphology_class = classify_morphology(metrics_for_classification)
+            y1, x1, y2, x2 = prop.bbox
+
+            metrics = {
+                "position": position,
+                "time": time,
+                "cell_id": cell_id,
+                "channel": channel,
+                "area": prop.area,
+                "perimeter": prop.perimeter,
+                "eccentricity": prop.eccentricity,
+                "major_axis_length": prop.major_axis_length,
+                "minor_axis_length": prop.minor_axis_length,
+                "centroid_y": prop.centroid[0],
+                "centroid_x": prop.centroid[1],
+                "aspect_ratio": aspect_ratio,
+                "circularity": circularity,
+                "solidity": solidity,
+                "equivalent_diameter": equivalent_diameter,
+                "orientation": orientation,
+                "morphology_class": morphology_class,
+                "y1": y1,
+                "x1": x1,
+                "y2": y2,
+                "x2": x2,
+                "mean_intensity": None,
+                "max_intensity": None,
+                "min_intensity": None,
+                "std_intensity": None,
+                "integrated_intensity": None,
+                "background_intensity": None,
+                "normalized_intensity": None
+            }
+            return metrics
+
+        props = regionprops(labeled_image)
+        results = []
+        with ThreadPoolExecutor() as executor:
+            for metrics in executor.map(process_prop, props):
+                results.append(metrics)
+
+        for metrics in results:
+            self._log_shape_metrics(metrics)
+            self._data.append(metrics)
 
     def _calculate_metrics(self, labeled_image, time, position, channel):
         """
