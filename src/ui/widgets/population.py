@@ -159,9 +159,13 @@ class PopulationWidget(QWidget):
         metric_col = f"fluo_{channel}"
         metric_name = f"Fluorescence for channel {channel}"
 
+        # Filter values smaller than epsilon, and multiply time by the experiment interval constant
+        epsilon = 0.1
+        valid = subdf.filter(subdf[metric_col] > epsilon)
+
         # Group by time, aggregate mean and std of the selected metric across cells and positions
         grouped = (
-            subdf.group_by("time")
+            valid.group_by("time")
             .agg([
                 pl.col(metric_col).mean().alias("mean_metric"),
                 pl.col(metric_col).std().alias("std_metric"),
@@ -169,20 +173,23 @@ class PopulationWidget(QWidget):
             .sort("time")
         )
 
-        # Filter values smaller than epsilon, and multiply time by the experiment interval constant
-        epsilon = 0.1
-        valid = grouped.filter(pl.col("mean_metric") > epsilon)
-
         # Get the interval from experiment or use a default value
         if hasattr(self, "experiment") and self.experiment is not None and hasattr(self.experiment, "interval"):
             factor = self.experiment.interval
         else:
-            # Use a default interval value of 600 seconds (10 minutes)
+            # Use a default interval value of 300 seconds (5 minutes)
             factor = 600
-            print("Warning: Using default interval of 600 seconds (10 minutes)")
+            print("Warning: Using default interval of 300 seconds (5 minutes)")
+
+        # TODO: in our case, we took images every 15m, it means that
+        # for each 3 PhC images, we have 1 fluorescence image.
+        # Said so, I am multiplying the factor by 3 in order to get the plots
+        # right, but this needs to be changed in the future to be more flexible
+
+        factor *= 3
 
         # Interval is in seconds, divide by 3600 to get hours
-        result = valid.with_columns(
+        result = grouped.with_columns(
             (pl.col("time") * factor / 3600).alias("scaled_time")
         )
 
@@ -196,14 +203,18 @@ class PopulationWidget(QWidget):
         self.last_plotted_std = std_metric
         self.last_plotted_metric_name = metric_name
 
+        # red is #FF0000
+        # yellowish is #E99F42
+        line_color = "#FF0000" if channel == 1 else "#F9BF42"
+
         # Plot
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)
-        ax.plot(times, mean_metric, color="red", label=f"Mean {metric_name}")
-        ax.fill_between(times, mean_metric - std_metric, mean_metric + std_metric, color="red", alpha=0.2, label="Std Dev")
-        ax.set_xlabel("Time [h]")
-        ax.set_ylabel(f"Mean Cell {metric_name}")
-        ax.set_title(f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})")
+        ax.plot(times, mean_metric, color=line_color, label=f"Mean {metric_name}")
+        ax.fill_between(times, mean_metric - std_metric, mean_metric + std_metric, color=line_color, alpha=0.2, label="Std Dev")
+        ax.set_xlabel("Time (h)")
+        ax.set_ylabel(f"Fluorescence (RPU)")
+        # ax.set_title(f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})")
         ax.legend()
         self.population_canvas.draw()
     
