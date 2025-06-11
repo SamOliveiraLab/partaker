@@ -8,6 +8,57 @@ from morphology import classify_morphology
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 
+import time
+import functools
+import logging
+from typing import Dict, Any, Callable
+
+# Performance logger setup
+perf_logger = logging.getLogger('performance')
+perf_logger.setLevel(logging.INFO)
+
+def timing_decorator(func_name: str = None):
+    """Decorator to measure and log function execution time"""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.perf_counter()
+            try:
+                result = func(*args, **kwargs)
+                end_time = time.perf_counter()
+                execution_time = end_time - start_time
+                
+                name = func_name or func.__name__
+                perf_logger.info(f"{name}: {execution_time:.4f}s")
+                
+                return result
+            except Exception as e:
+                end_time = time.perf_counter()
+                execution_time = end_time - start_time
+                name = func_name or func.__name__
+                perf_logger.error(f"{name}: {execution_time:.4f}s (FAILED: {e})")
+                raise
+        return wrapper
+    return decorator
+
+class TimingContext:
+    """Context manager for timing code blocks"""
+    def __init__(self, operation_name: str):
+        self.name = operation_name
+        self.start_time = None
+        
+    def __enter__(self):
+        self.start_time = time.perf_counter()
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter()
+        execution_time = end_time - self.start_time
+        if exc_type is None:
+            perf_logger.info(f"{self.name}: {execution_time:.4f}s")
+        else:
+            perf_logger.error(f"{self.name}: {execution_time:.4f}s (FAILED: {exc_val})")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('MetricsService')
 
@@ -44,6 +95,7 @@ class MetricsService:
             pub.subscribe(self.on_image_ready, "image_ready")
             self._initialized = True
 
+    @timing_decorator("on_image_ready")
     def on_image_ready(self, image: np.ndarray, time, position, channel, mode):
         """Process images with optimized data handling."""
         
@@ -69,12 +121,14 @@ class MetricsService:
         self._segmentation_cache[(time, position)] = image
         
         # Calculate metrics efficiently
-        self._calculate_metrics_optimized(image, time, position, channel)
+        with TimingContext("calculate_metrics_optimized"):
+            self._calculate_metrics_optimized(image, time, position, channel)
         
         # Request fluorescence data
         for chan in range(1, 3):
             pub.sendMessage("raw_image_request", time=time, position=position, channel=chan)
 
+    @timing_decorator("calculate_metrics_optimized")
     def _calculate_metrics_optimized(self, labeled_image, time, position, channel):
         """Calculate metrics and store in optimized structure."""
         props = regionprops(labeled_image)
@@ -137,6 +191,7 @@ class MetricsService:
             self.df = pl.concat([self.df, new_df], how="vertical") if not self.df.is_empty() else new_df
             self._pending_count += len(batch_data)
 
+    @timing_decorator("process_fluorescence")
     def _process_fluorescence_optimized(self, image, time, position, channel):
         """Optimized fluorescence processing using fast lookups."""
         cache_key = (time, position)

@@ -11,7 +11,6 @@ import cv2
 from .segmentation_models import SegmentationModels
 # from .losses import pixelwise_weighted_binary_crossentropy_seg
 
-
 class SegmentationCache:
     def __init__(self, nd2_data):
         self.nd2_data = nd2_data
