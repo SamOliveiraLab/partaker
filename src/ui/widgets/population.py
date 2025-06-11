@@ -156,8 +156,8 @@ class PopulationWidget(QWidget):
             return
 
         # The metric we want is based on the selected channel
-        metric_col = f"fluo_{channel}"
-        metric_name = f"Fluorescence for channel {channel}"
+        metric_col = "fluo_mcherry" if channel == 1 else "fluo_yfp"
+        metric_name = "mCherry" if channel == 1 else "YFP"
 
         # Filter values smaller than epsilon, and multiply time by the experiment interval constant
         epsilon = 0.1
