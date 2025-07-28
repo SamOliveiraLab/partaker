@@ -17,6 +17,7 @@ dist/
 datasets/
 
 src/build/
+src/env_analysis/
 
 src/dist/
 SR_1_5_2h_Pre-C_1h_NoIPTG_03_MCM.zip
