@@ -114,7 +114,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel)
 from PySide6.QtGui import QPixmap, QPen, QImage, QPolygonF, QColor
-from PySide6.QtCore import Qt, QPointF, QRectF, Signal, QEvent
+from PySide6.QtCore import Qt, QPointF, Signal, QEvent
 import numpy as np
 import cv2
 

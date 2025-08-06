@@ -1,7 +1,7 @@
 # motility_widget.py
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QTabWidget, QWidget, QMessageBox, QProgressDialog,
-                             QFileDialog, QCheckBox, QDialogButtonBox, QTextEdit, QLineEdit,
+                             QFileDialog, QCheckBox, QDialogButtonBox, QLineEdit,
                              QTableWidget, QTableWidgetItem, QComboBox, QGridLayout, QApplication, QRadioButton)
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtCore import Qt

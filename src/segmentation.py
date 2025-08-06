@@ -1,11 +1,8 @@
 # Model loading. TODO: move to another file
 
 from pathlib import Path
-from cellpose import models, io, utils
-import datetime
-from cachier import cachier
+from cellpose import models, utils
 import os
-import imageio.v2 as imageio
 import numpy as np
 import math
 import cv2

@@ -5,8 +5,6 @@ from typing import Union, Sequence
 import nd2
 import dask.array as da
 from pubsub import pub
-from functools import reduce
-import operator
 
 from segmentation.segmentation_cache import SegmentationCache
 from segmentation.segmentation_service import SegmentationService
