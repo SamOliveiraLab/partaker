@@ -221,9 +221,11 @@ class SegmentationWidget(QWidget):
         frames_to_segment = []
         for p in self.positions:
             for t in range(t_start, t_end + 1):
+                frames_to_segment.append((t, p))
+                # TODO: clean this up
                 # If metrics don't exist for this frame, add it to the queue
-                if not metrics_service.has_data_for(position=p, time=t, channel=self.channel):
-                    frames_to_segment.append((t, p))
+                # if not metrics_service.has_data_for(position=p, time=t, channel=self.channel):
+                #    frames_to_segment.append((t, p))
 
         # If all frames already have metrics, no need to segment
         if not frames_to_segment:

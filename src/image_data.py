@@ -16,7 +16,6 @@ from segmentation.segmentation_models import SegmentationModels
 Can hold either an ND2 file or a series of images
 """
 
-
 class ImageData:
     def __init__(self, data, path, is_nd2=True):
         self.data = data
