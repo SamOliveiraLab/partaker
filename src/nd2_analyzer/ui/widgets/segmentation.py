@@ -162,7 +162,7 @@ class SegmentationWidget(QWidget):
 
         # Populate model combo
         self.model_combo.clear()
-        from nd2_analyzer.analysis.segmentation.segmentation import SegmentationModels
+        from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
         self.model_combo.addItems([
             SegmentationModels.OMNIPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_PHASE,

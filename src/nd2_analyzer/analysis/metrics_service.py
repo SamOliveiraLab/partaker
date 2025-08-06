@@ -4,7 +4,7 @@ from skimage.measure import regionprops
 from pubsub import pub
 from typing import Optional, Dict, Tuple
 import logging
-from nd2_analyzer.analysis.morphology import classify_morphology
+from nd2_analyzer.analysis.morphology.morphology import classify_morphology
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 

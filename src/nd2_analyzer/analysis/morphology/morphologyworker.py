@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 from PySide6.QtCore import QObject, Signal
 
-from nd2_analyzer.analysis.morphology import extract_cells_and_metrics
-
+from nd2_analyzer.analysis.morphology.morphology import extract_cells_and_metrics
 
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
