@@ -121,7 +121,7 @@ class ExperimentDialog(QDialog):
         file_filter = "ND2 Files (*.nd2)"
         
         dialog = QFileDialog(self)
-        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         dialog.setNameFilter(file_filter)
         dialog.setWindowTitle("Select ND2 File")
         dialog.finished.connect(self._on_file_dialog_finished)
@@ -133,16 +133,15 @@ class ExperimentDialog(QDialog):
         if result == QDialog.DialogCode.Accepted:
             selected_files = dialog.selectedFiles()
             if selected_files:
-                file_path = selected_files[0]
-                
-                # Check if file is already in our UI list
-                if file_path in self.file_paths:
-                    QMessageBox.warning(self, "Duplicate File", "This file is already in the list.")
-                    return
-                    
-                # Add to our internal list and UI
-                self.file_paths.append(file_path)
-                self.file_list_widget.addItem(os.path.basename(file_path))
+                for file_path in selected_files:                    
+                    # Check if file is already in our UI list
+                    if file_path in self.file_paths:
+                        QMessageBox.warning(self, "Duplicate File", "This file is already in the list.")
+                        continue
+                        
+                    # Add to our internal list and UI
+                    self.file_paths.append(file_path)
+                    self.file_list_widget.addItem(os.path.basename(file_path))
     
     def remove_file(self):
         """Remove selected file from the list"""

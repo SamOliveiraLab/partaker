@@ -236,6 +236,7 @@ class MetricsService:
         if updates:
             self._batch_update_fluorescence(updates, fluo_column)
 
+    @timing_decorator("batch_update_fluorescence")
     def _batch_update_fluorescence(self, updates, fluo_column):
         """Efficiently update fluorescence values using Polars joins."""
         if not updates:
@@ -257,6 +258,7 @@ class MetricsService:
             .alias(fluo_column)
         ]).drop(f"{fluo_column}_update")
 
+    @timing_decorator("query_optimized")
     def query_optimized(self, time: Optional[int] = None, position: Optional[int] = None, 
                        cell_id: Optional[int] = None) -> pl.DataFrame:
         """Fast querying using Polars' optimized operations."""

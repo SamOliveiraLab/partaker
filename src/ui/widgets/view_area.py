@@ -435,7 +435,7 @@ class ViewAreaWidget(QWidget):
             # Check metrics data
             from metrics_service import MetricsService
             metrics_service = MetricsService()
-            has_metrics = not metrics_service.query(time=t, position=p, channel=c).is_empty()
+            has_metrics = not metrics_service.query_optimized(time=t, position=p).is_empty()
             
             print(f"Frame T={t}, P={p}, C={c}: Cache exists={cache_exists}, Metrics exist={has_metrics}")
 
