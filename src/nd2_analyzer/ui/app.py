@@ -1,36 +1,27 @@
-from pathlib import Path
-import sys
 import os
+import sys
 
-from matplotlib.backends.backend_qt5agg import FigureCanvas
 import numpy as np
-
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
+from matplotlib.backends.backend_qt5agg import FigureCanvas
+from pubsub import pub
 
-from nd2_analyzer.data.image_data import ImageData
-
+from nd2_analyzer.analysis.metrics_service import MetricsService
 from nd2_analyzer.analysis.morphology.morphology import (
     annotate_binary_mask,
 )
-from .roisel import PolygonROISelector
-
+from nd2_analyzer.data.experiment import Experiment
+from nd2_analyzer.data.image_data import ImageData
 from .dialogs import AboutDialog, ExperimentDialog
+from .roisel import PolygonROISelector
 from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget, TrackingManager
 
-from pubsub import pub
-
-from nd2_analyzer.data.experiment import Experiment
-from nd2_analyzer.analysis.metrics_service import MetricsService
-# from ..data.appstate import ApplicationState
 
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
-
-        # Single application state here
-        # self.application_state = ApplicationState()
 
         self.setWindowTitle("Partaker 3 - GUI")
         self.setGeometry(100, 100, 1000, 800)
@@ -72,30 +63,29 @@ class App(QMainWindow):
         """Provide the image_data object through the callback"""
         if hasattr(self, "image_data"):
             print("Providing image_data to callback")
-            callback(self.image_data)
+            callback(self.application_state.image_data)
         else:
             print("No image_data available")
             callback(None)
 
     def on_exp_loaded(self, experiment: Experiment):
-        # self.curr_experiment = experiment
-        self.image_data = ImageData.load_nd2(experiment.nd2_files)
-        pub.sendMessage("image_data_loaded", image_data=self.image_data)
+        ImageData.load_nd2(experiment.nd2_files)
+        pub.sendMessage("image_data_loaded", ImageData.get_instance())
 
     def on_image_request(self, time, position, channel):
         """Handle requests for raw image data"""
-        if not self.image_data:
+        if not self.application_state.image_data:
             return
 
         # Retrieve the image data
         try:
-            if self.image_data.is_nd2:
+            if self.application_state.image_data.is_nd2:
                 if self.has_channels:
-                    image = self.image_data.data[time, position, channel]
+                    image = self.application_state.image_data.data[time, position, channel]
                 else:
-                    image = self.image_data.data[time, position]
+                    image = self.application_state.image_data.data[time, position]
             else:
-                image = self.image_data.data[time]
+                image = self.application_state.image_data.data[time]
 
             # Convert to NumPy array if needed
             image = np.array(image)
@@ -111,20 +101,20 @@ class App(QMainWindow):
 
     def on_segmentation_request(self, time, position, channel, model_name):
         """Handle requests for segmentation data"""
-        if not self.image_data:
+        if not self.application_state.image_data:
             return
 
         try:
             # Get the appropriate segmentation model
             if model_name:
-                self.image_data.segmentation_cache.with_model(model_name)
+                self.application_state.image_data.segmentation_cache.with_model(model_name)
             else:
-                self.image_data.segmentation_cache.with_model(
+                self.application_state.image_data.segmentation_cache.with_model(
                     self.model_dropdown.currentText())
 
             # Get the segmentation
-            segmented_image = self.image_data.segmentation_cache[time,
-                                                                 position, channel]
+            segmented_image = self.application_state.image_data.segmentation_cache[time,
+            position, channel]
 
             # Publish the segmentation result
             pub.sendMessage("segmentation_ready",
@@ -136,38 +126,26 @@ class App(QMainWindow):
             print(f"Error retrieving segmentation: {e}")
 
     def open_roi_selector(self):
-        # Get the image to use for ROI selection
-        image_data = self.current_image
-
-        # Create and show the ROI selector dialog
-        roi_dialog = PolygonROISelector(image_data)
-        roi_dialog.roi_selected.connect(self.handle_roi_result)
+        roi_dialog = PolygonROISelector()
         roi_dialog.exec_()  # Use exec_ to make it modal
-
-    def handle_roi_result(self, mask):
-        # Store and apply mask
-        self.roi_mask = mask
-        self.image_data.segmentation_cache.set_binary_mask(self.roi_mask)
-        # Update UI or perform other actions with the new mask
-        print(f"ROI mask created with shape: {self.roi_mask.shape}")
 
     def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
         """Handle request to draw cell bounding boxes"""
         # Get the segmentation using the same model as the segmentation cache
-        if not hasattr(self, "image_data") or not self.image_data:
+        if not hasattr(self, "image_data") or not self.application_state.image_data:
             print("No image data available")
             return
 
         # Get the current model from the cache
-        current_model = self.image_data.segmentation_cache.model_name
+        current_model = self.application_state.image_data.segmentation_cache.model_name
         if not current_model:
             # Default to a standard model if none set
             current_model = "bact_phase_cp3"  # This is CELLPOSE_BACT_PHASE
-            self.image_data.segmentation_cache.with_model(current_model)
+            self.application_state.image_data.segmentation_cache.with_model(current_model)
 
         # Get the segmentation data
-        segmented_image = self.image_data.segmentation_cache[time,
-                                                             position, channel]
+        segmented_image = self.application_state.image_data.segmentation_cache[time,
+        position, channel]
 
         if segmented_image is None:
             print(
@@ -221,10 +199,20 @@ class App(QMainWindow):
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
 
+        test_menu = menu_bar.addMenu("Test")
+        test_action = QAction("Test", self)
+        test_action.setShortcut("Ctrl+T")
+        test_action.triggered.connect(self.hhln_test)
+        test_menu.addAction(test_action)
+
         if sys.platform == "darwin":
             about_action_mac = QAction("About", self)
             about_action_mac.triggered.connect(self.show_about_dialog)
             self.menuBar().addAction(about_action_mac)
+
+    def hhln_test(self):
+        ImageData.load_nd2(
+            "/Users/hiram/Documents/EVERYTHING/20-29 Research/22 OliveiraLab/22.12 ND2 analyzer/nd2-analyzer/SR_1_5_2h_Pre-C_3h_IPTG_After10h_05_MC.nd2")
 
     def show_new_experiment_dialog(self):
         experiment = ExperimentDialog()
@@ -248,8 +236,8 @@ class App(QMainWindow):
             os.makedirs(folder_path, exist_ok=True)
 
             # Log segmentation cache state before saving
-            if hasattr(self, "image_data") and hasattr(self.image_data, "segmentation_cache"):
-                cache = self.image_data.segmentation_cache
+            if hasattr(self, "image_data") and hasattr(self.application_state.image_data, "segmentation_cache"):
+                cache = self.application_state.image_data.segmentation_cache
                 current_model = cache.model_name
                 print(f"DEBUG: Saving project with segmentation cache")
                 print(f"DEBUG: Current model: {current_model}")
@@ -264,7 +252,7 @@ class App(QMainWindow):
             # Save image data
             try:
                 print(f"DEBUG: Saving image data to {folder_path}")
-                self.image_data.save(folder_path)
+                self.application_state.image_data.save(folder_path)
                 print(f"DEBUG: Image data saved successfully")
             except Exception as e:
                 print(f"ERROR: Failed to save image data: {str(e)}")
@@ -310,7 +298,7 @@ class App(QMainWindow):
 
             try:
                 # Load image data
-                self.image_data = ImageData.load(folder_path)
+                self.application_state.image_data = ImageData.load(folder_path)
 
                 # Load metrics data
                 metrics_service = MetricsService()
@@ -319,7 +307,7 @@ class App(QMainWindow):
                 # Update UI based on loaded image data
                 if hasattr(self, "viewArea"):
                     pub.sendMessage("image_data_loaded",
-                                    image_data=self.image_data)
+                                    image_data=self.application_state.image_data)
 
                 population_loaded = False
                 if hasattr(self, "populationTab"):
@@ -366,7 +354,7 @@ class App(QMainWindow):
 
         try:
             # Get the segmentation
-            segmented_image = self.image_data.segmentation_cache[t, p, c]
+            segmented_image = self.application_state.image_data.segmentation_cache[t, p, c]
 
             if segmented_image is None:
                 print(f"No segmentation available for highlighting")

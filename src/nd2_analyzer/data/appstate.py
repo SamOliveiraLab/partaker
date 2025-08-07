@@ -14,9 +14,10 @@ from ..analysis.metrics_service import MetricsService
 
 class ApplicationState:
     def __init__(self) -> None:
-        self.experiment : Experiment = None
-        #self.segmentation
-        self.metricsService : MetricsService = MetricsService()
+        self.experiment: Experiment = None
+        # self.segmentation
+        self.image_data: ImageData = None
+        self.metricsService: MetricsService = MetricsService()
 
     def save(self, file_path: str) -> None:
         # Save experiment

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
 from pubsub import pub
 
 from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
+from nd2_analyzer.data.image_data import ImageData
 
 
 class ViewAreaWidget(QWidget):
@@ -459,16 +460,14 @@ class ViewAreaWidget(QWidget):
         self.current_t = self.slider_t.value()
         self.current_p = self.slider_p.value()
         self.current_c = self.slider_c.value()
+        t, p, c = self.current_t, self.current_p, self.current_c
 
         print(f"DEBUG: Sliders changed to T={self.current_t}, P={self.current_p}, C={self.current_c}")
 
-        # Send different requests based on display mode
         if self.current_mode == "normal":
-            print(f"DEBUG: Requesting raw image for T={self.current_t}, P={self.current_p}, C={self.current_c}")
-            pub.sendMessage("raw_image_request",
-                            time=self.current_t,
-                            position=self.current_p,
-                            channel=self.current_c)
+            # TODO: change to direct access method
+            image = ImageData.get_instance().get(t, p, c)
+            self.on_image_ready(image, t, p, c, "normal")
         else:
             print(
                 f"DEBUG: Requesting segmented image for T={self.current_t}, P={self.current_p}, C={self.current_c} with mode={self.current_mode}, model={self.current_model}")

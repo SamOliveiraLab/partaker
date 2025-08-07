@@ -2,8 +2,6 @@ import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from PySide6.QtWidgets import QMessageBox, QProgressDialog
-from PySide6.QtCore import Qt
 
 
 def extract_individual_cells(image, segmented_image):
@@ -102,7 +100,7 @@ def classify_morphology(metrics, parameters=None):
 
     # Divided Cells (formerly Small) - recently divided cells
     if (area < params["divided_max_area"] and
-        perimeter < params["divided_max_perimeter"] and
+            perimeter < params["divided_max_perimeter"] and
             aspect_ratio < params["divided_max_aspect_ratio"]):
         return "Divided"
 
@@ -185,7 +183,7 @@ def extract_cells_and_metrics(image, segmented_image):
             "aspect_ratio": region.major_axis_length / region.minor_axis_length
             if region.minor_axis_length > 0
             else 0,
-            "circularity": (4 * np.pi * region.area) / (region.perimeter**2)
+            "circularity": (4 * np.pi * region.area) / (region.perimeter ** 2)
             if region.perimeter > 0
             else 0,
             "solidity": region.solidity,
@@ -248,10 +246,10 @@ def annotate_binary_mask(segmented_image, cell_mapping):
     # Define color mapping for morphology classes
     morphology_colors = {
         "Artifact": (128, 128, 128),  # Gray
-        "Divided": (255, 0, 0),       # Blue
-        "Healthy": (0, 255, 0),       # Green
-        "Elongated": (0, 255, 255),   # Yellow
-        "Deformed": (255, 0, 255),    # Magenta
+        "Divided": (255, 0, 0),  # Blue
+        "Healthy": (0, 255, 0),  # Green
+        "Elongated": (0, 255, 255),  # Yellow
+        "Deformed": (255, 0, 255),  # Magenta
     }
 
     for cell_id, data in cell_mapping.items():

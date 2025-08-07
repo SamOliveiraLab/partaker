@@ -1,6 +1,7 @@
-from dataclasses import dataclass
-import numpy as np
 import math
+from dataclasses import dataclass
+
+import numpy as np
 from tqdm import tqdm
 
 EPSILON = 0.001
@@ -81,7 +82,6 @@ def get_fluorescence_single_experiment(
         experiment,
         exp_channel: int = None,
         rpu: RPUParams = default_rpu):
-
     levels = []
     RPUs = []
     timestamp = []

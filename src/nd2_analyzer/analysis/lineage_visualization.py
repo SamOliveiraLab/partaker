@@ -1,26 +1,17 @@
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvas
-from matplotlib.patches import FancyBboxPatch, Ellipse, PathPatch
-from matplotlib.path import Path
-from matplotlib.animation import FuncAnimation
 import networkx as nx
-import pandas as pd
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
-                               QComboBox, QLabel, QButtonGroup, QPushButton,
-                               QMessageBox, QFileDialog, QDialogButtonBox, QApplication)
-from PySide6.QtCore import Qt
+import numpy as np
+from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 
 class LineageVisualization:
     def __init__(self, morphology_colors_rgb=None):
         self.morphology_colors_rgb = morphology_colors_rgb or {
-            "Artifact": (128/255, 128/255, 128/255),  # Gray
-            "Divided": (255/255, 0/255, 0/255),       # Blue
-            "Healthy": (0/255, 255/255, 0/255),       # Green
-            "Elongated": (0/255, 255/255, 255/255),   # Yellow
-            "Deformed": (255/255, 0/255, 255/255),    # Magenta
+            "Artifact": (128 / 255, 128 / 255, 128 / 255),  # Gray
+            "Divided": (255 / 255, 0 / 255, 0 / 255),  # Blue
+            "Healthy": (0 / 255, 255 / 255, 0 / 255),  # Green
+            "Elongated": (0 / 255, 255 / 255, 255 / 255),  # Yellow
+            "Deformed": (255 / 255, 0 / 255, 255 / 255),  # Magenta
         }
 
         # Store states needed for animations
@@ -92,6 +83,7 @@ class LineageVisualization:
                     if G.nodes[node]['divides']:
                         for child in G.neighbors(node):
                             get_descendants(child)
+
                 get_descendants(root_cell_id)
                 G = G.subgraph(descendants).copy()
                 print(
@@ -132,7 +124,7 @@ class LineageVisualization:
 
                     pos = self.hierarchy_pos(subgraph, roots[0])
                     node_sizes = [100 + subgraph.nodes[n]
-                                  ['duration'] * 10 for n in subgraph.nodes()]
+                    ['duration'] * 10 for n in subgraph.nodes()]
                     node_colors = [
                         'red' if subgraph.nodes[n]['divides'] else 'blue' for n in subgraph.nodes()]
 
@@ -153,7 +145,7 @@ class LineageVisualization:
                     nx.draw_networkx_labels(
                         subgraph, pos, font_size=8, ax=axes[i])
 
-                    axes[i].set_title(f"Tree {i+1} ({len(component)} cells)")
+                    axes[i].set_title(f"Tree {i + 1} ({len(component)} cells)")
                     axes[i].axis('off')
             else:
                 # Single tree (either specific cell or single component)
@@ -165,7 +157,7 @@ class LineageVisualization:
                 else:
                     pos = self.hierarchy_pos(G, roots[0])
                     node_sizes = [100 + G.nodes[n]
-                                  ['duration'] * 10 for n in G.nodes()]
+                    ['duration'] * 10 for n in G.nodes()]
                     node_colors = ['red' if G.nodes[n]['divides'] else 'blue'
                                    for n in G.nodes()]
 
@@ -211,6 +203,7 @@ class LineageVisualization:
         """
         Position nodes in a hierarchical layout.
         """
+
         def _hierarchy_pos(
                 G,
                 root,
@@ -239,12 +232,13 @@ class LineageVisualization:
                         width=dx,
                         vert_gap=vert_gap,
                         vert_loc=vert_loc -
-                        vert_gap,
+                                 vert_gap,
                         xcenter=nextx,
                         pos=pos,
                         parent=root,
                         parsed=parsed)
             return pos
+
         return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
 
     def visualize_morphology_lineage_tree(self, tracks, canvas, root_cell_id=None):
@@ -290,9 +284,8 @@ class LineageVisualization:
         canvas.figure.clear()
 
         # Import required modules
-        import matplotlib.pyplot as plt
         import numpy as np
-        from matplotlib.patches import Ellipse, FancyBboxPatch, PathPatch
+        from matplotlib.patches import FancyBboxPatch, PathPatch
         from matplotlib.path import Path
         from matplotlib.animation import FuncAnimation
         import networkx as nx
@@ -336,6 +329,7 @@ class LineageVisualization:
                 if track and 'children' in track and track['children']:
                     for child in track['children']:
                         get_descendants(child)
+
             get_descendants(root_cell_id)
             selected_nodes = descendants
             G = G.subgraph(selected_nodes).copy()
@@ -457,8 +451,8 @@ class LineageVisualization:
             for i in range(num_spikes * 2):
                 angle = i * angle_step
                 radius = (
-                    width/2 + wobble * 0.005) if i % 2 == 0 else (width/2 - 0.01 - wobble * 0.005)
-                vert_radius = radius * (height/width)
+                        width / 2 + wobble * 0.005) if i % 2 == 0 else (width / 2 - 0.01 - wobble * 0.005)
+                vert_radius = radius * (height / width)
                 vert_x = x + radius * np.cos(angle)
                 vert_y = y + vert_radius * np.sin(angle)
                 vertices.append((vert_x, vert_y))
@@ -484,7 +478,7 @@ class LineageVisualization:
                 if self.node_states[node_id]['frame_appeared'] == -1:
                     self.node_states[node_id]['frame_appeared'] = frame
                 self.node_states[node_id]['animation_phase'] = frame - \
-                    self.node_states[node_id]['frame_appeared']
+                                                               self.node_states[node_id]['frame_appeared']
 
             # Update edge states (lines appear before nodes)
             for parent, child in G.edges():
@@ -511,7 +505,7 @@ class LineageVisualization:
                         else:
                             # For edges between nodes in the same level
                             self.edge_states[(parent, child)
-                                             ]['frame_appeared'] = frame
+                            ]['frame_appeared'] = frame
 
             # Draw edges (lines) first
             for parent, child in G.edges():
@@ -527,7 +521,8 @@ class LineageVisualization:
 
             # Draw nodes with cartoony animations (after lines)
             for node_id in nodes_to_show:
-                if self.node_states[node_id]['frame_appeared'] >= 0 and frame >= self.node_states[node_id]['frame_appeared']:
+                if self.node_states[node_id]['frame_appeared'] >= 0 and frame >= self.node_states[node_id][
+                    'frame_appeared']:
                     x, y = pos[node_id]
                     phase = self.node_states[node_id]['animation_phase']
                     # Bounce over 10 frames
@@ -564,7 +559,7 @@ class LineageVisualization:
                         width *= pop
                         height *= pop
 
-                        rect = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                        rect = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                               boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
                                               facecolor=colors[node_type],
                                               edgecolor='white', linewidth=1, zorder=2)
@@ -578,7 +573,7 @@ class LineageVisualization:
                         width = base_width * (1 + 0.5 * elongation)
                         height = base_height * (1 - 0.2 * elongation)
 
-                        rect = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                        rect = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                               boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
                                               facecolor=colors[node_type],
                                               edgecolor='white', linewidth=1, zorder=2)
@@ -605,7 +600,7 @@ class LineageVisualization:
                         width = base_width * pulse * bounce
                         height = base_height * pulse * bounce
 
-                        rect = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                        rect = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                               boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
                                               facecolor=colors['healthy'],
                                               edgecolor='white', linewidth=1, zorder=2)
@@ -730,13 +725,13 @@ class LineageVisualization:
                         if 'x' in track and 'y' in track and len(track['x']) > 3:
                             positions = list(zip(track['x'], track['y']))
                             # Calculate path straightness (ratio of direct distance to path length)
-                            direct_distance = ((positions[-1][0] - positions[0][0])**2 +
-                                               (positions[-1][1] - positions[0][1])**2)**0.5
+                            direct_distance = ((positions[-1][0] - positions[0][0]) ** 2 +
+                                               (positions[-1][1] - positions[0][1]) ** 2) ** 0.5
 
                             path_length = 0
                             for i in range(1, len(positions)):
-                                segment_length = ((positions[i][0] - positions[i-1][0])**2 +
-                                                  (positions[i][1] - positions[i-1][1])**2)**0.5
+                                segment_length = ((positions[i][0] - positions[i - 1][0]) ** 2 +
+                                                  (positions[i][1] - positions[i - 1][1]) ** 2) ** 0.5
                                 path_length += segment_length
 
                             straightness = direct_distance / path_length if path_length > 0 else 1
@@ -757,7 +752,7 @@ class LineageVisualization:
                         # Preparing to divide
                         morphology_data[track_id] = "Elongated"
                     else:
-                        morphology_data[track_id] = "Divided"    # Just divided
+                        morphology_data[track_id] = "Divided"  # Just divided
                 else:
                     # Non-dividing cells - check if it's a terminal track
                     has_parent = False
@@ -775,20 +770,20 @@ class LineageVisualization:
                             # Calculate angle changes in the track
                             angle_changes = []
                             for i in range(2, len(track['x'])):
-                                dx1 = track['x'][i-1] - track['x'][i-2]
-                                dy1 = track['y'][i-1] - track['y'][i-2]
-                                dx2 = track['x'][i] - track['x'][i-1]
-                                dy2 = track['y'][i] - track['y'][i-1]
+                                dx1 = track['x'][i - 1] - track['x'][i - 2]
+                                dy1 = track['y'][i - 1] - track['y'][i - 2]
+                                dx2 = track['x'][i] - track['x'][i - 1]
+                                dy2 = track['y'][i] - track['y'][i - 1]
 
                                 # Calculate angle between segments (dot product)
-                                dot_product = dx1*dx2 + dy1*dy2
-                                mag1 = (dx1**2 + dy1**2)**0.5
-                                mag2 = (dx2**2 + dy2**2)**0.5
+                                dot_product = dx1 * dx2 + dy1 * dy2
+                                mag1 = (dx1 ** 2 + dy1 ** 2) ** 0.5
+                                mag2 = (dx2 ** 2 + dy2 ** 2) ** 0.5
 
                                 if mag1 > 0 and mag2 > 0:
                                     import numpy as np
                                     cos_angle = max(-1, min(1,
-                                                    dot_product / (mag1 * mag2)))
+                                                            dot_product / (mag1 * mag2)))
                                     angle_change = abs(np.arccos(cos_angle))
                                     angle_changes.append(angle_change)
 
@@ -939,9 +934,9 @@ class LineageVisualization:
                 angle = i * angle_step
                 # Alternate between outer and inner radius for star shape
                 radius = (
-                    width/2 + wobble * 0.005) if i % 2 == 0 else (width/2 - 0.01 - wobble * 0.005)
+                        width / 2 + wobble * 0.005) if i % 2 == 0 else (width / 2 - 0.01 - wobble * 0.005)
                 # Scale height proportionally
-                vert_radius = radius * (height/width)
+                vert_radius = radius * (height / width)
                 vert_x = x + radius * np.cos(angle)
                 vert_y = y + vert_radius * np.sin(angle)
                 vertices.append((vert_x, vert_y))
@@ -997,9 +992,9 @@ class LineageVisualization:
                     cell = self.cell_objects[node]
                     cell.set_width(width)
                     cell.set_height(height)
-                    cell.set_xy((x - width/2, y - height/2))
+                    cell.set_xy((x - width / 2, y - height / 2))
                 else:
-                    cell = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                    cell = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                           boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
                                           facecolor=colors['Healthy'], edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(cell)
@@ -1011,14 +1006,14 @@ class LineageVisualization:
                         ellipse1, ellipse2 = self.nucleoid_objects[node]
                         ellipse1.set_width(0.03 * pulse)
                         ellipse1.set_height(0.02 * pulse)
-                        ellipse1.center = (x-0.015, y)
+                        ellipse1.center = (x - 0.015, y)
                         ellipse2.set_width(0.03 * pulse)
                         ellipse2.set_height(0.02 * pulse)
-                        ellipse2.center = (x+0.015, y)
+                        ellipse2.center = (x + 0.015, y)
                     else:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * pulse, 0.02 * pulse,
+                        ellipse1 = Ellipse((x - 0.015, y), 0.03 * pulse, 0.02 * pulse,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * pulse, 0.02 * pulse,
+                        ellipse2 = Ellipse((x + 0.015, y), 0.03 * pulse, 0.02 * pulse,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
@@ -1038,9 +1033,9 @@ class LineageVisualization:
                     cell = self.cell_objects[node]
                     cell.set_width(width)
                     cell.set_height(height)
-                    cell.set_xy((x - width/2, y - height/2))
+                    cell.set_xy((x - width / 2, y - height / 2))
                 else:
-                    cell = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                    cell = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                           boxstyle=f"round,pad=0,rounding_size={0.01 if level <= 2 else 0.0075}",
                                           facecolor=colors['Divided'], edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(cell)
@@ -1052,14 +1047,14 @@ class LineageVisualization:
                         ellipse1, ellipse2 = self.nucleoid_objects[node]
                         ellipse1.set_width(0.015 * pop)
                         ellipse1.set_height(0.01 * pop)
-                        ellipse1.center = (x-0.0075, y)
+                        ellipse1.center = (x - 0.0075, y)
                         ellipse2.set_width(0.015 * pop)
                         ellipse2.set_height(0.01 * pop)
-                        ellipse2.center = (x+0.0075, y)
+                        ellipse2.center = (x + 0.0075, y)
                     else:
-                        ellipse1 = Ellipse((x-0.0075, y), 0.015 * pop, 0.01 * pop,
+                        ellipse1 = Ellipse((x - 0.0075, y), 0.015 * pop, 0.01 * pop,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.0075, y), 0.015 * pop, 0.01 * pop,
+                        ellipse2 = Ellipse((x + 0.0075, y), 0.015 * pop, 0.01 * pop,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
@@ -1076,9 +1071,9 @@ class LineageVisualization:
                     cell = self.cell_objects[node]
                     cell.set_width(width)
                     cell.set_height(height)
-                    cell.set_xy((x - width/2, y - height/2))
+                    cell.set_xy((x - width / 2, y - height / 2))
                 else:
-                    cell = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                    cell = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                           boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
                                           facecolor=colors['Elongated'], edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(cell)
@@ -1090,14 +1085,14 @@ class LineageVisualization:
                         ellipse1, ellipse2 = self.nucleoid_objects[node]
                         ellipse1.set_width(0.03 * (1 + 0.5 * elongation))
                         ellipse1.set_height(0.02)
-                        ellipse1.center = (x-0.015 * (1 + 0.5 * elongation), y)
+                        ellipse1.center = (x - 0.015 * (1 + 0.5 * elongation), y)
                         ellipse2.set_width(0.03 * (1 + 0.5 * elongation))
                         ellipse2.set_height(0.02)
-                        ellipse2.center = (x+0.015 * (1 + 0.5 * elongation), y)
+                        ellipse2.center = (x + 0.015 * (1 + 0.5 * elongation), y)
                     else:
-                        ellipse1 = Ellipse((x-0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
+                        ellipse1 = Ellipse((x - 0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
+                        ellipse2 = Ellipse((x + 0.015 * (1 + 0.5 * elongation), y), 0.03 * (1 + 0.5 * elongation), 0.02,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
@@ -1126,14 +1121,14 @@ class LineageVisualization:
                         ellipse1, ellipse2 = self.nucleoid_objects[node]
                         ellipse1.set_width(0.03 * (1 + wobble))
                         ellipse1.set_height(0.02 * (1 - wobble))
-                        ellipse1.center = (x-0.015, y)
+                        ellipse1.center = (x - 0.015, y)
                         ellipse2.set_width(0.03 * (1 + wobble))
                         ellipse2.set_height(0.02 * (1 - wobble))
-                        ellipse2.center = (x+0.015, y)
+                        ellipse2.center = (x + 0.015, y)
                     else:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
+                        ellipse1 = Ellipse((x - 0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
+                        ellipse2 = Ellipse((x + 0.015, y), 0.03 * (1 + wobble), 0.02 * (1 - wobble),
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
@@ -1147,9 +1142,9 @@ class LineageVisualization:
                     cell = self.cell_objects[node]
                     cell.set_width(width)
                     cell.set_height(height)
-                    cell.set_xy((x - width/2, y - height/2))
+                    cell.set_xy((x - width / 2, y - height / 2))
                 else:
-                    cell = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                    cell = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                           boxstyle="round,pad=0,rounding_size=0.005",
                                           facecolor=colors['Artifact'], edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(cell)
@@ -1164,9 +1159,9 @@ class LineageVisualization:
                     cell = self.cell_objects[node]
                     cell.set_width(width)
                     cell.set_height(height)
-                    cell.set_xy((x - width/2, y - height/2))
+                    cell.set_xy((x - width / 2, y - height / 2))
                 else:
-                    cell = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                    cell = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                           boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
                                           facecolor=colors['Healthy'], edgecolor='white', linewidth=1, zorder=2)
                     ax.add_patch(cell)
@@ -1178,14 +1173,14 @@ class LineageVisualization:
                         ellipse1, ellipse2 = self.nucleoid_objects[node]
                         ellipse1.set_width(0.03 * pulse)
                         ellipse1.set_height(0.02 * pulse)
-                        ellipse1.center = (x-0.015, y)
+                        ellipse1.center = (x - 0.015, y)
                         ellipse2.set_width(0.03 * pulse)
                         ellipse2.set_height(0.02 * pulse)
-                        ellipse2.center = (x+0.015, y)
+                        ellipse2.center = (x + 0.015, y)
                     else:
-                        ellipse1 = Ellipse((x-0.015, y), 0.03 * pulse, 0.02 * pulse,
+                        ellipse1 = Ellipse((x - 0.015, y), 0.03 * pulse, 0.02 * pulse,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
-                        ellipse2 = Ellipse((x+0.015, y), 0.03 * pulse, 0.02 * pulse,
+                        ellipse2 = Ellipse((x + 0.015, y), 0.03 * pulse, 0.02 * pulse,
                                            facecolor='#b7b0c9', edgecolor=None, alpha=0.8, zorder=3)
                         ax.add_patch(ellipse1)
                         ax.add_patch(ellipse2)
@@ -1442,10 +1437,10 @@ class LineageVisualization:
 
         # Define colors to match your second image
         colors = {
-            'Healthy': '#b8e986',    # Green
-            'Divided': '#ffd700',    # Yellow
+            'Healthy': '#b8e986',  # Green
+            'Divided': '#ffd700',  # Yellow
             'Elongated': '#87cefa',  # Blue
-            'Deformed': '#ff6347'    # Red
+            'Deformed': '#ff6347'  # Red
         }
 
         # Find root nodes
@@ -1541,7 +1536,7 @@ class LineageVisualization:
 
         # Initialize node objects dictionary
         cell_objects = {}
-        from matplotlib.patches import Ellipse, FancyBboxPatch, PathPatch
+        from matplotlib.patches import FancyBboxPatch, PathPatch
         from matplotlib.path import Path
         import matplotlib.patches as mpatches
         import numpy as np
@@ -1554,8 +1549,8 @@ class LineageVisualization:
             for i in range(num_spikes * 2):
                 angle = i * angle_step
                 radius = (
-                    width/2 + wobble * 0.005) if i % 2 == 0 else (width/2 - 0.01 - wobble * 0.005)
-                vert_radius = radius * (height/width)
+                        width / 2 + wobble * 0.005) if i % 2 == 0 else (width / 2 - 0.01 - wobble * 0.005)
+                vert_radius = radius * (height / width)
                 vert_x = x + radius * np.cos(angle)
                 vert_y = y + vert_radius * np.sin(angle)
                 vertices.append((vert_x, vert_y))
@@ -1587,7 +1582,7 @@ class LineageVisualization:
                 width = base_width
                 height = base_height
 
-                rect = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                rect = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                       boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
                                       facecolor=colors['Divided'],
                                       edgecolor='white', linewidth=1, zorder=2)
@@ -1599,7 +1594,7 @@ class LineageVisualization:
                 width = base_width * 1.5  # More elongated
                 height = base_height * 0.8
 
-                rect = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                rect = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                       boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
                                       facecolor=colors['Elongated'],
                                       edgecolor='white', linewidth=1, zorder=2)
@@ -1622,7 +1617,7 @@ class LineageVisualization:
                 width = base_width
                 height = base_height
 
-                rect = FancyBboxPatch((x-width/2, y-height/2), width, height,
+                rect = FancyBboxPatch((x - width / 2, y - height / 2), width, height,
                                       boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
                                       facecolor=colors['Healthy'],
                                       edgecolor='white', linewidth=1, zorder=2)
@@ -1678,7 +1673,6 @@ class LineageVisualization:
         time_point : str
             'first' or 'last', the time point being visualized.
         """
-        import matplotlib.pyplot as plt
 
         # Draw edges first
         nx.draw_networkx_edges(G, pos, ax=ax, edge_color='gray',
@@ -1775,9 +1769,9 @@ class LineageVisualization:
 
         # Calculate metrics
         internal_diversity = internal_changes / \
-            total_cells_with_internal_data if total_cells_with_internal_data > 0 else 0
+                             total_cells_with_internal_data if total_cells_with_internal_data > 0 else 0
         robustness = generational_matches / \
-            total_parent_child_pairs if total_parent_child_pairs > 0 else 0
+                     total_parent_child_pairs if total_parent_child_pairs > 0 else 0
 
         metrics = {
             "internal_diversity": internal_diversity,
@@ -1868,7 +1862,8 @@ class LineageVisualization:
         track_id = track['ID']
 
         # Use the precomputed lookup if available
-        if hasattr(self, 'morphology_by_time') and track_id in self.morphology_by_time and time in self.morphology_by_time[track_id]:
+        if hasattr(self, 'morphology_by_time') and track_id in self.morphology_by_time and time in \
+                self.morphology_by_time[track_id]:
             morphology = self.morphology_by_time[track_id][time]
             return morphology
 
@@ -1905,12 +1900,12 @@ class LineageVisualization:
         if 'x' in track and 'y' in track and len(track['x']) > 3:
             positions = list(zip(track['x'], track['y']))
             # Calculate path straightness
-            direct_distance = ((positions[-1][0] - positions[0][0])**2 +
-                               (positions[-1][1] - positions[0][1])**2)**0.5
+            direct_distance = ((positions[-1][0] - positions[0][0]) ** 2 +
+                               (positions[-1][1] - positions[0][1]) ** 2) ** 0.5
             path_length = 0
             for i in range(1, len(positions)):
-                segment_length = ((positions[i][0] - positions[i-1][0])**2 +
-                                  (positions[i][1] - positions[i-1][1])**2)**0.5
+                segment_length = ((positions[i][0] - positions[i - 1][0]) ** 2 +
+                                  (positions[i][1] - positions[i - 1][1]) ** 2) ** 0.5
                 path_length += segment_length
 
             straightness = direct_distance / path_length if path_length > 0 else 1
@@ -1982,7 +1977,6 @@ class LineageVisualization:
                 "Export Error",
                 f"Failed to export morphology data: {str(e)}")
 
-
     def calculate_growth_and_division_metrics(self, tracks):
         """
         Calculate growth rate and division timing from tracking data.
@@ -1999,43 +1993,43 @@ class LineageVisualization:
         """
         division_times = []
         growth_rates = []
-        
+
         for track in tracks:
             # Skip tracks that don't divide
             if 'children' not in track or not track['children']:
                 continue
-                
+
             # Get timestamps
             if 't' in track and len(track['t']) > 0:
                 t_appearance = track['t'][0]
                 t_division = track['t'][-1]
-                
+
                 # Calculate division timing
                 dt = t_division - t_appearance
-                
+
                 # Skip very short tracks that might be tracking errors
                 if dt <= 0:
                     continue
-                    
+
                 division_times.append(dt)
-                
+
                 # Calculate growth rate based on division time
                 # (assuming exponential growth with doubling)
                 growth_rate = np.log(2) / dt
                 growth_rates.append(growth_rate)
-        
+
         # Calculate statistics
         if division_times:
             avg_division_time = np.mean(division_times)
             std_division_time = np.std(division_times)
             median_division_time = np.median(division_times)
-            
+
             avg_growth_rate = np.mean(growth_rates)
             std_growth_rate = np.std(growth_rates)
         else:
             avg_division_time = std_division_time = median_division_time = 0
             avg_growth_rate = std_growth_rate = 0
-        
+
         # Compile results
         results = {
             'division_times': division_times,
@@ -2047,11 +2041,9 @@ class LineageVisualization:
             'std_growth_rate': std_growth_rate,
             'total_dividing_cells': len(division_times)
         }
-        
+
         return results
-    
-    
-    
+
     def visualize_growth_and_division(self, tracks, growth_metrics):
         """
         Create visualizations for growth and division timing data.
@@ -2064,27 +2056,27 @@ class LineageVisualization:
             Output from calculate_growth_and_division_metrics function.
         """
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-        
+
         # 1. Histogram of division times
         axes[0, 0].hist(growth_metrics['division_times'], bins=20, color='skyblue', edgecolor='black')
         axes[0, 0].set_title('Division Time Distribution')
         axes[0, 0].set_xlabel('Time (frames)')
         axes[0, 0].set_ylabel('Cell Count')
-        axes[0, 0].axvline(growth_metrics['avg_division_time'], color='red', 
-                        linestyle='--', label=f"Mean: {growth_metrics['avg_division_time']:.1f}")
-        axes[0, 0].axvline(growth_metrics['median_division_time'], color='green', 
-                        linestyle='--', label=f"Median: {growth_metrics['median_division_time']:.1f}")
+        axes[0, 0].axvline(growth_metrics['avg_division_time'], color='red',
+                           linestyle='--', label=f"Mean: {growth_metrics['avg_division_time']:.1f}")
+        axes[0, 0].axvline(growth_metrics['median_division_time'], color='green',
+                           linestyle='--', label=f"Median: {growth_metrics['median_division_time']:.1f}")
         axes[0, 0].legend()
-        
+
         # 2. Histogram of growth rates
         axes[0, 1].hist(growth_metrics['growth_rates'], bins=20, color='lightgreen', edgecolor='black')
         axes[0, 1].set_title('Growth Rate Distribution')
         axes[0, 1].set_xlabel('Growth Rate (ln(2)/division time)')
         axes[0, 1].set_ylabel('Cell Count')
-        axes[0, 1].axvline(growth_metrics['avg_growth_rate'], color='red', 
-                        linestyle='--', label=f"Mean: {growth_metrics['avg_growth_rate']:.4f}")
+        axes[0, 1].axvline(growth_metrics['avg_growth_rate'], color='red',
+                           linestyle='--', label=f"Mean: {growth_metrics['avg_growth_rate']:.4f}")
         axes[0, 1].legend()
-        
+
         # 3. Division time by generation
         # Create a lookup from track_id to division time
         division_time_by_id = {}
@@ -2093,18 +2085,18 @@ class LineageVisualization:
                 dt = track['t'][-1] - track['t'][0]
                 if dt > 0:
                     division_time_by_id[track['ID']] = dt
-        
+
         # Calculate parent-child division time pairs
         parent_child_division_pairs = []
         for track in tracks:
             if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
                 parent_dt = division_time_by_id[track['ID']]
-                
+
                 for child_id in track['children']:
                     if child_id in division_time_by_id:
                         child_dt = division_time_by_id[child_id]
                         parent_child_division_pairs.append((parent_dt, child_dt))
-        
+
         # Plot parent vs child division times
         if parent_child_division_pairs:
             parent_dts, child_dts = zip(*parent_child_division_pairs)
@@ -2112,18 +2104,18 @@ class LineageVisualization:
             axes[1, 0].set_title('Division Time: Parent vs. Child')
             axes[1, 0].set_xlabel('Parent Division Time')
             axes[1, 0].set_ylabel('Child Division Time')
-            
+
             # Add y=x reference line
             min_val = min(min(parent_dts), min(child_dts))
             max_val = max(max(parent_dts), max(child_dts))
             axes[1, 0].plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
-            
+
             # Calculate correlation
             correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
-            axes[1, 0].text(0.05, 0.95, f"Correlation: {correlation:.2f}", 
-                        transform=axes[1, 0].transAxes, 
-                        verticalalignment='top')
-        
+            axes[1, 0].text(0.05, 0.95, f"Correlation: {correlation:.2f}",
+                            transform=axes[1, 0].transAxes,
+                            verticalalignment='top')
+
         # 4. Summary statistics
         axes[1, 1].axis('off')
         summary = (
@@ -2137,19 +2129,17 @@ class LineageVisualization:
             f"  Mean: {growth_metrics['avg_growth_rate']:.4f}\n"
             f"  Std Dev: {growth_metrics['std_growth_rate']:.4f}\n"
         )
-        
+
         if parent_child_division_pairs:
             summary += f"\nParent-Child Division Time Correlation: {correlation:.2f}"
-        
-        axes[1, 1].text(0.05, 0.95, summary, transform=axes[1, 1].transAxes, 
-                    verticalalignment='top', horizontalalignment='left',
-                    fontfamily='monospace')
-        
+
+        axes[1, 1].text(0.05, 0.95, summary, transform=axes[1, 1].transAxes,
+                        verticalalignment='top', horizontalalignment='left',
+                        fontfamily='monospace')
+
         plt.tight_layout()
         return fig
-    
-    
-    
+
     def calculate_division_robustness(tracks):
         """
         Calculate robustness metrics comparing division timing across generations.
@@ -2171,18 +2161,18 @@ class LineageVisualization:
                 dt = track['t'][-1] - track['t'][0]
                 if dt > 0:
                     division_time_by_id[track['ID']] = dt
-        
+
         # Calculate parent-child division time pairs
         parent_child_division_pairs = []
         for track in tracks:
             if 'children' in track and track['children'] and track['ID'] in division_time_by_id:
                 parent_dt = division_time_by_id[track['ID']]
-                
+
                 for child_id in track['children']:
                     if child_id in division_time_by_id:
                         child_dt = division_time_by_id[child_id]
                         parent_child_division_pairs.append((parent_dt, child_dt))
-        
+
         if not parent_child_division_pairs:
             return {
                 'robustness_score': 0,
@@ -2190,20 +2180,20 @@ class LineageVisualization:
                 'mean_relative_error': 0,
                 'pairs_analyzed': 0
             }
-        
+
         # Unzip parent-child pairs
         parent_dts, child_dts = zip(*parent_child_division_pairs)
-        
+
         # Calculate correlation coefficient
         correlation = np.corrcoef(parent_dts, child_dts)[0, 1]
-        
+
         # Calculate mean relative error
         relative_errors = [abs(c - p) / p for p, c in parent_child_division_pairs]
         mean_relative_error = np.mean(relative_errors)
-        
+
         # Calculate robustness score (1 = perfect robustness, 0 = no robustness)
         robustness_score = 1 - mean_relative_error
-        
+
         return {
             'robustness_score': robustness_score,
             'correlation': correlation,

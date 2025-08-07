@@ -1,71 +1,22 @@
-import polars as pl
-import numpy as np
-from skimage.measure import regionprops
-from pubsub import pub
-from typing import Optional, Dict, Tuple
 import logging
-from nd2_analyzer.analysis.morphology.morphology import classify_morphology
-from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
+from typing import Optional
 
-import time
-import functools
-import logging
-from typing import Dict, Any, Callable
+import numpy as np
+import polars as pl
+from pubsub import pub
+from skimage.measure import regionprops, label
 
-# Performance logger setup
-perf_logger = logging.getLogger('performance')
-perf_logger.setLevel(logging.INFO)
-
-def timing_decorator(func_name: str = None):
-    """Decorator to measure and log function execution time"""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            start_time = time.perf_counter()
-            try:
-                result = func(*args, **kwargs)
-                end_time = time.perf_counter()
-                execution_time = end_time - start_time
-                
-                name = func_name or func.__name__
-                perf_logger.info(f"{name}: {execution_time:.4f}s")
-                
-                return result
-            except Exception as e:
-                end_time = time.perf_counter()
-                execution_time = end_time - start_time
-                name = func_name or func.__name__
-                perf_logger.error(f"{name}: {execution_time:.4f}s (FAILED: {e})")
-                raise
-        return wrapper
-    return decorator
-
-class TimingContext:
-    """Context manager for timing code blocks"""
-    def __init__(self, operation_name: str):
-        self.name = operation_name
-        self.start_time = None
-        
-    def __enter__(self):
-        self.start_time = time.perf_counter()
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        end_time = time.perf_counter()
-        execution_time = end_time - self.start_time
-        if exc_type is None:
-            perf_logger.info(f"{self.name}: {execution_time:.4f}s")
-        else:
-            perf_logger.error(f"{self.name}: {execution_time:.4f}s (FAILED: {exc_val})")
+from nd2_analyzer.analysis.morphology.morphology import classify_morphology
+from nd2_analyzer.data.frame import TLFrame
+from nd2_analyzer.data.image_data import ImageData
+from nd2_analyzer.utils import timing_decorator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('MetricsService')
 
+
 class MetricsService:
-    """
-    High-performance metrics service using Polars for efficient data operations.
-    """
     _instance = None
 
     def __new__(cls):
@@ -78,174 +29,169 @@ class MetricsService:
     def __init__(self):
         if not getattr(self, '_initialized', False):
             logger.info("Initializing OptimizedMetricsService")
-            
+
             # Use Polars DataFrame as primary storage
             self.df = pl.DataFrame()
-            
+
             # Fast lookup cache for pending fluorescence updates
             self._pending_metrics = defaultdict(dict)  # {(t,p): {cell_id: metrics_dict}}
-            
+
             # Segmentation cache for fluorescence processing
             self._segmentation_cache = {}  # {(t,p): labeled_image}
-            
+
             # Batch processing configuration
             self._batch_size = 1000
             self._pending_count = 0
-            
-            pub.subscribe(self.on_image_ready, "image_ready")
+
+            pub.subscribe(self.compute_metrics_at_frame, "image_ready")
             self._initialized = True
 
-    @timing_decorator("on_image_ready")
-    def on_image_ready(self, image: np.ndarray, time, position, channel, mode):
-        """Process images with optimized data handling."""
-        
-        # Handle fluorescence images
-        if mode == "normal" and channel != 0:
-            self._process_fluorescence_optimized(image, time, position, channel)
+    @timing_decorator("compute_metrics_at_frame")
+    def compute_metrics_at_frame(self, image: np.ndarray, time, position, channel, mode):
+        if mode != "segmented":
             return
 
-        # Process segmentation
-        if mode not in ["segmented", "labeled"]:
+        # labeled_frame = segmentation_cache[time, position, 0] # TODO: ensure segmentationservice always returns labeled
+        labeled_frame = label(image)
+        mcherry_frame = ImageData.get_instance().get(time, position, 1)
+        yfp_frame = ImageData.get_instance().get(time, position, 2)
+
+        curr_analysis_frame = TLFrame(index=(time, position), labeled_phc=labeled_frame,
+                                      mcherry=mcherry_frame,
+                                      yfp=yfp_frame)
+
+        batch_metrics = MetricsService.calculate_cell_metrics(curr_analysis_frame)
+        self.update_frame_metrics(batch_metrics)
+
+    @timing_decorator("replace_frame_metrics")
+    def update_frame_metrics(self, batch_data: list):
+        """
+        Updates metrics for a given frame (time/position).
+
+        Deletes this time/position from the dataset if they exist, and overwrites them.
+
+        Args:
+            batch_data: Complete list of metrics from calculate_cell_metrics()
+        """
+        if not batch_data:
             return
 
-        if not isinstance(image, np.ndarray):
-            image = np.array(image)
-
-        num_features = np.unique(image).shape[0]
-        if num_features == 0:
+        if self.df.is_empty():
+            self.df = pl.DataFrame(batch_data)
             return
 
-        logger.info(f"Processing {num_features} cells at T={time}, P={position}")
+        # Extract the frame coordinates from the first row
+        # (all rows in batch_data have the same time/position)
+        first_row = batch_data[0]
+        time_point = first_row["time"]
+        position = first_row["position"]
 
-        # Cache segmentation for fluorescence analysis
-        self._segmentation_cache[(time, position)] = image
-        
-        # Calculate metrics efficiently
-        with TimingContext("calculate_metrics_optimized"):
-            self._calculate_metrics_optimized(image, time, position, channel)
-        
-        # Request fluorescence data
-        for chan in range(1, 3):
-            pub.sendMessage("raw_image_request", time=time, position=position, channel=chan)
+        # Delete existing rows for this time/position
+        self.df = self.df.filter(
+            ~((pl.col("time") == time_point) & (pl.col("position") == position))
+        )
 
-    @timing_decorator("calculate_metrics_optimized")
-    def _calculate_metrics_optimized(self, labeled_image, time, position, channel):
-        """Calculate metrics and store in optimized structure."""
-        props = regionprops(labeled_image)
-        
-        # Prepare batch data for efficient DataFrame operations
+        # Create DataFrame from new data and concatenate
+        new_df = pl.DataFrame(batch_data)
+        self.df = pl.concat([self.df, new_df], how="vertical")
+
+    """
+    Computes the metrics for each labeled cell from the segmentation
+        # Uses regionprops to get geometrical features
+    
+        # For fluorescence analysis:
+        # Takes each segmented cell
+        # 1. calculate physical metrics
+        # 2. identify which fluorescence channel it is from
+        # 3. write the actual fluorescence value
+    """
+
+    def calculate_cell_metrics(_frame: TLFrame):
+        cells = regionprops(_frame.labeled_phc)
         batch_data = []
-        
-        for prop in props:
-            cell_id = prop.label
-            
+
+        # Computes average background fluorescence
+        back_fluo_mcherry = _frame.mcherry[_frame.labeled_phc == 0].mean()
+        back_fluo_yfp = _frame.yfp[_frame.labeled_phc == 0].mean()
+
+        has_fluorescence = True
+        # Precompute if we have an actual fluorescence value for this channel or not
+        if back_fluo_mcherry < 0.01 and back_fluo_yfp < 0.01:
+            fluorescence_channel = -1
+            fluorescence_level = 0.0
+            has_fluorescence = False
+
+        for cell in cells:
+            cell_id = cell.label
+
             # Calculate derived metrics
-            circularity = (4 * np.pi * prop.area) / (prop.perimeter**2) if prop.perimeter > 0 else 0
-            aspect_ratio = prop.major_axis_length / prop.minor_axis_length if prop.minor_axis_length > 0 else 1.0
-            y1, x1, y2, x2 = prop.bbox
-            
+            circularity = (4 * np.pi * cell.area) / (cell.perimeter ** 2) if cell.perimeter > 0 else 0
+            aspect_ratio = cell.major_axis_length / cell.minor_axis_length if cell.minor_axis_length > 0 else 1.0
+            y1, x1, y2, x2 = cell.bbox
+
             metrics_dict = {
-                "area": prop.area,
-                "perimeter": prop.perimeter,
+                "area": cell.area,
+                "perimeter": cell.perimeter,
                 "aspect_ratio": aspect_ratio,
                 "circularity": circularity,
-                "solidity": prop.solidity,
-                "equivalent_diameter": prop.equivalent_diameter,
-                "orientation": prop.orientation
+                "solidity": cell.solidity,
+                "equivalent_diameter": cell.equivalent_diameter,
+                "orientation": cell.orientation
             }
-            
+
+            # TODO: confirm that we need all these metrics
+            # TODO: confirm this function is working
             morphology_class = classify_morphology(metrics_dict)
-            
-            # Create row data
+
+            # TODO: very important here, we need the computed rpu to know where each of them came from
+            # Let's first compute the RPU
+            # Based on the background fluorescence, tell which population this cell is from
+            if has_fluorescence:
+                # Select the region corresponding to the cell in the frames
+                mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
+                yfp_fluo = _frame.yfp[_frame.labeled_phc == cell_id].mean()
+
+                if (mcherry_fluo / back_fluo_mcherry) > (yfp_fluo / back_fluo_yfp):
+                    fluorescence_channel = 0
+                    fluorescence_level = mcherry_fluo
+                else:
+                    fluorescence_channel = 1
+                    fluorescence_level = yfp_fluo
+
             row_data = {
-                "time": time,
-                "position": position,
+                "time": _frame.index[0],
+                "position": _frame.index[1],
                 "cell_id": cell_id,
-                "channel": channel,
-                "area": prop.area,
-                "perimeter": prop.perimeter,
-                "eccentricity": prop.eccentricity,
-                "major_axis_length": prop.major_axis_length,
-                "minor_axis_length": prop.minor_axis_length,
-                "centroid_y": prop.centroid[0],
-                "centroid_x": prop.centroid[1],
+                "area": cell.area,
+                "perimeter": cell.perimeter,
+                "eccentricity": cell.eccentricity,
+                "major_axis_length": cell.major_axis_length,
+                "minor_axis_length": cell.minor_axis_length,
+                "centroid_y": cell.centroid[0],
+                "centroid_x": cell.centroid[1],
                 "aspect_ratio": aspect_ratio,
                 "circularity": circularity,
-                "solidity": prop.solidity,
-                "equivalent_diameter": prop.equivalent_diameter,
-                "orientation": prop.orientation,
+                "solidity": cell.solidity,
+                "equivalent_diameter": cell.equivalent_diameter,
+                "orientation": cell.orientation,
                 "morphology_class": morphology_class,
                 "y1": y1, "x1": x1, "y2": y2, "x2": x2,
-                "fluo_mcherry": None,
-                "fluo_yfp": None
+                "fluorescence_channel": fluorescence_channel,
+                "fluo_level": fluorescence_level
             }
-            
+
             batch_data.append(row_data)
-            
-            # Store in pending cache for fast fluorescence updates
-            self._pending_metrics[(time, position)][cell_id] = row_data
 
-        # Batch insert into DataFrame
-        if batch_data:
-            new_df = pl.DataFrame(batch_data)
-            self.df = pl.concat([self.df, new_df], how="vertical") if not self.df.is_empty() else new_df
-            self._pending_count += len(batch_data)
-
-    @timing_decorator("process_fluorescence")
-    def _process_fluorescence_optimized(self, image, time, position, channel):
-        """Optimized fluorescence processing using fast lookups."""
-        cache_key = (time, position)
-        
-        if cache_key not in self._segmentation_cache:
-            logger.warning(f"No segmentation for T={time}, P={position}, C={channel}")
-            return
-            
-        if cache_key not in self._pending_metrics:
-            logger.warning(f"No pending metrics for T={time}, P={position}, C={channel}")
-            return
-
-        labeled_image = self._segmentation_cache[cache_key]
-        pending_cells = self._pending_metrics[cache_key]
-        
-        if not isinstance(image, np.ndarray):
-            image = np.array(image)
-
-        # Calculate background
-        background_mask = labeled_image == 0
-        background_intensity = np.mean(image[background_mask]) if np.any(background_mask) else 0
-        
-        fluo_column = "fluo_mcherry" if channel == 1 else "fluo_yfp"
-        
-        # Update fluorescence values efficiently
-        updates = []
-        for cell_id, metrics in pending_cells.items():
-            cell_mask = labeled_image == cell_id
-            if np.any(cell_mask):
-                cell_fluorescence = np.mean(image[cell_mask])
-                fluorescence_value = cell_fluorescence if cell_fluorescence > background_intensity else 0
-                
-                # Store update for batch processing
-                updates.append({
-                    "time": time,
-                    "position": position, 
-                    "cell_id": cell_id,
-                    fluo_column: fluorescence_value
-                })
-
-        # Batch update DataFrame using efficient Polars operations
-        if updates:
-            self._batch_update_fluorescence(updates, fluo_column)
+        return batch_data
 
     @timing_decorator("batch_update_fluorescence")
     def _batch_update_fluorescence(self, updates, fluo_column):
-        """Efficiently update fluorescence values using Polars joins."""
+        """Update fluorescence values using Polars joins."""
         if not updates:
             return
-            
-        # Create update DataFrame
+
         update_df = pl.DataFrame(updates)
-        
-        # Use efficient join operation instead of row-by-row updates
+
         self.df = self.df.join(
             update_df,
             on=["time", "position", "cell_id"],
@@ -259,9 +205,12 @@ class MetricsService:
         ]).drop(f"{fluo_column}_update")
 
     @timing_decorator("query_optimized")
-    def query_optimized(self, time: Optional[int] = None, position: Optional[int] = None, 
-                       cell_id: Optional[int] = None) -> pl.DataFrame:
-        """Fast querying using Polars' optimized operations."""
+    def query_optimized(self, time: Optional[int] = None, position: Optional[int] = None,
+                        cell_id: Optional[int] = None) -> pl.DataFrame:
+        """
+        Queries metrics for a given time/position/cell_id.
+        Supposedly uses fast operations from polars
+        """
         if self.df.is_empty():
             return pl.DataFrame()
 
@@ -273,14 +222,14 @@ class MetricsService:
             conditions.append(pl.col("position") == position)
         if cell_id is not None:
             conditions.append(pl.col("cell_id") == cell_id)
-        
+
         if conditions:
             # Combine conditions with logical AND
             combined_condition = conditions[0]
             for condition in conditions[1:]:
                 combined_condition = combined_condition & condition
             return self.df.filter(combined_condition)
-        
+
         return self.df
 
     def get_cell_timeseries(self, position: int, cell_id: int) -> pl.DataFrame:
@@ -313,3 +262,112 @@ class MetricsService:
         if os.path.exists(parquet_path):
             self.df = pl.read_parquet(parquet_path)
             logger.info(f"Loaded {self.df.height} rows from {parquet_path}")
+
+    #
+    # @timing_decorator("calculate_metrics_optimized")
+    # def _calculate_metrics_optimized(self, time_lapse_frame : TLFrame):
+    #     """Calculate metrics and store in optimized structure."""
+    #     props = regionprops(labeled_image)
+    #
+    #     # Prepare batch data for efficient DataFrame operations
+    #     batch_data = []
+    #
+    #     for cell in props:
+    #         cell_id = cell.label
+    #
+    #         # Calculate derived metrics
+    #         circularity = (4 * np.pi * cell.area) / (cell.perimeter**2) if cell.perimeter > 0 else 0
+    #         aspect_ratio = cell.major_axis_length / cell.minor_axis_length if cell.minor_axis_length > 0 else 1.0
+    #         y1, x1, y2, x2 = cell.bbox
+    #
+    #         metrics_dict = {
+    #             "area": cell.area,
+    #             "perimeter": cell.perimeter,
+    #             "aspect_ratio": aspect_ratio,
+    #             "circularity": circularity,
+    #             "solidity": cell.solidity,
+    #             "equivalent_diameter": cell.equivalent_diameter,
+    #             "orientation": cell.orientation
+    #         }
+    #
+    #         morphology_class = classify_morphology(metrics_dict)
+    #
+    #         # Create row data
+    #         row_data = {
+    #             "time": time,
+    #             "position": position,
+    #             "cell_id": cell_id,
+    #             "channel": channel,
+    #             "area": cell.area,
+    #             "perimeter": cell.perimeter,
+    #             "eccentricity": cell.eccentricity,
+    #             "major_axis_length": cell.major_axis_length,
+    #             "minor_axis_length": cell.minor_axis_length,
+    #             "centroid_y": cell.centroid[0],
+    #             "centroid_x": cell.centroid[1],
+    #             "aspect_ratio": aspect_ratio,
+    #             "circularity": circularity,
+    #             "solidity": cell.solidity,
+    #             "equivalent_diameter": cell.equivalent_diameter,
+    #             "orientation": cell.orientation,
+    #             "morphology_class": morphology_class,
+    #             "y1": y1, "x1": x1, "y2": y2, "x2": x2,
+    #             "fluo_mcherry": None,
+    #             "fluo_yfp": None
+    #         }
+    #
+    #         batch_data.append(row_data)
+    #
+    #         # Store in pending cache for fast fluorescence updates
+    #         self._pending_metrics[(time, position)][cell_id] = row_data
+    #
+    #     # Batch insert into DataFrame
+    #     if batch_data:
+    #         new_df = pl.DataFrame(batch_data)
+    #         self.df = pl.concat([self.df, new_df], how="vertical") if not self.df.is_empty() else new_df
+    #         self._pending_count += len(batch_data)
+    #
+    # @timing_decorator("process_fluorescence")
+    # def _process_fluorescence_optimized(self, image, time, position, channel):
+    #     """Optimized fluorescence processing using fast lookups."""
+    #     cache_key = (time, position)
+    #
+    #     if cache_key not in self._segmentation_cache:
+    #         logger.warning(f"No segmentation for T={time}, P={position}, C={channel}")
+    #         return
+    #
+    #     if cache_key not in self._pending_metrics:
+    #         logger.warning(f"No pending metrics for T={time}, P={position}, C={channel}")
+    #         return
+    #
+    #     labeled_image = self._segmentation_cache[cache_key]
+    #     pending_cells = self._pending_metrics[cache_key]
+    #
+    #     if not isinstance(image, np.ndarray):
+    #         image = np.array(image)
+    #
+    #     # Calculate background
+    #     background_mask = labeled_image == 0
+    #     background_intensity = np.mean(image[background_mask]) if np.any(background_mask) else 0
+    #
+    #     fluo_column = "fluo_mcherry" if channel == 1 else "fluo_yfp"
+    #
+    #     # Update fluorescence values efficiently
+    #     updates = []
+    #     for cell_id, metrics in pending_cells.items():
+    #         cell_mask = labeled_image == cell_id
+    #         if np.any(cell_mask):
+    #             cell_fluorescence = np.mean(image[cell_mask])
+    #             fluorescence_value = cell_fluorescence if cell_fluorescence > background_intensity else 0
+    #
+    #             # Store update for batch processing
+    #             updates.append({
+    #                 "time": time,
+    #                 "position": position,
+    #                 "cell_id": cell_id,
+    #                 fluo_column: fluorescence_value
+    #             })
+    #
+    #     # Batch update DataFrame using efficient Polars operations
+    #     if updates:
+    #         self._batch_update_fluorescence(updates, fluo_column)

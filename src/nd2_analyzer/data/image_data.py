@@ -1,7 +1,8 @@
 import json
 import os
+import threading
 from pathlib import Path
-from typing import Union, Sequence
+from typing import Union, Sequence, Optional
 
 import dask.array as da
 import nd2
@@ -12,10 +13,14 @@ from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationM
 from nd2_analyzer.analysis.segmentation.segmentation_service import SegmentationService
 
 """
-Can hold either an ND2 file or a series of images
+Singleton, implements data access for the time lapse experiments
 """
 
+
 class ImageData:
+    _instance: Optional['ImageData'] = None
+    _lock = threading.Lock()
+
     def __init__(self, data, path, is_nd2=True):
         self.data = data
         self.nd2_filename = path
@@ -27,13 +32,34 @@ class ImageData:
         self.segmentation_service = SegmentationService(
             cache=self.segmentation_cache,
             models=SegmentationModels(),
-            data_getter=self._get_raw_image
+            data_getter=self.get
         )
 
-        pub.subscribe(self._access, "raw_image_request")
-        pub.sendMessage("image_data_loaded", image_data=self)
+    @classmethod
+    def get_instance(cls) -> Optional['ImageData']:
+        """Get the current singleton instance"""
+        with cls._lock:
+            return cls._instance
 
-    def _get_raw_image(self, t, p, c):
+    @classmethod
+    def create_instance(cls, data, path, is_nd2=True) -> 'ImageData':
+        """Create/replace the singleton instance"""
+        with cls._lock:
+            # Clean up old instance if it exists
+            if cls._instance is not None:
+                cls._instance._cleanup()
+
+            # Create new instance
+            instance = cls(data, path, is_nd2)
+            cls._instance = instance
+
+        pub.sendMessage("image_data_loaded", image_data=cls._instance)
+        return cls._instance
+
+    def _cleanup(self):
+        pass
+
+    def get(self, t, p, c):
         """Helper method to retrieve raw images"""
 
         if len(self.data.shape) == 5:  # - has channel
@@ -53,15 +79,18 @@ class ImageData:
 
         return raw_image
 
-    def _access(self, time, position, channel):
-
-        image = self._get_raw_image(time, position, channel)
-        pub.sendMessage("image_ready",
-                        image=image,
-                        time=time,
-                        position=position,
-                        channel=channel,
-                        mode='normal')
+    #
+    # def _access(self, time, position, channel):
+    #
+    #     image = self._get_raw_image(time, position, channel)
+    #     return image
+    #
+    #     pub.sendMessage("image_ready",
+    #                     image=image,
+    #                     time=time,
+    #                     position=position,
+    #                     channel=channel,
+    #                     mode='normal')
 
     @classmethod
     def load_nd2(cls, file_paths: Union[str, Sequence[str]]):
@@ -113,7 +142,8 @@ class ImageData:
         print(f"Loaded {len(file_paths)} file(s). "
               f"Cropped P to {min_p}. Final array shape: {full_data.shape}")
 
-        return cls(data=full_data, path=file_paths, is_nd2=True)
+        inst = cls.create_instance(data=full_data, path=file_paths, is_nd2=True)
+        return inst
 
     def save(self, filename: str):
         """Saves state to file
@@ -151,7 +181,7 @@ class ImageData:
                 is_nd2 = meta_json.get('is_nd2', True)
 
                 files_ok = (isinstance(nd2_filename, str) and os.path.exists(nd2_filename)) or (
-                            isinstance(nd2_filename, list) and all(os.path.exists(_fname) for _fname in nd2_filename))
+                        isinstance(nd2_filename, list) and all(os.path.exists(_fname) for _fname in nd2_filename))
 
                 if files_ok:
                     image_data = cls.load_nd2(nd2_filename)
@@ -164,7 +194,7 @@ class ImageData:
                         image_data.segmentation_service = SegmentationService(
                             cache=image_data.segmentation_cache,
                             models=SegmentationModels(),
-                            data_getter=image_data._get_raw_image
+                            data_getter=image_data.get
                         )
 
                     return image_data

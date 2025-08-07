@@ -1,14 +1,7 @@
-import glob
-import os
-from pathlib import Path
-
 import cv2
 import numpy as np
-from PIL import Image
 from matplotlib import pyplot as plt
 from numpy import diff
-from skimage import exposure
-from tifffile import imread
 
 
 # Shifting the image by a margin of pixels

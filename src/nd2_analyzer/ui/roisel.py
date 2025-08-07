@@ -1,104 +1,3 @@
-# import sys
-# import numpy as np
-# from PySide6.QtWidgets import (
-#     QApplication,
-#     QWidget,
-#     QVBoxLayout,
-#     QHBoxLayout,
-#     QPushButton,
-#     QLabel,
-# )
-# from PySide6.QtGui import QImage, QPixmap, QPainter, QPen
-# from PySide6.QtCore import Qt, QRect, QSize, Signal
-
-# import cv2
-
-# class ROIWidget(QWidget):
-#     # Signal will emit the binary mask as a NumPy array
-#     maskCreated = Signal(object)
-
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-#         self.image = None  # Will hold the QPixmap built from the NumPy array.
-#         self.roi = None    # QRect storing the ROI.
-#         self.startPoint = None  # Starting point of the ROI paint.
-#         self.setMinimumSize(200, 200)
-
-#     def setImage(self, np_image):
-#         max_value = np.iinfo(np_image.dtype).max
-#         # np_image = cv2.normalize(0, max_value, np_image)
-#         np_image = cv2.normalize(np_image, None, 0, 255, cv2.NORM_MINMAX)
-#         np_image = np_image.astype(np.uint8)
-
-#         """Load an image from a NumPy array and update the widget."""
-#         if np_image.ndim == 2:  # Grayscale image
-#             height, width = np_image.shape
-#             qimage = QImage(np_image.data, width, height, width, QImage.Format_Grayscale8)
-#         elif np_image.ndim == 3 and np_image.shape[2] == 3:  # Color image
-#             height, width, _ = np_image.shape
-#             bytesPerLine = 3 * width
-#             qimage = QImage(np_image.data, width, height, bytesPerLine, QImage.Format_RGB888)
-#             qimage = qimage.rgbSwapped()  # Convert from RGB to Qt's expected format
-#         else:
-#             raise ValueError("Unsupported numpy image format")
-#         self.image = QPixmap.fromImage(qimage)
-#         self.setFixedSize(self.image.size())
-#         self.update()
-
-#     def paintEvent(self, event):
-#         painter = QPainter(self)
-#         if self.image:
-#             painter.drawPixmap(0, 0, self.image)
-#         if self.roi:
-#             pen = QPen(Qt.red, 2, Qt.DashLine)
-#             painter.setPen(pen)
-#             painter.drawRect(self.roi)
-
-#     def mousePressEvent(self, event):
-#         # In Qt6, use event.position() which returns a QPointF
-#         self.startPoint = event.position().toPoint() if hasattr(event, "position") else event.pos()
-#         self.roi = QRect(self.startPoint, QSize())
-#         self.update()
-
-#     def mouseMoveEvent(self, event):
-#         if self.startPoint:
-#             currentPos = event.position().toPoint() if hasattr(event, "position") else event.pos()
-#             self.roi = QRect(self.startPoint, currentPos).normalized()
-#             self.update()
-
-#     def mouseReleaseEvent(self, event):
-#         if self.startPoint:
-#             currentPos = event.position().toPoint() if hasattr(event, "position") else event.pos()
-#             self.roi = QRect(self.startPoint, currentPos).normalized()
-#             self.createBinaryMask()
-#             self.startPoint = None
-#             self.update()
-
-#     def createBinaryMask(self):
-#         """Convert the drawn ROI into a binary mask and emit it as a NumPy array."""
-#         if not self.image or not self.roi:
-#             return
-
-#         # Create a new image for the mask using an 8-bit indexed format.
-#         mask_qimage = QImage(self.image.size(), QImage.Format_Indexed8)
-#         mask_qimage.setColorCount(2)
-#         mask_qimage.setColor(0, 0xFF000000)
-#         mask_qimage.setColor(1, 0xFFFFFFFF)
-#         mask_qimage.fill(0)  # Start with a completely black image.
-
-#         painter = QPainter(mask_qimage)
-#         painter.fillRect(self.roi, Qt.white)  # Mark the ROI area as white.
-#         painter.end()
-
-#         # Convert QImage to a NumPy array.
-#         ptr = mask_qimage.bits()
-#         ptr.setsize(mask_qimage.byteCount())
-#         mask_array = np.array(ptr).reshape(mask_qimage.height(), mask_qimage.width())
-
-#         # Emit the mask.
-#         self.maskCreated.emit(mask_array)
-
-
 import numpy as np
 from PySide6.QtCore import Qt, QPointF, Signal, QEvent
 from PySide6.QtGui import QPixmap, QPen, QImage, QPolygonF, QColor
@@ -292,9 +191,16 @@ class PolygonROISelector(QDialog):
         self.create_mask()
         # Emit the signal with the mask
         self.roi_selected.emit(self.mask)
+
+        # TODO: Directly send via pubsubs
+        # eg. self.application_state.image_data.segmentation_cache.set_binary_mask(self.roi_mask)
+        pub.sendMessage('roi_selected', self.mask)
+
         self.accept()  # This will close the dialog
 
     def resizeEvent(self, event):
         # Make sure the view fits the image when resizing
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
         super().resizeEvent(event)
+
+    # TODO: make it request the current image from image_data

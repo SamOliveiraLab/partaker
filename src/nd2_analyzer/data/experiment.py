@@ -4,6 +4,9 @@ from typing import List, Dict
 
 from nd2 import ND2File
 
+
+# TODO: put experiment parameters, basically medium type
+
 class Experiment:
     """
     Represents a time-lapse microscopy experiment.

@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
 from PySide6.QtWidgets import QSpinBox
 from pubsub import pub
 
+from nd2_analyzer.data.experiment import Experiment
+
 
 class ExperimentDialog(QDialog):
     # Signal that emits an Experiment instance when created
@@ -177,9 +179,7 @@ class ExperimentDialog(QDialog):
 
         try:
             # Let the Experiment class handle all validation and creation
-            from nd2_analyzer.data.experiment import Experiment  # Import your actual Experiment class
 
-            # Create experiment - all validation happens in the Experiment class
             experiment = Experiment(
                 name=name,
                 nd2_files=self.file_paths,
@@ -193,7 +193,6 @@ class ExperimentDialog(QDialog):
             # Emit Qt signal for direct connections
             self.experimentCreated.emit(experiment)
 
-            # Also publish to PyPubSub for global subscribers
             pub.sendMessage("experiment_loaded", experiment=experiment)
 
             self.accept()

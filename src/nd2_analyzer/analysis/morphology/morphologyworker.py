@@ -4,6 +4,7 @@ from PySide6.QtCore import QObject, Signal
 
 from nd2_analyzer.analysis.morphology.morphology import extract_cells_and_metrics
 
+
 class MorphologyWorker(QObject):
     progress = Signal(int)  # Progress updates
     finished = Signal(object)  # Finished with results

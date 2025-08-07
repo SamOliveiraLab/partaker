@@ -1,14 +1,14 @@
-from itertools import product
 import json
 import os
-import pickle
+from itertools import product
 
+import cv2
 import h5py
 import numpy as np
 
-import cv2
-
 from .segmentation_models import SegmentationModels
+
+
 # from .losses import pixelwise_weighted_binary_crossentropy_seg
 
 class SegmentationCache:
@@ -110,7 +110,7 @@ class SegmentationCache:
             binary_mask (np.ndarray): Binary mask where True/1 indicates regions to keep
         """
         if binary_mask.shape != self.shape[-2:
-                                           ]:  # Check if mask matches image dimensions
+        ]:  # Check if mask matches image dimensions
             raise ValueError(
                 f"Binary mask shape {binary_mask.shape} does not match image dimensions {self.shape[-2:]}")
         self.binary_mask = binary_mask
@@ -288,7 +288,7 @@ class SegmentationCache:
             # Normalize frame first
             if self.model_name in [SegmentationModels().UNET]:
                 frame = cv2.normalize(
-                        frame, None, 0, 65535, cv2.NORM_MINMAX).astype(np.uint16)
+                    frame, None, 0, 65535, cv2.NORM_MINMAX).astype(np.uint16)
 
             segmented_frame = SegmentationModels().segment_images(
                 [frame], mode=self.model_name)[0]

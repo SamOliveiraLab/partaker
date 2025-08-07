@@ -1,29 +1,22 @@
-from asyncio import tasks
-from pathlib import Path
-import matplotlib.pyplot as plt
-import math
 import numpy as np
-import imageio.v2 as imageio
 import os
+
 import cv2
-
-from cachier import cachier
-import datetime
-
-import omnipose
-from cellpose_omni import models, io, utils
-
-from .unet import unet_segmentation
+import numpy as np
+from cellpose_omni import models, utils
 from scipy.ndimage import gaussian_filter
 from skimage import exposure
-from skimage.restoration import richardson_lucy
 from skimage.measure import label
+from skimage.restoration import richardson_lucy
+
+from .unet import unet_segmentation
 
 # Omnipose imports
 # Import dependencies
 
 # use_gpu = utils.use_gpu()
 use_gpu = True
+
 
 class SegmentationModels:
     CELLPOSE = 'cellpose'
@@ -105,7 +98,7 @@ class SegmentationModels:
         #     num_labels, labels = cv2.connectedComponents(img)
         #     segmented_images[idx] = labels
         _images = np.array([cv2.resize(np.array(img), (512, 512))
-                           for img in images])
+                            for img in images])
         _images = np.expand_dims(_images, axis=-1)
         segmented_images = model.predict(_images)
         segmented_images = np.array([cv2.resize(np.array(
@@ -184,27 +177,29 @@ class SegmentationModels:
                 progress.emit(len(images))
 
         return binary_mask_display
-    
+
     def segment_omnipose(self, images, progress, model):
-        chans = [0,0]
+        chans = [0, 0]
 
         # define parameters
-        params = {'channels':chans, # always define this with the model
-                'rescale': None, # upscale or downscale your images, None = no rescaling 
-                'mask_threshold': -2, # erode or dilate masks with higher or lower values between -5 and 5 
-                'flow_threshold': 0, # default is .4, but only needed if there are spurious masks to clean up; slows down output
-                'transparency': True, # transparency in flow output
-                'omni': True, # we can turn off Omnipose mask reconstruction, not advised 
-                'cluster': True, # use DBSCAN clustering
-                'resample': True, # whether or not to run dynamics on rescaled grid or original grid 
-                'verbose': False, # turn on if you want to see more output 
-                'tile': False, # average the outputs from flipped (augmented) images; slower, usually not needed 
-                'niter': None, # default None lets Omnipose calculate # of Euler iterations (usually <20) but you can tune it for over/under segmentation 
-                'augment': False, # Can optionally rotate the image and average network outputs, usually not needed 
-                # 'affinity_seg': True, # new feature, stay tuned...
-                }
+        params = {'channels': chans,  # always define this with the model
+                  'rescale': None,  # upscale or downscale your images, None = no rescaling
+                  'mask_threshold': -2,  # erode or dilate masks with higher or lower values between -5 and 5
+                  'flow_threshold': 0,
+                  # default is .4, but only needed if there are spurious masks to clean up; slows down output
+                  'transparency': True,  # transparency in flow output
+                  'omni': True,  # we can turn off Omnipose mask reconstruction, not advised
+                  'cluster': True,  # use DBSCAN clustering
+                  'resample': True,  # whether or not to run dynamics on rescaled grid or original grid
+                  'verbose': False,  # turn on if you want to see more output
+                  'tile': False,  # average the outputs from flipped (augmented) images; slower, usually not needed
+                  'niter': None,
+                  # default None lets Omnipose calculate # of Euler iterations (usually <20) but you can tune it for over/under segmentation
+                  'augment': False,  # Can optionally rotate the image and average network outputs, usually not needed
+                  # 'affinity_seg': True, # new feature, stay tuned...
+                  }
 
-        masks, flows, styles = model.eval(images,**params)
+        masks, flows, styles = model.eval(images, **params)
         # masks = np.array(masks)  # Ensure masks are a NumPy array
 
         return masks
@@ -422,7 +417,7 @@ def preprocess_image(image):
         np.ndarray: Preprocessed image.
     """
     normalized_frame = (image - np.min(image)) / \
-        (np.max(image) - np.min(image))
+                       (np.max(image) - np.min(image))
 
     denoised_frame = gaussian_filter(normalized_frame, sigma=1)
 

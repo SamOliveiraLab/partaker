@@ -1,7 +1,7 @@
-from pubsub import pub
-import numpy as np
 import cv2
-from skimage.measure import label, regionprops
+import numpy as np
+from pubsub import pub
+from skimage.measure import label
 from skimage.segmentation import find_boundaries
 
 
@@ -125,7 +125,7 @@ class SegmentationService:
 
         # Normalize labels
         labels = label(segmented)
-        normalized = labels.astype(float)/labels.max()
+        normalized = labels.astype(float) / labels.max()
 
         # Apply colormap and convert to 8-bit RGB
         colored = (cmap(normalized)[..., :3] * 255).astype(np.uint8)
