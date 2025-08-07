@@ -9,16 +9,18 @@ from pubsub import pub
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
+from nd2_analyzer.analysis.metrics_service import MetricsService
+
 
 class MorphologyWidget(QWidget):
-    def __init__(self, parent=None, metrics_service=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.cell_mapping = {}
         self.selected_cell_id = None
         self.tracked_cell_lineage = {}
 
         # Store reference to metrics service
-        self.metrics_service = metrics_service
+        self.metrics_service = MetricsService()
 
         # Set up morphology colors (same as original)
         self.morphology_colors = {

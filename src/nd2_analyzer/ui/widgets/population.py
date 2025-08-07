@@ -177,7 +177,7 @@ class PopulationWidget(QWidget):
 
         # Get the interval from experiment or use a default value
         if hasattr(self, "experiment") and self.experiment is not None and hasattr(self.experiment, "interval"):
-            factor = self.experiment.interval
+            factor = self.experiment.phc_interval
         else:
             # Use a default interval value of 300 seconds (5 minutes)
             factor = 600

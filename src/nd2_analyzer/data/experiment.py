@@ -4,7 +4,6 @@ from typing import List, Dict
 
 from nd2 import ND2File
 
-
 class Experiment:
     """
     Represents a time-lapse microscopy experiment.
@@ -12,7 +11,7 @@ class Experiment:
     Attributes:
         name (str): Name of the experiment
         nd2_files (List[str]): List of paths to ND2 files
-        interval (float): Time step between frames in seconds
+        phc_interval (float): Time step between frames in seconds
         rpu_values (Dict[str, float]): Dictionary of RPU values
     """
 
@@ -29,7 +28,7 @@ class Experiment:
         """
         self.name = name
         self.nd2_files = []
-        self.interval = interval
+        self.phc_interval = interval
         self.rpu_values = rpu_values or {}
         self.base_shape = ()
 
@@ -92,7 +91,7 @@ class Experiment:
         config = {
             'name': self.name,
             'nd2_files': self.nd2_files,
-            'interval': self.interval,
+            'interval': self.phc_interval,
             'rpu_values': self.rpu_values
         }
 
