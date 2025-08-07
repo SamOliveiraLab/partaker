@@ -17,11 +17,14 @@ from nd2_analyzer.data.image_data import ImageData
 from .dialogs import AboutDialog, ExperimentDialog
 from .roisel import PolygonROISelector
 from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget, TrackingManager
+from ..data.appstate import ApplicationState
 
 
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        self.appstate = ApplicationState.create_instance()
 
         self.setWindowTitle("Partaker 3 - GUI")
         self.setGeometry(100, 100, 1000, 800)
@@ -194,10 +197,15 @@ class App(QMainWindow):
         file_menu.addAction(load_action)
 
         help_menu = menu_bar.addMenu("Help")
-
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
+
+        image_menu = menu_bar.addMenu("Image")
+        roi_action = QAction("ROI", self)
+        roi_action.setShortcut("Ctrl+R")
+        roi_action.triggered.connect(self.open_roi_selector)
+        image_menu.addAction(roi_action)
 
         test_menu = menu_bar.addMenu("Test")
         test_action = QAction("Test", self)

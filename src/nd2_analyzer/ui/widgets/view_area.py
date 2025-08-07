@@ -463,6 +463,7 @@ class ViewAreaWidget(QWidget):
         t, p, c = self.current_t, self.current_p, self.current_c
 
         print(f"DEBUG: Sliders changed to T={self.current_t}, P={self.current_p}, C={self.current_c}")
+        pub.sendMessage("view_index_changed", index=(t,p,c))
 
         if self.current_mode == "normal":
             # TODO: change to direct access method

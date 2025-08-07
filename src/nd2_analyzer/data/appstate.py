@@ -6,25 +6,32 @@ Right now it consists of:
 - The segmentation state
 - The collected metrics
 '''
-
-from .experiment import Experiment
-from .image_data import ImageData
-from ..analysis.metrics_service import MetricsService
-
+from typing import Optional, Tuple
+from pubsub import pub
+import threading
 
 class ApplicationState:
+    _instance: Optional['ImageData'] = None
+    _lock = threading.Lock()
+
     def __init__(self) -> None:
-        self.experiment: Experiment = None
-        # self.segmentation
-        self.image_data: ImageData = None
-        self.metricsService: MetricsService = MetricsService()
+        self.view_index : Optional[Tuple[int, int, int]] = None
+        pub.subscribe(self.on_index_changed, "view_index_changed")
 
-    def save(self, file_path: str) -> None:
-        # Save experiment
-        # Save segmentation
-        # Save metrics
+    def on_index_changed(self, index: Tuple[int, int, int]) -> None:
+        self.view_index = index
 
-        pass
+    @classmethod
+    def get_instance(cls) -> Optional['ApplicationState']:
+        """Get the current singleton instance"""
+        return cls._instance
 
-    def load(self, file_path: str) -> None:
-        pass
+    @classmethod
+    def create_instance(cls, **kwargs) -> 'ApplicationState':
+        """Create/replace the singleton instance"""
+        with cls._lock:
+            # Create new instance
+            instance = cls(**kwargs)
+            cls._instance = instance
+
+            return instance

@@ -11,42 +11,49 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel)
 
+from nd2_analyzer.data.appstate import ApplicationState
+from nd2_analyzer.data.image_data import ImageData
+
+from pubsub import pub
 
 class PolygonROISelector(QDialog):
     roi_selected = Signal(object)
 
-    def __init__(self, image_data):
+    def __init__(self):
         super().__init__()
 
+        t, p, c = ApplicationState.get_instance().view_index
+        curr_image = ImageData.get_instance().get(t, p, 0) # Always use 0
+
         # Convert numpy array to QImage/QPixmap
-        if isinstance(image_data, np.ndarray):
-            if image_data.ndim == 2:  # Grayscale
-                height, width = image_data.shape
+        if isinstance(curr_image, np.ndarray):
+            if curr_image.ndim == 2:  # Grayscale
+                height, width = curr_image.shape
                 # Scale to 0-255 if not already
-                if image_data.dtype != np.uint8:
-                    image_data = ((image_data -
-                                   np.min(image_data)) /
-                                  (np.max(image_data) -
-                                   np.min(image_data)) *
+                if curr_image.dtype != np.uint8:
+                    curr_image = ((curr_image -
+                                   np.min(curr_image)) /
+                                  (np.max(curr_image) -
+                                   np.min(curr_image)) *
                                   255).astype(np.uint8)
-                qimg = QImage(image_data.data, width, height,
+                qimg = QImage(curr_image.data, width, height,
                               width, QImage.Format_Grayscale8)
             else:  # RGB
-                height, width, channels = image_data.shape
+                height, width, channels = curr_image.shape
                 qimg = QImage(
-                    image_data.data,
+                    curr_image.data,
                     width,
                     height,
                     width * channels,
                     QImage.Format_RGB888)
             self.pixmap = QPixmap.fromImage(qimg)
         else:  # Assume it's a file path
-            self.pixmap = QPixmap(image_data)
+            self.pixmap = QPixmap(curr_image)
 
         self.image_shape = (
-            image_data.shape[0],
-            image_data.shape[1]) if isinstance(
-            image_data,
+            curr_image.shape[0],
+            curr_image.shape[1]) if isinstance(
+            curr_image,
             np.ndarray) else (
             self.pixmap.height(),
             self.pixmap.width())
