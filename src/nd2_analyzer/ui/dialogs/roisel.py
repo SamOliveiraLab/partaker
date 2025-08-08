@@ -16,6 +16,8 @@ from nd2_analyzer.data.image_data import ImageData
 
 from pubsub import pub
 
+import cv2
+
 class PolygonROISelector(QDialog):
     roi_selected = Signal(object)
 
@@ -203,11 +205,12 @@ class PolygonROISelector(QDialog):
             ix = max(0, min(ix, width - 1))
             iy = max(0, min(iy, height - 1))
             image_points.append((ix, iy))
+        points_array = np.array(image_points, dtype=np.int32)
 
         # Create polygon mask using OpenCV
-        import cv2
-        points_array = np.array(image_points, dtype=np.int32)
         cv2.fillPoly(self.mask, [points_array], 255)
+        # Covert mask to bool
+        self.mask = self.mask.astype(np.uint8)
 
     def accept_roi(self):
         # Create binary mask from the polygon
@@ -217,7 +220,8 @@ class PolygonROISelector(QDialog):
 
         # TODO: Directly send via pubsubs
         # eg. self.application_state.image_data.segmentation_cache.set_binary_mask(self.roi_mask)
-        pub.sendMessage('roi_selected', self.mask)
+        ApplicationState.get_instance()
+        pub.sendMessage('roi_selected', mask=self.mask)
 
         self.accept()  # This will close the dialog
 
