@@ -15,7 +15,7 @@ from nd2_analyzer.analysis.morphology.morphology import (
 from nd2_analyzer.data.experiment import Experiment
 from nd2_analyzer.data.image_data import ImageData
 from .dialogs import AboutDialog, ExperimentDialog
-from .roisel import PolygonROISelector
+from nd2_analyzer.ui.dialogs.roisel import PolygonROISelector
 from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget, TrackingManager
 from ..data.appstate import ApplicationState
 
