@@ -243,24 +243,25 @@ class App(QMainWindow):
             # Create directory if it doesn't exist
             os.makedirs(folder_path, exist_ok=True)
 
-            # Log segmentation cache state before saving
-            if hasattr(self, "image_data") and hasattr(self.application_state.image_data, "segmentation_cache"):
-                cache = self.application_state.image_data.segmentation_cache
-                current_model = cache.model_name
-                print(f"DEBUG: Saving project with segmentation cache")
-                print(f"DEBUG: Current model: {current_model}")
-
-                if current_model and current_model in cache.mmap_arrays_idx:
-                    _, indices = cache.mmap_arrays_idx[current_model]
-                    print(f"DEBUG: Cache contains {len(indices)} segmented frames for model {current_model}")
-                    print(f"DEBUG: Sample indices: {list(indices)[:5] if indices else 'None'}")
-                else:
-                    print(f"DEBUG: No cached frames for model {current_model}")
+            # TODO: think of a better way of seeing this information
+            # # Log segmentation cache state before saving
+            # if hasattr(self, "image_data") and hasattr(self.application_state.image_data, "segmentation_cache"):
+            #     cache = self.application_state.image_data.segmentation_cache
+            #     current_model = cache.model_name
+            #     print(f"DEBUG: Saving project with segmentation cache")
+            #     print(f"DEBUG: Current model: {current_model}")
+            #
+            #     if current_model and current_model in cache.mmap_arrays_idx:
+            #         _, indices = cache.mmap_arrays_idx[current_model]
+            #         print(f"DEBUG: Cache contains {len(indices)} segmented frames for model {current_model}")
+            #         print(f"DEBUG: Sample indices: {list(indices)[:5] if indices else 'None'}")
+            #     else:
+            #         print(f"DEBUG: No cached frames for model {current_model}")
 
             # Save image data
             try:
                 print(f"DEBUG: Saving image data to {folder_path}")
-                self.application_state.image_data.save(folder_path)
+                ImageData.get_instance().save(folder_path)
                 print(f"DEBUG: Image data saved successfully")
             except Exception as e:
                 print(f"ERROR: Failed to save image data: {str(e)}")
@@ -306,7 +307,7 @@ class App(QMainWindow):
 
             try:
                 # Load image data
-                self.application_state.image_data = ImageData.load(folder_path)
+                ImageData.load(folder_path)
 
                 # Load metrics data
                 metrics_service = MetricsService()
@@ -315,7 +316,7 @@ class App(QMainWindow):
                 # Update UI based on loaded image data
                 if hasattr(self, "viewArea"):
                     pub.sendMessage("image_data_loaded",
-                                    image_data=self.application_state.image_data)
+                                    image_data=None)
 
                 population_loaded = False
                 if hasattr(self, "populationTab"):
@@ -362,7 +363,8 @@ class App(QMainWindow):
 
         try:
             # Get the segmentation
-            segmented_image = self.application_state.image_data.segmentation_cache[t, p, c]
+            # TODO: why the heck are we doing it this way and not asking SegmentationService?
+            segmented_image = ImageData.get_instance().segmentation_cache[t, p, c]
 
             if segmented_image is None:
                 print(f"No segmentation available for highlighting")
@@ -378,6 +380,7 @@ class App(QMainWindow):
             highlighted_image = annotate_binary_mask(
                 segmented_image, single_cell_mapping)
 
+            # TODO: everything related to creating QPixmaps and so on should become their own utility
             # Display on the view area's image label
             height, width = highlighted_image.shape[:2]
             qimage = QImage(highlighted_image.data, width, height,
