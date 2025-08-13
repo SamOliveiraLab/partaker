@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QSlider, QGroupBox, QRadioButton, QButtonGroup,
                                QSizePolicy, QComboBox, QCheckBox)
 from pubsub import pub
+from skimage import exposure
 
 from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
 from nd2_analyzer.data.image_data import ImageData
@@ -279,8 +280,9 @@ class ViewAreaWidget(QWidget):
         else:  # Color
             # Apply normalization if checkbox is checked
             if self.normalize_checkbox.isChecked() and image.dtype != np.uint8:
-                image = cv2.normalize(
-                    image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                # image = cv2.normalize(
+                #     image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                image = exposure.rescale_intensity(image)
 
             height, width, _ = image.shape
             bytes_per_line = 3 * width
@@ -299,8 +301,9 @@ class ViewAreaWidget(QWidget):
             if len(image.shape) == 2:
                 # Apply normalization if checkbox is checked
                 if self.normalize_checkbox.isChecked():
-                    image = cv2.normalize(
-                        image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    # image = cv2.normalize(
+                    #     image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    image = exposure.rescale_intensity(image)
                 else:
                     # Ensure image is uint8 for display
                     if image.dtype != np.uint8:
@@ -312,8 +315,9 @@ class ViewAreaWidget(QWidget):
             else:
                 # If somehow the segmented image is multi-channel, convert to grayscale
                 if self.normalize_checkbox.isChecked():
-                    image = cv2.normalize(
-                        image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    # image = cv2.normalize(
+                    #     image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    image = exposure.rescale_intensity(image)
                 if len(image.shape) == 3:
                     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
                 height, width = image.shape
@@ -325,14 +329,16 @@ class ViewAreaWidget(QWidget):
             if len(image.shape) == 2:
                 # Convert single channel to RGB
                 if self.normalize_checkbox.isChecked():
-                    image = cv2.normalize(
-                        image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    # image = cv2.normalize(
+                    #     image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    image = exposure.rescale_intensity(image)
                 image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
 
             # Ensure image is uint8 RGB
             if image.dtype != np.uint8:
-                image = cv2.normalize(
-                    image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                # image = cv2.normalize(
+                #     image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                image = exposure.rescale_intensity(image)
 
             height, width, channels = image.shape
             bytes_per_line = channels * width

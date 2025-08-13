@@ -206,6 +206,9 @@ class App(QMainWindow):
         roi_action.setShortcut("Ctrl+R")
         roi_action.triggered.connect(self.open_roi_selector)
         image_menu.addAction(roi_action)
+        registration_action = QAction("Registration", self)
+        registration_action.triggered.connect(self.on_registration_pressed)
+        image_menu.addAction(registration_action)
 
         test_menu = menu_bar.addMenu("Test")
         test_action = QAction("Test", self)
@@ -217,6 +220,10 @@ class App(QMainWindow):
             about_action_mac = QAction("About", self)
             about_action_mac.triggered.connect(self.show_about_dialog)
             self.menuBar().addAction(about_action_mac)
+
+    def on_registration_pressed(self):
+        # Get current P from ViewArea
+        ImageData.get_instance().do_registration_p(self.viewArea.current_p)
 
     def hhln_test(self):
         ImageData.load_nd2(

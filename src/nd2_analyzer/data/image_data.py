@@ -1,16 +1,20 @@
 import json
 import os
 import threading
+from datetime import time
 from pathlib import Path
 from typing import Union, Sequence, Optional
+import time
 
 import dask.array as da
 import nd2
+import numpy as np
 from pubsub import pub
 
 from nd2_analyzer.analysis.segmentation.segmentation_cache import SegmentationCache
 from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
 from nd2_analyzer.analysis.segmentation.segmentation_service import SegmentationService
+from nd2_analyzer.utils.registration import register_images, ShiftedImage_2D_numba
 
 """
 Singleton, implements data access for the time lapse experiments
@@ -26,6 +30,7 @@ class ImageData:
         self.nd2_filename = path
         self.processed_images = []
         self.is_nd2 = is_nd2
+        self.registration_offsets : Optional[np.ndarray] = None # If we are doing registration
 
         # Initialize segmentation components
         self.segmentation_cache = SegmentationCache(data)
@@ -77,7 +82,31 @@ class ImageData:
         if hasattr(raw_image, 'compute'):
             raw_image = raw_image.compute()
 
+        # Apply registration if we have it
+        if self.registration_offsets is not None:
+            _x, _y = self.registration_offsets[t]
+
+            raw_image = ShiftedImage_2D_numba(raw_image, _x, _y)
+
         return raw_image
+
+    def do_registration_p(self, p : int, c : int = 0):
+        """
+        Runs the image registration at a specific position. Afterward, all images will receive the transformation
+        """
+        # NOTE: probably heavy because of compute
+        image_series = self.data[:, p, c].compute() # Selects position and channel, PHC by default.
+        image_series = ((image_series / 65535) * 255).astype(np.uint8) # Converting here cause it expects uint8
+
+        # TODO: remove, but just validating the time here
+
+        s = time.time()
+        res = register_images(image_series)
+        e = time.time()
+        print("Image registration took {:.2f} seconds".format(e - s))
+
+        # Store offsets here
+        self.registration_offsets = res.offsets
 
     #
     # def _access(self, time, position, channel):
