@@ -1,6 +1,7 @@
 import sys
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSplashScreen
+from PySide6.QtGui import QPixmap
 
 from nd2_analyzer.ui import App
 
@@ -11,10 +12,31 @@ from nd2_analyzer.ui import App
 
 # print("Looking for ui.py:", os.path.exists(ui_file_path))
 
+# if __name__ == "__main__":
+#
+#     app = QApplication([])
+#     pixmap = QPixmap(":/splash.png")
+#     splash = QSplashScreen(pixmap)
+#     splash.show()
+#     app.processEvents()            ...
+#
+# window = QMainWindow()
+# window.show()
+# splash.finish(window)
+# sys.exit(app.exec())
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setApplicationName('Partaker')
-    tabWidgetApp = App()
-    tabWidgetApp.show()
-    sys.exit(app.exec()
-             )
+
+    # # TODO: Splash screen setup
+    # pixmap = QPixmap(":/splashscreen.png")
+    # splash = QSplashScreen(pixmap)
+    # splash.show()
+    # app.processEvents()
+
+    mainWin = App()
+    mainWin.show()
+    # splash.finish(mainWin)
+    sys.exit(app.exec())
