@@ -5,7 +5,7 @@ import numpy as np
 from skimage import exposure
 from tqdm import tqdm
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True)
 def ShiftedImage_2D_numba(Image, XShift, YShift):
     """Ultra-fast numba-compiled version."""
     if XShift == 0 and YShift == 0:
@@ -21,8 +21,8 @@ def ShiftedImage_2D_numba(Image, XShift, YShift):
         channels = 1
 
     # Parallel pixel-wise shifting with bounds checking
-    for i in prange(h):
-        for j in prange(w):
+    for i in range(h):
+        for j in range(w):
             src_i = i - YShift
             src_j = j - XShift
 
@@ -45,18 +45,36 @@ def ShiftedImage_2D_numba(Image, XShift, YShift):
 
     return result
 
-# sum of absolute differences (SAD) metric alignment
-# Optimized version
-@jit(nopython=True, parallel=True)
+# # sum of absolute differences (SAD) metric alignment
+# # Optimized version
+# @jit(nopython=True, parallel=True)
+# def SAD(a, b):
+#     # Vectorized SAD; extremely fast
+#     flat_a = a.ravel()
+#     flat_b = b.ravel()
+#     total = 0.0
+#     for i in range(len(flat_a)):
+#         total += abs(float(flat_a[i]) - float(flat_b[i]))
+#     return total / len(flat_a)
+
+# NOTE: I hate 'AI' so much. It gave me f****** unsafe code
+# Alternative: Use numba's parallel reduction
+@jit(nopython=True)
 def SAD(a, b):
-    # Vectorized SAD; extremely fast
+    """Parallel-safe SAD using local accumulation."""
     flat_a = a.ravel()
     flat_b = b.ravel()
-    total = 0.0
-    for i in prange(len(flat_a)):
-        total += abs(float(flat_a[i]) - float(flat_b[i]))
-    return total / len(flat_a)
+    n = len(flat_a)
 
+    # Create thread-local storage
+    num_threads = min(8, n // 1000)  # Limit threads for small arrays
+    local_sums = np.zeros(num_threads, dtype=np.float64)
+
+    for i in range(n):
+        thread_id = i % num_threads
+        local_sums[thread_id] += abs(float(flat_a[i]) - float(flat_b[i]))
+
+    return np.sum(local_sums) / n
 
 # We use a Tree Search Algorithm to find possible alignment
 # Let Image_1 be the orginal
@@ -107,24 +125,24 @@ def alignment_MAE(Image_1, Image_2, depth_cap):
     return Best_Displacement, Best_SAD
 
 # This was a good fix for edge detection
-@jit(nopython=True, parallel=True)
+@jit(nopython=True)
 def compute_row_means_2d(img):
     """Custom row mean computation for 2D arrays."""
     rows, cols = img.shape
     row_means = np.empty(rows, dtype=np.float64)
-    for i in prange(rows):
+    for i in range(rows):
         total = 0.0
         for j in range(cols):
             total += float(img[i, j])
         row_means[i] = total / cols
     return row_means
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True)
 def compute_row_means_3d(img):
     """Custom row mean computation for 3D arrays."""
     rows, cols, channels = img.shape
     row_means = np.empty(rows, dtype=np.float64)
-    for i in prange(rows):
+    for i in range(rows):
         total = 0.0
         for j in range(cols):
             for k in range(channels):
@@ -133,21 +151,7 @@ def compute_row_means_3d(img):
     return row_means
 
 @jit(nopython=True)
-def edge_detection_numba_fixed(img):
-    """
-    Numba-compatible vertical edge detection function.
-
-    Args:
-        img: Input image (2D or 3D numpy array)
-
-    Returns:
-        tuple: (top_edge_row, bottom_edge_row)
-    """
-    # Compute row-wise brightness averages
-    if img.ndim == 3:
-        row_brightness = compute_row_means_3d(img)
-    else:
-        row_brightness = compute_row_means_2d(img)
+def compute_bottom_top_gradient(row_brightness):
 
     # Calculate gradient manually
     gradient = np.empty(len(row_brightness) - 1, dtype=np.float64)
@@ -155,7 +159,7 @@ def edge_detection_numba_fixed(img):
         gradient[i] = row_brightness[i + 1] - row_brightness[i]
 
     # Suppress extreme values near edges
-    height = img.shape[0]
+    height = row_brightness.shape[0]
     for i in range(len(gradient)):
         if (i <= 100 or i >= height - 100) and abs(gradient[i]) >= 150:
             gradient[i] = 0.0
@@ -164,7 +168,6 @@ def edge_detection_numba_fixed(img):
     half_height = height // 2
     max_val = -np.inf
     top_edge = 0
-
     for i in range(min(half_height, len(gradient))):
         if gradient[i] > max_val:
             max_val = gradient[i]
@@ -180,6 +183,24 @@ def edge_detection_numba_fixed(img):
             bottom_edge = i
 
     return top_edge, bottom_edge
+
+def edge_detection_numba_fixed(img):
+    """
+    Numba-compatible vertical edge detection function.
+
+    Args:
+        img: Input image (2D or 3D numpy array)
+
+    Returns:
+        tuple: (top_edge_row, bottom_edge_row)
+    """
+    # Compute row-wise brightness averages
+    if img.ndim == 3:
+        row_brightness = np.mean(img, axis=(1, 2))
+    else:
+        row_brightness = np.mean(img, axis=1)
+
+    return compute_bottom_top_gradient(row_brightness)
 
 from dataclasses import dataclass
 @dataclass
