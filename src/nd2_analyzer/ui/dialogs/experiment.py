@@ -209,9 +209,9 @@ class ExperimentDialog(QDialog):
             # Missing dependency
             QMessageBox.critical(self, "Dependency Error", str(e))
 
-        except Exception as e:
-            # Any other error
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+        # except Exception as e:
+        #     # Any other error
+        #     QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
         pub.sendMessage("experiment", experiment=experiment)
 

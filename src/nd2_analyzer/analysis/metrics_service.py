@@ -53,8 +53,14 @@ class MetricsService:
 
         # labeled_frame = segmentation_cache[time, position, 0] # TODO: ensure segmentationservice always returns labeled
         labeled_frame = label(image)
-        mcherry_frame = ImageData.get_instance().get(time, position, 1)
-        yfp_frame = ImageData.get_instance().get(time, position, 2)
+
+        chan_n = ImageData.get_instance().channel_n
+        mcherry_frame = yfp_frame = None
+        if chan_n == 3:
+            mcherry_frame = ImageData.get_instance().get(time, position, 1)
+            yfp_frame = ImageData.get_instance().get(time, position, 2)
+        elif chan_n == 2:
+            mcherry_frame = ImageData.get_instance().get(time, position, 1)
 
         curr_analysis_frame = TLFrame(index=(time, position), labeled_phc=labeled_frame,
                                       mcherry=mcherry_frame,
@@ -110,13 +116,13 @@ class MetricsService:
         cells = regionprops(_frame.labeled_phc)
         batch_data = []
 
-        # Computes average background fluorescence
-        back_fluo_mcherry = _frame.mcherry[_frame.labeled_phc == 0].mean()
-        back_fluo_yfp = _frame.yfp[_frame.labeled_phc == 0].mean()
-
+        # Check for the fluorescence in any channel, if not, -1 and 0 fluorescence
+        # mcherry can be None, same for yfp
+        back_fluo_mcherry = _frame.mcherry[_frame.labeled_phc == 0].mean() if _frame.mcherry is not None else -1
+        back_fluo_yfp = _frame.yfp[_frame.labeled_phc == 0].mean() if _frame.yfp is not None else -1
+        max_back_fluo = max(back_fluo_mcherry, back_fluo_yfp)
         has_fluorescence = True
-        # Precompute if we have an actual fluorescence value for this channel or not
-        if back_fluo_mcherry < 0.01 and back_fluo_yfp < 0.01:
+        if max_back_fluo < 0.01:
             fluorescence_channel = -1
             fluorescence_level = 0.0
             has_fluorescence = False
@@ -147,16 +153,25 @@ class MetricsService:
             # Let's first compute the RPU
             # Based on the background fluorescence, tell which population this cell is from
             if has_fluorescence:
-                # Select the region corresponding to the cell in the frames
-                mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
-                yfp_fluo = _frame.yfp[_frame.labeled_phc == cell_id].mean()
 
-                if (mcherry_fluo / back_fluo_mcherry) > (yfp_fluo / back_fluo_yfp):
+                # If only mcherry has fluo
+                if back_fluo_mcherry != -1 and back_fluo_yfp == -1:
+                    mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
                     fluorescence_channel = 0
                     fluorescence_level = mcherry_fluo
-                else:
-                    fluorescence_channel = 1
-                    fluorescence_level = yfp_fluo
+
+                # If both have fluorescence, compare them
+                elif back_fluo_mcherry != -1 and back_fluo_yfp != -1:
+                    # Select the region corresponding to the cell in the frames
+                    mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
+                    yfp_fluo = _frame.yfp[_frame.labeled_phc == cell_id].mean()
+                    if back_fluo_mcherry != -1 and back_fluo_yfp != -1:
+                        if (mcherry_fluo / back_fluo_mcherry) > (yfp_fluo / back_fluo_yfp):
+                            fluorescence_channel = 0
+                            fluorescence_level = mcherry_fluo
+                        else:
+                            fluorescence_channel = 1
+                            fluorescence_level = yfp_fluo
 
             row_data = {
                 "time": _frame.index[0],

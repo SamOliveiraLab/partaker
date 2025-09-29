@@ -30,6 +30,9 @@ class SegmentationService:
         self.label_colormap = 'viridis'
 
     def on_roi_selected(self, mask: np.ndarray) -> None:
+        """
+        Saves the ROI mask to the service
+        """
         self.roi_mask = mask
 
     def handle_image_request(self, time, position, channel, mode, model=None):

@@ -84,12 +84,12 @@ class Experiment:
         except Exception as e:
             raise ValueError(f"Error opening ND2 file {file_path}: {str(e)}")
 
-    def save(self, file_path: str) -> None:
+    def save(self, folder_path: str) -> None:
         """
         Save experiment configuration to a JSON file.
         
         Args:
-            file_path: Path to save the configuration
+            folder_path: Path to save the configuration
         """
         config = {
             'name': self.name,
@@ -97,21 +97,24 @@ class Experiment:
             'interval': self.phc_interval,
             'rpu_values': self.rpu_values
         }
-
+        import os
+        file_path = os.path.join(folder_path, "metrics_data.parquet")
         with open(file_path, 'w') as f:
             json.dump(config, f, indent=4)
 
     @classmethod
-    def load(cls, file_path: str) -> 'Experiment':
+    def load(cls, folder_path: str) -> 'Experiment':
         """
         Load experiment configuration from a JSON file.
         
         Args:
-            file_path: Path to the configuration file
+            folder_path: Path to the configuration file
             
         Returns:
             An Experiment instance
         """
+        import os
+        file_path = os.path.join(folder_path, "metrics_data.parquet")
         with open(file_path, 'r') as f:
             config = json.load(f)
 

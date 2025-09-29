@@ -19,18 +19,17 @@ from nd2_analyzer.utils.registration import register_images, ShiftedImage_2D_num
 """
 Singleton, implements data access for the time lapse experiments
 """
-
-
 class ImageData:
     _instance: Optional['ImageData'] = None
     _lock = threading.Lock()
 
-    def __init__(self, data, path, is_nd2=True):
+    def __init__(self, data, path, is_nd2=True, channel_n=0):
         self.data = data
         self.nd2_filename = path
         self.processed_images = []
         self.is_nd2 = is_nd2
         self.registration_offsets : Optional[np.ndarray] = None # If we are doing registration
+        self.channel_n = channel_n
 
         # Initialize segmentation components
         self.segmentation_cache = SegmentationCache(data)
@@ -47,7 +46,7 @@ class ImageData:
             return cls._instance
 
     @classmethod
-    def create_instance(cls, data, path, is_nd2=True) -> 'ImageData':
+    def create_instance(cls, data, path, is_nd2=True, channel_n=0) -> 'ImageData':
         """Create/replace the singleton instance"""
         with cls._lock:
             # Clean up old instance if it exists
@@ -55,7 +54,7 @@ class ImageData:
                 cls._instance._cleanup()
 
             # Create new instance
-            instance = cls(data, path, is_nd2)
+            instance = cls(data, path, is_nd2, channel_n)
             cls._instance = instance
 
         pub.sendMessage("image_data_loaded", image_data=cls._instance)
@@ -63,6 +62,9 @@ class ImageData:
 
     def _cleanup(self):
         pass
+
+    def get_channel_n(self):
+        return self.channel_n
 
     def get(self, t, p, c):
         """Helper method to retrieve raw images"""
@@ -107,19 +109,6 @@ class ImageData:
 
         # Store offsets here
         self.registration_offsets = res.offsets
-
-    #
-    # def _access(self, time, position, channel):
-    #
-    #     image = self._get_raw_image(time, position, channel)
-    #     return image
-    #
-    #     pub.sendMessage("image_ready",
-    #                     image=image,
-    #                     time=time,
-    #                     position=position,
-    #                     channel=channel,
-    #                     mode='normal')
 
     @classmethod
     def load_nd2(cls, file_paths: Union[str, Sequence[str]]):
@@ -172,9 +161,10 @@ class ImageData:
               f"Cropped P to {min_p}. Final array shape: {full_data.shape}")
 
         inst = cls.create_instance(data=full_data, path=file_paths, is_nd2=True)
+        inst.channel_n = channels
         return inst
 
-    def save(self, filename: str):
+    def save_to_disk(self, filename: str):
         """Saves state to file
         Doesn't save nd2 since it is already stored in a file
         """
@@ -197,7 +187,7 @@ class ImageData:
             json.dump(container_data, f)
 
     @classmethod
-    def load(cls, filename):
+    def load_from_disk(cls, filename):
         """Load imagedata from path"""
         base_dir = Path(filename)
 
