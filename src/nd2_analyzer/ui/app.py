@@ -16,6 +16,7 @@ from nd2_analyzer.data.experiment import Experiment
 from nd2_analyzer.data.image_data import ImageData
 from .dialogs import AboutDialog, ExperimentDialog
 from nd2_analyzer.ui.dialogs.roisel import PolygonROISelector
+from nd2_analyzer.ui.dialogs.crop_selection import CropSelector
 from .widgets import ViewAreaWidget, PopulationWidget, SegmentationWidget, MorphologyWidget, TrackingManager
 from ..data.appstate import ApplicationState
 
@@ -133,6 +134,10 @@ class App(QMainWindow):
         roi_dialog = PolygonROISelector()
         roi_dialog.exec_()  # Use exec_ to make it modal
 
+    def open_crop_selector(self):
+        crop_dialog = CropSelector()
+        crop_dialog.exec_()
+
     def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
         """Handle request to draw cell bounding boxes"""
         # Get the segmentation using the same model as the segmentation cache
@@ -202,15 +207,24 @@ class App(QMainWindow):
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
 
+        #--- Image menu
         image_menu = menu_bar.addMenu("Image")
-        roi_action = QAction("ROI", self)
-        roi_action.setShortcut("Ctrl+R")
-        roi_action.triggered.connect(self.open_roi_selector)
-        image_menu.addAction(roi_action)
+
+        crop_action = QAction("Crop", self)
+        crop_action.setShortcut("Ctrl+K")
+        crop_action.triggered.connect(self.open_crop_selector)
+        image_menu.addAction(crop_action)
+
         registration_action = QAction("Registration", self)
         registration_action.triggered.connect(self.on_registration_pressed)
         image_menu.addAction(registration_action)
 
+        roi_action = QAction("ROI", self)
+        roi_action.setShortcut("Ctrl+R")
+        roi_action.triggered.connect(self.open_roi_selector)
+        image_menu.addAction(roi_action)
+
+        #--- Test menu
         test_menu = menu_bar.addMenu("Test")
         test_action = QAction("Test", self)
         test_action.setShortcut("Ctrl+T")

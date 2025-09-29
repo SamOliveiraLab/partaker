@@ -29,6 +29,7 @@ class ImageData:
         self.processed_images = []
         self.is_nd2 = is_nd2
         self.registration_offsets : Optional[np.ndarray] = None # If we are doing registration
+        self.crop_coordinates = None
         self.channel_n = channel_n
 
         # Initialize segmentation components
@@ -38,6 +39,8 @@ class ImageData:
             models=SegmentationModels(),
             data_getter=self.get
         )
+
+        pub.subscribe(self.on_crop_selected, 'crop_selected')
 
     @classmethod
     def get_instance(cls) -> Optional['ImageData']:
@@ -59,6 +62,10 @@ class ImageData:
 
         pub.sendMessage("image_data_loaded", image_data=cls._instance)
         return cls._instance
+
+    def on_crop_selected(self, coords: list):
+        self.crop_coordinates = coords
+        pub.sendMessage("image_data_loaded", image_data=self)
 
     def _cleanup(self):
         pass
@@ -83,6 +90,11 @@ class ImageData:
         # Compute if it's a dask array
         if hasattr(raw_image, 'compute'):
             raw_image = raw_image.compute()
+
+        # Crop/Scale if we have it
+        if self.crop_coordinates is not None:
+            x, y, width, height = self.crop_coordinates
+            raw_image = raw_image[y:y + height, x:x + width]
 
         # Apply registration if we have it
         if self.registration_offsets is not None:
