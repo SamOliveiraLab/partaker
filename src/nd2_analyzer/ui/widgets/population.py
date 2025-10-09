@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QFileDialog,
 )
+import seaborn as sns
+
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from pubsub import pub
 
@@ -101,7 +103,7 @@ class PopulationWidget(QWidget):
 
         # Calculate RPU button (new)
         rpu_btn = QPushButton("Calculate RPU Reference Values")
-        rpu_btn.clicked.connect(self.calculate_rpu_values)
+        # rpu_btn.clicked.connect(self.calculate_rpu_values)
         bottom_btn_layout.addWidget(rpu_btn)
 
         layout.addLayout(bottom_btn_layout)
@@ -121,6 +123,15 @@ class PopulationWidget(QWidget):
         else:
             print("No data to export")
 
+    def get_selected_positions(self):
+        selected_positions = [
+            int(item.text()) for item in self.position_list.selectedItems()
+        ]
+        return selected_positions
+
+    def get_selected_time(self):
+        return (self.time_min_box.value(), self.time_max_box.value())
+
     def on_image_data_loaded(self, image_data):
         # Populate positions and channels based on image_data shape
         shape = image_data.data.shape
@@ -129,8 +140,9 @@ class PopulationWidget(QWidget):
         self.position_list.clear()
         for p in range(p_max + 1):
             item = QListWidgetItem(f"{p}")
-            item.setSelected(True)
             self.position_list.addItem(item)
+        for i in range(self.position_list.count()):
+            self.position_list.item(i).setSelected(True)
 
         self.mcherry_channel_combo.clear()
         for c in range(1, c_max + 1):  # Fluorescence channels start from 1
@@ -144,19 +156,47 @@ class PopulationWidget(QWidget):
         self.time_max_box.setRange(0, t_max)
         self.time_max_box.setValue(t_max)
 
+        # Dummy plot for preview
+        self.create_dummy_plot()
+
     def on_experiment_loaded(self, experiment):
         self.experiment = experiment
 
-    def on_plot_population_signal(self):
+    def create_dummy_plot(self):
         self.population_figure.clear()
 
-        # Get selected positions
-        # Get selected time
+        # Configure based on selected values
+        analysis_cgf = FluoAnalysisConfig()
+        analysis_cgf.selected_positions = self.get_selected_positions()
+        analysis_cgf.time_range = self.get_selected_time()
 
-        # Call SC fluorescence analysis
+        df = create_sample_data(analysis_cgf)
+
+        # Perform data processing
+        df = filter_data(df, analysis_cgf)
+        df = calculate_population_statistics(df, analysis_cgf)
+
+        component_intervals = {
+            'aTc': [(0, 19.25)],
+            'IPTG': [(19.25, 30.42)],
+            'M9': [(30.42, 100)]
+        }
+
+        # Normalize with RPU
+        mcherry_channel = int(self.mcherry_channel_combo.currentText())
+        yfp_channel = int(self.yfp_channel_combo.currentText())
+
+        mcherry_subdf = df.filter(pl.col('fluorescence_channel') == mcherry_channel).to_pandas()
+        yfp_subdf = df.filter(pl.col('fluorescence_channel') == yfp_channel).to_pandas()
+
+        # mcherry_subdf['mean_intensity'] = mcherry_subdf['mean_intensity'] / mcherry_rpu
+        # mcherry_subdf['std_intensity'] = mcherry_subdf['std_intensity'] / mcherry_rpu
+        # yfp_subdf['mean_intensity'] = yfp_subdf['mean_intensity'] / yfp_no_roi_rpu
+        # yfp_subdf['std_intensity'] = yfp_subdf['std_intensity'] / yfp_no_roi_rpu
 
         # Plot graph
-        fig, axs = plt.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]}, figsize=(8, 10))
+        fig = self.population_figure
+        axs = fig.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]})
 
         # For channel 0 (mCherry)
         ch0 = mcherry_subdf
@@ -185,7 +225,86 @@ class PopulationWidget(QWidget):
         plt.tight_layout()
 
         # Medium change steps
-        t = pdf['time_hours']
+        t = df['time_hours']
+        comp_steps = generate_component_step_functions(component_intervals, t)
+
+        start_index = 2
+        for idx, (comp, step) in enumerate(comp_steps.items()):
+            axs[start_index + idx].step(t, step, label=f'{comp}', where='post', color='black')
+            axs[start_index + idx].set_ylabel(comp)
+            axs[start_index + idx].set_xticks(range(0, int(max(t)) + 1, 10))
+            axs[start_index + idx].legend().set_visible(False)  # Hide legend
+
+        axs[-1].set_xlabel('Time (h)')
+
+        # plt.savefig('1_9_iptg_on_p_all.pdf')
+        # plt.show()
+
+    def on_plot_population_signal(self):
+        self.population_figure.clear()
+
+        # Configure based on selected values
+        analysis_cgf = FluoAnalysisConfig()
+        analysis_cgf.selected_positions = self.get_selected_positions()
+        analysis_cgf.time_range = self.get_selected_time()
+
+        # Current dataframe
+        df = self.metrics_service.df
+
+        # Perform data processing
+        df = filter_data(df, analysis_cgf)
+        df = calculate_population_statistics(df)
+
+        component_intervals = {
+            'aTc': [(0, 19.25)],
+            'IPTG': [(19.25, 30.42)],
+            'M9': [(30.42, 100)]
+        }
+
+        # Normalize with RPU
+        mcherry_channel = int(self.mcherry_channel_combo.currentText())
+        yfp_channel = int(self.yfp_channel_combo.currentText())
+
+        mcherry_subdf = df.filter(pl.col('fluorescence_channel') == mcherry_channel).to_pandas()
+        yfp_subdf = df.filter(pl.col('fluorescence_channel') == yfp_channel).to_pandas()
+
+        # mcherry_subdf['mean_intensity'] = mcherry_subdf['mean_intensity'] / mcherry_rpu
+        # mcherry_subdf['std_intensity'] = mcherry_subdf['std_intensity'] / mcherry_rpu
+        # yfp_subdf['mean_intensity'] = yfp_subdf['mean_intensity'] / yfp_no_roi_rpu
+        # yfp_subdf['std_intensity'] = yfp_subdf['std_intensity'] / yfp_no_roi_rpu
+
+        # Plot graph
+        fig = self.population_figure
+        axs = fig.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]}, figsize=(8, 10))
+
+        # For channel 0 (mCherry)
+        ch0 = mcherry_subdf
+        sns.lineplot(data=ch0, x='time_hours', y='mean_intensity', ax=axs[0], color='red', label='mCherry')
+        axs[0].fill_between(ch0['time_hours'],
+                            ch0['mean_intensity'] - ch0['std_intensity'],
+                            ch0['mean_intensity'] + ch0['std_intensity'],
+                            color='red', alpha=0.3)
+        axs[0].set_ylabel('mCherry')
+        axs[0].set_xlabel('')
+        axs[0].set_xticks(range(0, int(max(ch0['time_hours'])) + 1, 10))
+        axs[0].legend().set_visible(False)  # Hide legend
+
+        # For channel 1 (YFP)
+        ch1 = yfp_subdf
+        sns.lineplot(data=ch1, x='time_hours', y='mean_intensity', ax=axs[1], color='goldenrod', label='YFP')
+        axs[1].fill_between(ch1['time_hours'],
+                            ch1['mean_intensity'] - ch1['std_intensity'],
+                            ch1['mean_intensity'] + ch1['std_intensity'],
+                            color='goldenrod', alpha=0.3)
+        axs[1].set_ylabel('YFP')
+        axs[1].set_xlabel('')
+        axs[1].set_xticks(range(0, int(max(ch1['time_hours'])) + 1, 10))
+        axs[1].legend().set_visible(False)  # Hide legend
+
+        plt.tight_layout()
+
+        # Medium change steps
+        t = df['time_hours']
         comp_steps = generate_component_step_functions(component_intervals, t)
 
         start_index = 2
@@ -199,7 +318,6 @@ class PopulationWidget(QWidget):
 
         plt.savefig('1_9_iptg_on_p_all.pdf')
         plt.show()
-
 
     # def calculate_rpu_values(self):
     #     """

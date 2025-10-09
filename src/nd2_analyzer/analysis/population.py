@@ -34,7 +34,6 @@ class FluoAnalysisConfig:
     # Analysis parameters
     epsilon: float = 0.1  # Minimum fluorescence threshold
 
-    time_range: tuple
     time_interval: float = 300  # Time interval in seconds (10 minutes)
     fluorescence_factor: float = 3  # Factor for fluorescence imaging frequency
 
@@ -68,7 +67,6 @@ class FluoAnalysisConfig:
     #             "1": "mCherry",
     #             "2": "YFP"
     #         }
-
 
 def filter_data(df: pl.DataFrame, config: FluoAnalysisConfig) -> pl.DataFrame:
     """
@@ -119,18 +117,28 @@ def create_sample_data(config: FluoAnalysisConfig) -> pl.DataFrame:
                 # Simulate fluorescence with some biological variation
                 base_mcherry = 100 + 50 * np.sin(t * 0.1) + np.random.normal(0, 20)
                 base_yfp = 80 + 30 * np.cos(t * 0.1) + np.random.normal(0, 15)
+                dummy_mcherry = max(config.epsilon + 0.1, base_mcherry)
+                dummy_yfp = max(config.epsilon + 0.1, base_yfp)
 
                 data.append({
                     "time": t,
                     "position": pos,
                     "cell_id": f"{pos}_{cell_id}",
-                    "fluo_mcherry": max(config.epsilon + 0.1, base_mcherry),
-                    "fluo_yfp": max(config.epsilon + 0.1, base_yfp)
+                    "fluo_level": dummy_mcherry,
+                    "fluorescence_channel": 0
+                })
+
+                data.append({
+                    "time": t,
+                    "position": pos,
+                    "cell_id": f"{pos}_{cell_id}",
+                    "fluo_level": dummy_yfp,
+                    "fluorescence_channel": 1
                 })
 
     return pl.DataFrame(data)
 
-def calculate_population_statistics(df: pl.DataFrame) -> pl.DataFrame:
+def calculate_population_statistics(df: pl.DataFrame, config: FluoAnalysisConfig) -> pl.DataFrame:
     """
     Calculate mean and standard deviation for each timepoint
     """
