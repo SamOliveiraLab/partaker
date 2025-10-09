@@ -45,37 +45,10 @@ class SegmentationService:
                 "Segmentation model must be specified for non-normal modes"
             )
 
-        # Check cache first
+        # Request cached, which will segment if not present
         cache_key = (time, position, channel, model)
-
-        # Don't calculate segmentation if it's already in the cache
-        # Just retrieve it and return
-        if model in self.cache.mmap_arrays_idx:
-            _, indices = self.cache.mmap_arrays_idx[model]
-            if cache_key in indices:
-                segmented = self.cache.with_model(model)[cache_key]
-
-                if self.roi_mask is not None:
-                    segmented = self._apply_roi_mask(segmented)
-
-                processed_image = self._post_process(
-                    raw_image=self.get_raw_image(time, position, channel),
-                    segmented=segmented,
-                    mode=mode,
-                )
-
-                pub.sendMessage(
-                    "image_ready",
-                    image=processed_image,
-                    time=time,
-                    position=position,
-                    channel=channel,
-                    mode=mode,
-                )
-                return
-
-        # If not in cache, process as normal
         segmented = self.cache.with_model(model)[cache_key]
+
         if self.roi_mask is not None:
             segmented = self._apply_roi_mask(segmented)
 
@@ -153,6 +126,7 @@ class SegmentationService:
 
         raise ValueError(f"Unknown display mode: {mode}")
 
+    # TODO: move this logic to view area, as this is just visual
     def _create_overlay(self, raw_image, segmented):
         """Create overlay of segmentation outlines on raw image"""
         # Convert raw image to RGB if needed

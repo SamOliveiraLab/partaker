@@ -24,6 +24,7 @@ from pubsub import pub
 from nd2_analyzer.analysis.metrics_service import MetricsService
 from nd2_analyzer.data.experiment import Experiment
 
+from nd2_analyzer.analysis.population import FluoAnalysisConfig, filter_data, create_sample_data, calculate_population_statistics, generate_component_step_functions, component_intervals
 
 class PopulationWidget(QWidget):
     """
@@ -53,11 +54,17 @@ class PopulationWidget(QWidget):
         layout.addLayout(pos_layout)
 
         # Channel selection
-        ch_layout = QHBoxLayout()
-        ch_layout.addWidget(QLabel("Fluorescence Channel:"))
-        self.channel_combo = QComboBox()
-        ch_layout.addWidget(self.channel_combo)
-        layout.addLayout(ch_layout)
+        mcherry_ch_layout = QHBoxLayout()
+        mcherry_ch_layout.addWidget(QLabel("mCherry Channel:"))
+        self.mcherry_channel_combo = QComboBox()
+        mcherry_ch_layout.addWidget(self.mcherry_channel_combo)
+        layout.addLayout(mcherry_ch_layout)
+
+        yfp_ch_layout = QHBoxLayout()
+        yfp_ch_layout.addWidget(QLabel("mCherry Channel:"))
+        self.yfp_channel_combo = QComboBox()
+        yfp_ch_layout.addWidget(self.yfp_channel_combo)
+        layout.addLayout(yfp_ch_layout)
 
         # Metric selection
         metric_layout = QHBoxLayout()
@@ -79,31 +86,40 @@ class PopulationWidget(QWidget):
         time_layout.addWidget(self.time_max_box)
         layout.addLayout(time_layout)
 
+        # bottom buttons
+        bottom_btn_layout = QHBoxLayout()
+
         # Plot button
         plot_btn = QPushButton("Plot Fluorescence")
-        plot_btn.clicked.connect(self.plot_fluorescence_signal)
-        layout.addWidget(plot_btn)
-
-        # Export buttons (side by side)
-        export_layout = QHBoxLayout()
+        plot_btn.clicked.connect(self.on_plot_population_signal)
+        bottom_btn_layout.addWidget(plot_btn)
 
         # Export DataFrame button
         export_btn = QPushButton("Export DataFrame to CSV")
         export_btn.clicked.connect(self.export_dataframe)
-        export_layout.addWidget(export_btn)
+        bottom_btn_layout.addWidget(export_btn)
 
         # Calculate RPU button (new)
         rpu_btn = QPushButton("Calculate RPU Reference Values")
         rpu_btn.clicked.connect(self.calculate_rpu_values)
-        export_layout.addWidget(rpu_btn)
+        bottom_btn_layout.addWidget(rpu_btn)
 
-        layout.addLayout(export_layout)
+        layout.addLayout(bottom_btn_layout)
 
         self.setLayout(layout)
 
         # Listen for data loading to populate UI
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_experiment_loaded, "experiment_loaded")
+
+    def export_dataframe(self):
+        # Export the DataFrame to a CSV file
+        df = self.metrics_service.df
+        if not df.is_empty():
+            df.write_csv("cell_metrics.csv")
+            print("DataFrame exported to cell_metrics.csv")
+        else:
+            print("No data to export")
 
     def on_image_data_loaded(self, image_data):
         # Populate positions and channels based on image_data shape
@@ -116,9 +132,13 @@ class PopulationWidget(QWidget):
             item.setSelected(True)
             self.position_list.addItem(item)
 
-        self.channel_combo.clear()
+        self.mcherry_channel_combo.clear()
         for c in range(1, c_max + 1):  # Fluorescence channels start from 1
-            self.channel_combo.addItem(str(c))
+            self.mcherry_channel_combo.addItem(str(c))
+
+        self.yfp_channel_combo.clear()
+        for c in range(1, c_max + 1):  # Fluorescence channels start from 1
+            self.yfp_channel_combo.addItem(str(c))
 
         self.time_min_box.setRange(0, t_max)
         self.time_max_box.setRange(0, t_max)
@@ -127,479 +147,247 @@ class PopulationWidget(QWidget):
     def on_experiment_loaded(self, experiment):
         self.experiment = experiment
 
-    def plot_fluorescence_signal(self):
-        # Get user selections
-        selected_positions = [
-            int(item.text()) for item in self.position_list.selectedItems()
-        ]
-        if not selected_positions:
-            return
-
-        channel = int(self.channel_combo.currentText())
-        t_start = self.time_min_box.value()
-        t_end = self.time_max_box.value()
-
-        # Get the metrics DataFrame from the singleton
-        df = self.metrics_service.df
-
-        if df.is_empty():
-            return
-
-        # Test each filter condition separately
-        pos_filter = df["position"].is_in(selected_positions)
-        time_start_filter = df["time"] >= t_start
-        time_end_filter = df["time"] <= t_end
-
-        print(f"Position filter matches: {df.filter(pos_filter).shape[0]} rows")
-        print(
-            f"Time start filter matches: {df.filter(time_start_filter).shape[0]} rows"
-        )
-        print(f"Time end filter matches: {df.filter(time_end_filter).shape[0]} rows")
-
-        # Filter for selected positions, channel, and time range
-        mask = (
-            df["position"].is_in(selected_positions)
-            & (df["time"] >= t_start)
-            & (df["time"] <= t_end)
-        )
-        subdf = df.filter(mask)
-
-        if subdf.is_empty():
-            return
-
-        # The metric we want is based on the selected channel
-        metric_col = "fluo_mcherry" if channel == 1 else "fluo_yfp"
-        metric_name = "mCherry" if channel == 1 else "YFP"
-
-        # Filter values smaller than epsilon, and multiply time by the experiment interval constant
-        epsilon = 0.1
-        valid = subdf.filter(subdf[metric_col] > epsilon)
-
-        # Group by time, aggregate mean and std of the selected metric across cells and positions
-        grouped = (
-            valid.group_by("time")
-            .agg(
-                [
-                    pl.col(metric_col).mean().alias("mean_metric"),
-                    pl.col(metric_col).std().alias("std_metric"),
-                ]
-            )
-            .sort("time")
-        )
-
-        # Get the interval from experiment or use a default value
-        if (
-            hasattr(self, "experiment")
-            and self.experiment is not None
-            and hasattr(self.experiment, "interval")
-        ):
-            factor = self.experiment.phc_interval
-        else:
-            # Use a default interval value of 300 seconds (5 minutes)
-            factor = 600
-            print("Warning: Using default interval of 300 seconds (5 minutes)")
-
-        # TODO: in our case, we took images every 15m, it means that
-        # for each 3 PhC images, we have 1 fluorescence image.
-        # Said so, I am multiplying the factor by 3 in order to get the plots
-        # right, but this needs to be changed in the future to be more flexible
-
-        factor *= 3
-
-        # Interval is in seconds, divide by 3600 to get hours
-        result = grouped.with_columns(
-            (pl.col("time") * factor / 3600).alias("scaled_time")
-        )
-
-        times = result["scaled_time"].to_numpy()
-        mean_metric = result["mean_metric"].to_numpy()
-        std_metric = result["std_metric"].to_numpy()
-
-        # Store the plotted data for saving
-        self.last_plotted_times = times
-        self.last_plotted_mean = mean_metric
-        self.last_plotted_std = std_metric
-        self.last_plotted_metric_name = metric_name
-
-        # red is #FF0000
-        # yellowish is #E99F42
-        line_color = "#FF0000" if channel == 1 else "#F9BF42"
-
-        # Plot
+    def on_plot_population_signal(self):
         self.population_figure.clear()
-        ax = self.population_figure.add_subplot(111)
-        ax.plot(times, mean_metric, color=line_color, label=f"Mean {metric_name}")
-        ax.fill_between(
-            times,
-            mean_metric - std_metric,
-            mean_metric + std_metric,
-            color=line_color,
-            alpha=0.2,
-            label="Std Dev",
-        )
-        ax.set_xlabel("Time (h)")
-        ax.set_ylabel(f"Fluorescence (RPU)")
-        # ax.set_title(f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})")
-        ax.legend()
-        self.population_canvas.draw()
 
-    def export_dataframe(self):
-        # Export the DataFrame to a CSV file
-        df = self.metrics_service.df
-        if not df.is_empty():
-            df.write_csv("cell_metrics.csv")
-            print("DataFrame exported to cell_metrics.csv")
-        else:
-            print("No data to export")
+        # Get selected positions
+        # Get selected time
 
-    def save_population_data(self, folder_path):
-        """Save population analysis data to the specified folder"""
-        try:
-            # Create a dictionary to store all relevant population data
-            population_data = {
-                # Store the last plotted data
-                "times": getattr(self, "last_plotted_times", None),
-                "mean_metric": getattr(self, "last_plotted_mean", None),
-                "std_metric": getattr(self, "last_plotted_std", None),
-                "metric_name": getattr(self, "last_plotted_metric_name", None),
-                # Store the user selections
-                "selected_positions": [
-                    item.text() for item in self.position_list.selectedItems()
-                ],
-                "selected_channel": self.channel_combo.currentText()
-                if self.channel_combo.count() > 0
-                else None,
-                "selected_metric": self.metric_combo.currentText(),
-                "time_min": self.time_min_box.value(),
-                "time_max": self.time_max_box.value(),
-            }
+        # Call SC fluorescence analysis
 
-            # Save to file
-            population_file = os.path.join(folder_path, "population_data.pkl")
-            with open(population_file, "wb") as f:
-                pickle.dump(population_data, f)
+        # Plot graph
+        fig, axs = plt.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]}, figsize=(8, 10))
 
-            print(f"Population data saved to {population_file}")
-            return True
-        except Exception as e:
-            print(f"Error saving population data: {e}")
-            import traceback
+        # For channel 0 (mCherry)
+        ch0 = mcherry_subdf
+        sns.lineplot(data=ch0, x='time_hours', y='mean_intensity', ax=axs[0], color='red', label='mCherry')
+        axs[0].fill_between(ch0['time_hours'],
+                            ch0['mean_intensity'] - ch0['std_intensity'],
+                            ch0['mean_intensity'] + ch0['std_intensity'],
+                            color='red', alpha=0.3)
+        axs[0].set_ylabel('mCherry')
+        axs[0].set_xlabel('')
+        axs[0].set_xticks(range(0, int(max(ch0['time_hours'])) + 1, 10))
+        axs[0].legend().set_visible(False)  # Hide legend
 
-            traceback.print_exc()
-            return False
+        # For channel 1 (YFP)
+        ch1 = yfp_subdf
+        sns.lineplot(data=ch1, x='time_hours', y='mean_intensity', ax=axs[1], color='goldenrod', label='YFP')
+        axs[1].fill_between(ch1['time_hours'],
+                            ch1['mean_intensity'] - ch1['std_intensity'],
+                            ch1['mean_intensity'] + ch1['std_intensity'],
+                            color='goldenrod', alpha=0.3)
+        axs[1].set_ylabel('YFP')
+        axs[1].set_xlabel('')
+        axs[1].set_xticks(range(0, int(max(ch1['time_hours'])) + 1, 10))
+        axs[1].legend().set_visible(False)  # Hide legend
 
-    def load_population_data(self, folder_path):
-        """Load population analysis data from the specified folder"""
-        try:
-            import os
-            import pickle
+        plt.tight_layout()
 
-            # Check if population data file exists
-            population_file = os.path.join(folder_path, "population_data.pkl")
-            if not os.path.exists(population_file):
-                print(f"No population data found at {population_file}")
-                return False
+        # Medium change steps
+        t = pdf['time_hours']
+        comp_steps = generate_component_step_functions(component_intervals, t)
 
-            # Load the data
-            with open(population_file, "rb") as f:
-                population_data = pickle.load(f)
+        start_index = 2
+        for idx, (comp, step) in enumerate(comp_steps.items()):
+            axs[start_index + idx].step(t, step, label=f'{comp}', where='post', color='black')
+            axs[start_index + idx].set_ylabel(comp)
+            axs[start_index + idx].set_xticks(range(0, int(max(t)) + 1, 10))
+            axs[start_index + idx].legend().set_visible(False)  # Hide legend
 
-            # Store the loaded plot data
-            self.last_plotted_times = population_data.get("times")
-            self.last_plotted_mean = population_data.get("mean_metric")
-            self.last_plotted_std = population_data.get("std_metric")
-            self.last_plotted_metric_name = population_data.get("metric_name")
+        axs[-1].set_xlabel('Time (h)')
 
-            # Restore user selections if possible
-            try:
-                # Restore selected positions
-                selected_positions = population_data.get("selected_positions", [])
-                for i in range(self.position_list.count()):
-                    item = self.position_list.item(i)
-                    item.setSelected(item.text() in selected_positions)
+        plt.savefig('1_9_iptg_on_p_all.pdf')
+        plt.show()
 
-                # Restore selected channel
-                selected_channel = population_data.get("selected_channel")
-                if selected_channel:
-                    index = self.channel_combo.findText(selected_channel)
-                    if index >= 0:
-                        self.channel_combo.setCurrentIndex(index)
 
-                # Restore selected metric
-                selected_metric = population_data.get("selected_metric")
-                if selected_metric:
-                    index = self.metric_combo.findText(selected_metric)
-                    if index >= 0:
-                        self.metric_combo.setCurrentIndex(index)
-
-                # Restore time range
-                time_min = population_data.get("time_min")
-                time_max = population_data.get("time_max")
-                if time_min is not None:
-                    self.time_min_box.setValue(time_min)
-                if time_max is not None:
-                    self.time_max_box.setValue(time_max)
-            except Exception as e:
-                print(f"Error restoring UI state: {e}")
-
-            # Update the plot with the loaded data
-            self.update_plot_from_loaded_data()
-
-            print(f"Population data loaded from {population_file}")
-            return True
-        except Exception as e:
-            print(f"Error loading population data: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return False
-
-    def update_plot_from_loaded_data(self):
-        """Update the plot with loaded data"""
-        if (
-            not hasattr(self, "last_plotted_times")
-            or self.last_plotted_times is None
-            or not hasattr(self, "last_plotted_mean")
-            or self.last_plotted_mean is None
-        ):
-            print("No population data to plot")
-            return
-
-        try:
-            # Get the loaded data
-            times = self.last_plotted_times
-            mean_metric = self.last_plotted_mean
-            std_metric = self.last_plotted_std
-            metric_name = self.last_plotted_metric_name or "Fluorescence"
-
-            # Plot
-            self.population_figure.clear()
-            ax = self.population_figure.add_subplot(111)
-            ax.plot(times, mean_metric, color="red", label=f"Mean {metric_name}")
-
-            if std_metric is not None:
-                ax.fill_between(
-                    times,
-                    mean_metric - std_metric,
-                    mean_metric + std_metric,
-                    color="red",
-                    alpha=0.2,
-                    label="Std Dev",
-                )
-
-            ax.set_xlabel("Time [h]")
-            ax.set_ylabel(f"Mean Cell {metric_name}")
-
-            # Get the channel and positions for the title
-            selected_positions = [
-                item.text() for item in self.position_list.selectedItems()
-            ]
-            channel = (
-                self.channel_combo.currentText()
-                if self.channel_combo.count() > 0
-                else "Unknown"
-            )
-
-            ax.set_title(
-                f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})"
-            )
-            ax.legend()
-            self.population_canvas.draw()
-
-            print("Population plot updated with loaded data")
-        except Exception as e:
-            print(f"Error updating population plot: {e}")
-            import traceback
-
-            traceback.print_exc()
-
-    def calculate_rpu_values(self):
-        """
-        Calculate RPU reference values from all segmented cells across all frames.
-        Displays results in a dialog and offers to export to CSV.
-        """
-        from PySide6.QtWidgets import (
-            QMessageBox,
-            QDialog,
-            QVBoxLayout,
-            QLabel,
-            QDialogButtonBox,
-        )
-
-        # Get the metrics DataFrame from the singleton
-        df = self.metrics_service.df
-
-        if df.is_empty():
-            QMessageBox.warning(
-                self,
-                "No Data",
-                "No metrics data available. Please run segmentation first.",
-            )
-            return
-
-        # Get available fluorescence channels
-        fluo_columns = [col for col in df.columns if col.startswith("fluo_")]
-
-        if not fluo_columns:
-            QMessageBox.warning(
-                self,
-                "No Data",
-                "No fluorescence data found in metrics. Please run segmentation with fluorescence channels.",
-            )
-            return
-
-        # Calculate average values for each channel (ignoring zeros)
-        rpu_values = {}
-        for channel_col in fluo_columns:
-            channel_num = int(channel_col.split("_")[1])  # Extract channel number
-
-            # Filter out zeros and calculate the average
-            channel_data = df.filter(pl.col(channel_col) > 0.1)
-
-            if channel_data.height > 0:
-                avg_value = channel_data[channel_col].mean()
-                std_value = channel_data[channel_col].std()
-                cell_count = channel_data.height
-
-                channel_name = f"Channel {channel_num}"
-                if channel_num == 1:
-                    channel_name = "mCherry"
-                elif channel_num == 2:
-                    channel_name = "YFP"
-
-                rpu_values[channel_num] = {
-                    "name": channel_name,
-                    "avg_value": avg_value,
-                    "std_value": std_value,
-                    "cell_count": cell_count,
-                }
-
-        if not rpu_values:
-            QMessageBox.warning(
-                self,
-                "No Data",
-                "No valid fluorescence data found (all values are zero or missing).",
-            )
-            return
-
-        # Create a dialog to display the results
-        dialog = QDialog(self)
-        dialog.setWindowTitle("RPU Reference Values")
-        dialog.setMinimumWidth(400)
-
-        layout = QVBoxLayout(dialog)
-
-        # Add title
-        title_label = QLabel("<h3>RPU Reference Values</h3>")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
-
-        # Add description
-        desc_label = QLabel(
-            "The following reference values were calculated from single-cell analysis "
-            "across all frames using segmentation model: UNet"
-        )
-        desc_label.setWordWrap(True)
-        layout.addWidget(desc_label)
-
-        # Add the calculated values
-        for channel_num, values in rpu_values.items():
-            value_label = QLabel(
-                f"<b>{values['name']} (Channel {channel_num}):</b> {values['avg_value']:.2f} ± {values['std_value']:.2f} "
-                f"<i>(from {values['cell_count']} cells)</i>"
-            )
-            value_label.setTextFormat(Qt.RichText)
-            layout.addWidget(value_label)
-
-        # Add note
-        note_label = QLabel(
-            "<i>Note: These values can be used as RPU reference values for normalizing "
-            "fluorescence measurements in future experiments.</i>"
-        )
-        note_label.setWordWrap(True)
-        layout.addWidget(note_label)
-
-        # Add buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        layout.addWidget(button_box)
-
-        # Connect button signals
-        button_box.accepted.connect(lambda: self.export_rpu_values(rpu_values, dialog))
-        button_box.rejected.connect(dialog.reject)
-
-        # Show the dialog
-        dialog.exec_()
-
-    def export_rpu_values(self, rpu_values, dialog):
-        """Export the calculated RPU values to a CSV file"""
-
-        # Ask for save location
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save RPU Reference Values",
-            "rpu_reference_values.csv",
-            "CSV Files (*.csv)",
-        )
-
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, "w", newline="") as csvfile:
-                writer = csv.writer(csvfile)
-
-                # Write header row
-                writer.writerow(
-                    [
-                        "Channel",
-                        "Channel Name",
-                        "RPU Reference Value",
-                        "Standard Deviation",
-                        "Cell Count",
-                    ]
-                )
-
-                # Write data rows
-                for channel_num, values in rpu_values.items():
-                    writer.writerow(
-                        [
-                            channel_num,
-                            values["name"],
-                            f"{values['avg_value']:.6f}",
-                            f"{values['std_value']:.6f}",
-                            values["cell_count"],
-                        ]
-                    )
-
-                # Write metadata
-                writer.writerow([])
-                writer.writerow(["Segmentation Model", "UNet"])
-
-                # If experiment info is available, add it
-                if self.experiment:
-                    writer.writerow(
-                        ["Experiment Name", getattr(self.experiment, "name", "Unknown")]
-                    )
-                    writer.writerow(
-                        [
-                            "ND2 Files",
-                            ", ".join(
-                                getattr(self.experiment, "nd2_files", ["Unknown"])
-                            ),
-                        ]
-                    )
-
-            dialog.accept()
-
-            from PySide6.QtWidgets import QMessageBox
-
-            QMessageBox.information(
-                self, "Export Complete", f"RPU reference values saved to:\n{file_path}"
-            )
-
-        except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
-
-            QMessageBox.warning(
-                self, "Export Error", f"Failed to export RPU values: {str(e)}"
-            )
+    # def calculate_rpu_values(self):
+    #     """
+    #     Calculate RPU reference values from all segmented cells across all frames.
+    #     Displays results in a dialog and offers to export to CSV.
+    #     """
+    #     from PySide6.QtWidgets import (
+    #         QMessageBox,
+    #         QDialog,
+    #         QVBoxLayout,
+    #         QLabel,
+    #         QDialogButtonBox,
+    #     )
+    #
+    #     # Get the metrics DataFrame from the singleton
+    #     df = self.metrics_service.df
+    #
+    #     if df.is_empty():
+    #         QMessageBox.warning(
+    #             self,
+    #             "No Data",
+    #             "No metrics data available. Please run segmentation first.",
+    #         )
+    #         return
+    #
+    #     # Get available fluorescence channels
+    #     fluo_columns = [col for col in df.columns if col.startswith("fluo_")]
+    #
+    #     if not fluo_columns:
+    #         QMessageBox.warning(
+    #             self,
+    #             "No Data",
+    #             "No fluorescence data found in metrics. Please run segmentation with fluorescence channels.",
+    #         )
+    #         return
+    #
+    #     # Calculate average values for each channel (ignoring zeros)
+    #     rpu_values = {}
+    #     for channel_col in fluo_columns:
+    #         channel_num = int(channel_col.split("_")[1])  # Extract channel number
+    #
+    #         # Filter out zeros and calculate the average
+    #         channel_data = df.filter(pl.col(channel_col) > 0.1)
+    #
+    #         if channel_data.height > 0:
+    #             avg_value = channel_data[channel_col].mean()
+    #             std_value = channel_data[channel_col].std()
+    #             cell_count = channel_data.height
+    #
+    #             channel_name = f"Channel {channel_num}"
+    #             if channel_num == 1:
+    #                 channel_name = "mCherry"
+    #             elif channel_num == 2:
+    #                 channel_name = "YFP"
+    #
+    #             rpu_values[channel_num] = {
+    #                 "name": channel_name,
+    #                 "avg_value": avg_value,
+    #                 "std_value": std_value,
+    #                 "cell_count": cell_count,
+    #             }
+    #
+    #     if not rpu_values:
+    #         QMessageBox.warning(
+    #             self,
+    #             "No Data",
+    #             "No valid fluorescence data found (all values are zero or missing).",
+    #         )
+    #         return
+    #
+    #     # Create a dialog to display the results
+    #     dialog = QDialog(self)
+    #     dialog.setWindowTitle("RPU Reference Values")
+    #     dialog.setMinimumWidth(400)
+    #
+    #     layout = QVBoxLayout(dialog)
+    #
+    #     # Add title
+    #     title_label = QLabel("<h3>RPU Reference Values</h3>")
+    #     title_label.setAlignment(Qt.AlignCenter)
+    #     layout.addWidget(title_label)
+    #
+    #     # Add description
+    #     desc_label = QLabel(
+    #         "The following reference values were calculated from single-cell analysis "
+    #         "across all frames using segmentation model: UNet"
+    #     )
+    #     desc_label.setWordWrap(True)
+    #     layout.addWidget(desc_label)
+    #
+    #     # Add the calculated values
+    #     for channel_num, values in rpu_values.items():
+    #         value_label = QLabel(
+    #             f"<b>{values['name']} (Channel {channel_num}):</b> {values['avg_value']:.2f} ± {values['std_value']:.2f} "
+    #             f"<i>(from {values['cell_count']} cells)</i>"
+    #         )
+    #         value_label.setTextFormat(Qt.RichText)
+    #         layout.addWidget(value_label)
+    #
+    #     # Add note
+    #     note_label = QLabel(
+    #         "<i>Note: These values can be used as RPU reference values for normalizing "
+    #         "fluorescence measurements in future experiments.</i>"
+    #     )
+    #     note_label.setWordWrap(True)
+    #     layout.addWidget(note_label)
+    #
+    #     # Add buttons
+    #     button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+    #     layout.addWidget(button_box)
+    #
+    #     # Connect button signals
+    #     button_box.accepted.connect(lambda: self.export_rpu_values(rpu_values, dialog))
+    #     button_box.rejected.connect(dialog.reject)
+    #
+    #     # Show the dialog
+    #     dialog.exec_()
+    #
+    # def export_rpu_values(self, rpu_values, dialog):
+    #     """Export the calculated RPU values to a CSV file"""
+    #
+    #     # Ask for save location
+    #     file_path, _ = QFileDialog.getSaveFileName(
+    #         self,
+    #         "Save RPU Reference Values",
+    #         "rpu_reference_values.csv",
+    #         "CSV Files (*.csv)",
+    #     )
+    #
+    #     if not file_path:
+    #         return
+    #
+    #     try:
+    #         with open(file_path, "w", newline="") as csvfile:
+    #             writer = csv.writer(csvfile)
+    #
+    #             # Write header row
+    #             writer.writerow(
+    #                 [
+    #                     "Channel",
+    #                     "Channel Name",
+    #                     "RPU Reference Value",
+    #                     "Standard Deviation",
+    #                     "Cell Count",
+    #                 ]
+    #             )
+    #
+    #             # Write data rows
+    #             for channel_num, values in rpu_values.items():
+    #                 writer.writerow(
+    #                     [
+    #                         channel_num,
+    #                         values["name"],
+    #                         f"{values['avg_value']:.6f}",
+    #                         f"{values['std_value']:.6f}",
+    #                         values["cell_count"],
+    #                     ]
+    #                 )
+    #
+    #             # Write metadata
+    #             writer.writerow([])
+    #             writer.writerow(["Segmentation Model", "UNet"])
+    #
+    #             # If experiment info is available, add it
+    #             if self.experiment:
+    #                 writer.writerow(
+    #                     ["Experiment Name", getattr(self.experiment, "name", "Unknown")]
+    #                 )
+    #                 writer.writerow(
+    #                     [
+    #                         "ND2 Files",
+    #                         ", ".join(
+    #                             getattr(self.experiment, "nd2_files", ["Unknown"])
+    #                         ),
+    #                     ]
+    #                 )
+    #
+    #         dialog.accept()
+    #
+    #         from PySide6.QtWidgets import QMessageBox
+    #
+    #         QMessageBox.information(
+    #             self, "Export Complete", f"RPU reference values saved to:\n{file_path}"
+    #         )
+    #
+    #     except Exception as e:
+    #         from PySide6.QtWidgets import QMessageBox
+    #
+    #         QMessageBox.warning(
+    #             self, "Export Error", f"Failed to export RPU values: {str(e)}"
+    #         )
