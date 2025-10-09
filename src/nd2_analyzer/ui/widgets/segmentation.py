@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 )
 from pubsub import pub
 
+from nd2_analyzer.analysis.segmentation import segmentation_models
+
 
 class SegmentationWidget(QWidget):
     """
@@ -178,13 +180,7 @@ class SegmentationWidget(QWidget):
         )
 
         self.model_combo.addItems(
-            [
-                SegmentationModels.OMNIPOSE_BACT_PHASE,
-                SegmentationModels.CELLPOSE_BACT_PHASE,
-                SegmentationModels.CELLPOSE_BACT_FLUOR,
-                SegmentationModels.CELLPOSE,
-                SegmentationModels.UNET,
-            ]
+            SegmentationModels.available_models
         )
 
     def select_all_positions(self):

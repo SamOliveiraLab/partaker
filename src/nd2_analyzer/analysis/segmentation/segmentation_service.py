@@ -54,8 +54,10 @@ class SegmentationService:
             _, indices = self.cache.mmap_arrays_idx[model]
             if cache_key in indices:
                 segmented = self.cache.with_model(model)[cache_key]
+
                 if self.roi_mask is not None:
                     segmented = self._apply_roi_mask(segmented)
+
                 processed_image = self._post_process(
                     raw_image=self.get_raw_image(time, position, channel),
                     segmented=segmented,
@@ -166,17 +168,33 @@ class SegmentationService:
         return overlay
 
     def _apply_colormap(self, segmented):
-        """Apply colormap to labeled segmentation"""
-        from matplotlib.cm import get_cmap
+        """Apply distinct colors using HSV"""
+        import numpy as np
+        import matplotlib.colors as mcolors
+        from skimage.measure import label
 
-        cmap = get_cmap(self.label_colormap)
-
-        # Normalize labels
         labels = label(segmented)
-        normalized = labels.astype(float) / labels.max()
+        n_labels = labels.max()
 
-        # Apply colormap and convert to 8-bit RGB
-        colored = (cmap(normalized)[..., :3] * 255).astype(np.uint8)
+        # Generate random hues with fixed high saturation and value for vivid colors
+        np.random.seed(42)  # Optional: for reproducibility
+        hues = np.random.permutation(n_labels) / n_labels  # Evenly distributed hues
+
+        # Create color lookup table
+        lut = np.zeros((n_labels + 1, 3))
+        lut[0] = [0, 0, 0]  # Background is black
+
+        for i in range(1, n_labels + 1):
+            # HSV: random hue, high saturation (0.8-1.0), high value (0.8-1.0)
+            h = hues[i - 1]
+            s = 0.8 + 0.2 * np.random.rand()  # Saturation 80-100%
+            v = 0.8 + 0.2 * np.random.rand()  # Brightness 80-100%
+            lut[i] = mcolors.hsv_to_rgb([h, s, v])
+
+        # Map labels to colors
+        colored = lut[labels]
+        colored = (colored * 255).astype(np.uint8)
+
         return colored
 
     def update_parameters(self, overlay_color=None, colormap=None):

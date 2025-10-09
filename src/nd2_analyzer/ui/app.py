@@ -265,7 +265,7 @@ class App(QMainWindow):
 
     def hhln_test(self):
         ImageData.load_nd2(
-            "/Users/hiram/Documents/EVERYTHING/20-29 Research/22 OliveiraLab/22.12 ND2 analyzer/nd2-analyzer/SR_1_5_2h_Pre-C_3h_IPTG_After10h_05_MC.nd2"
+            "/Users/hiram/Documents/EVERYTHING/20-29 Research/22 OliveiraLab/22.12 ND2 analyzer/nd2-analyzer/final_data/rpu_nd2/3-RPU_mCherry_M9Plain_10h002.nd2"
         )
 
     def show_new_experiment_dialog(self):

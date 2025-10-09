@@ -311,6 +311,7 @@ class SegmentationCache:
 
             if self.model_name in [SegmentationModels().UNET]:
                 segmented_frame = self.remove_artifacts(segmented_frame)
+
             mmap_array[idx] = segmented_frame
             indices.add(idx)
         except Exception as e:

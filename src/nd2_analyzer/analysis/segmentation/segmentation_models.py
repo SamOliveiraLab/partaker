@@ -16,7 +16,6 @@ from .unet import unet_segmentation
 # use_gpu = utils.use_gpu()
 use_gpu = True
 
-
 class SegmentationModels:
     CELLPOSE = "cellpose"
     UNET = "unet"
@@ -25,6 +24,18 @@ class SegmentationModels:
     CELLPOSE_BACT_FLUOR = "bact_fluor_cp3"
     CELLPOSE_BACT_HHLN_MAR_14 = "CP_20250314_100004_bact_phase_hhln"
     OMNIPOSE_BACT_PHASE = "omnipose_bact_phase"
+    OMNIPOSE_BACT_FLUO = "omnipose_bact_fluo"
+
+    available_models = [
+        CELLPOSE,
+        UNET,
+        CELLPOSE_FT_0,
+        CELLPOSE_BACT_PHASE,
+        CELLPOSE_BACT_FLUOR,
+        CELLPOSE_BACT_HHLN_MAR_14,
+        OMNIPOSE_BACT_PHASE,
+        OMNIPOSE_BACT_FLUO
+    ]
 
     _instance = None
 
@@ -296,6 +307,17 @@ class SegmentationModels:
             segmented_images = self.segment_omnipose(
                 images, progress, self.models[mode]
             )
+
+        elif mode == SegmentationModels.OMNIPOSE_BACT_FLUO:
+            if mode not in self.models:
+                self.models[mode] = models.CellposeModel(
+                    gpu=use_gpu, model_type="bact_fluor_omni"
+                )
+
+            segmented_images = self.segment_omnipose(
+                images, progress, self.models[mode]
+            )
+
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
 
