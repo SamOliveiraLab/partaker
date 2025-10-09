@@ -19,7 +19,7 @@ Which will download and install dependencies and run the main GUI. If there are 
 
 ## Documentation
 
-You can check the tutorial in the project's github pages
+The documentation is currently a WIP and it's available via this link: [https://samoliveiralab.github.io/partaker/](https://samoliveiralab.github.io/partaker/)
 
 ## Contributing
 
