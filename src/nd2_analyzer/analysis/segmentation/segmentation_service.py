@@ -20,14 +20,14 @@ class SegmentationService:
         self.cache = cache
         self.models = models
         self.get_raw_image = data_getter
-        self.roi_mask : Optional[np.ndarray] = None
+        self.roi_mask: Optional[np.ndarray] = None
 
         pub.subscribe(self.handle_image_request, "segmented_image_request")
         pub.subscribe(self.on_roi_selected, "roi_selected")
 
         # Initialize default parameters
         self.overlay_color = (0, 255, 0)  # Green for outlines
-        self.label_colormap = 'viridis'
+        self.label_colormap = "viridis"
 
     def on_roi_selected(self, mask: np.ndarray) -> None:
         """
@@ -42,7 +42,8 @@ class SegmentationService:
 
         if not model:
             raise ValueError(
-                "Segmentation model must be specified for non-normal modes")
+                "Segmentation model must be specified for non-normal modes"
+            )
 
         # Check cache first
         cache_key = (time, position, channel, model)
@@ -58,15 +59,17 @@ class SegmentationService:
                 processed_image = self._post_process(
                     raw_image=self.get_raw_image(time, position, channel),
                     segmented=segmented,
-                    mode=mode
+                    mode=mode,
                 )
 
-                pub.sendMessage("image_ready",
-                                image=processed_image,
-                                time=time,
-                                position=position,
-                                channel=channel,
-                                mode=mode)
+                pub.sendMessage(
+                    "image_ready",
+                    image=processed_image,
+                    time=time,
+                    position=position,
+                    channel=channel,
+                    mode=mode,
+                )
                 return
 
         # If not in cache, process as normal
@@ -78,15 +81,17 @@ class SegmentationService:
         processed_image = self._post_process(
             raw_image=self.get_raw_image(time, position, channel),
             segmented=segmented,
-            mode=mode
+            mode=mode,
         )
 
-        pub.sendMessage("image_ready",
-                        image=processed_image,
-                        time=time,
-                        position=position,
-                        channel=channel,
-                        mode=mode)
+        pub.sendMessage(
+            "image_ready",
+            image=processed_image,
+            time=time,
+            position=position,
+            channel=channel,
+            mode=mode,
+        )
 
     def _apply_roi_mask(self, segmented: np.ndarray) -> np.ndarray:
         """
@@ -105,12 +110,14 @@ class SegmentationService:
         # Convert binary segmentation to labeled regions if needed
         if not is_labeled:
             from skimage.measure import label
+
             labeled_frame = label(segmented)
         else:
             labeled_frame = segmented
 
         # Find regions that overlap with the mask boundary
         from scipy.ndimage import binary_dilation
+
         mask_boundary = binary_dilation(self.roi_mask) & ~self.roi_mask
 
         # Get labels of regions touching the boundary
@@ -122,8 +129,12 @@ class SegmentationService:
         result = np.zeros_like(segmented)
         for label_id in np.unique(labeled_frame):
             if label_id > 0:  # Skip background
-                if label_id not in boundary_labels and np.any((labeled_frame == label_id) & self.roi_mask):
-                    result[labeled_frame == label_id] = 255 if np.max(segmented) <= 255 else label_id
+                if label_id not in boundary_labels and np.any(
+                    (labeled_frame == label_id) & self.roi_mask
+                ):
+                    result[labeled_frame == label_id] = (
+                        255 if np.max(segmented) <= 255 else label_id
+                    )
 
         return result
 
@@ -147,7 +158,7 @@ class SegmentationService:
             raw_image = cv2.cvtColor(raw_image, cv2.COLOR_GRAY2RGB)
 
         # Find segmentation boundaries
-        boundaries = find_boundaries(segmented, mode='inner')
+        boundaries = find_boundaries(segmented, mode="inner")
 
         # Apply overlay
         overlay = raw_image.copy()
@@ -157,6 +168,7 @@ class SegmentationService:
     def _apply_colormap(self, segmented):
         """Apply colormap to labeled segmentation"""
         from matplotlib.cm import get_cmap
+
         cmap = get_cmap(self.label_colormap)
 
         # Normalize labels

@@ -19,8 +19,10 @@ from nd2_analyzer.utils.registration import register_images, ShiftedImage_2D_num
 """
 Singleton, implements data access for the time lapse experiments
 """
+
+
 class ImageData:
-    _instance: Optional['ImageData'] = None
+    _instance: Optional["ImageData"] = None
     _lock = threading.Lock()
 
     def __init__(self, data, path, is_nd2=True, channel_n=0):
@@ -28,7 +30,9 @@ class ImageData:
         self.nd2_filename = path
         self.processed_images = []
         self.is_nd2 = is_nd2
-        self.registration_offsets : Optional[np.ndarray] = None # If we are doing registration
+        self.registration_offsets: Optional[np.ndarray] = (
+            None  # If we are doing registration
+        )
         self.crop_coordinates = None
         self.channel_n = channel_n
 
@@ -37,19 +41,19 @@ class ImageData:
         self.segmentation_service = SegmentationService(
             cache=self.segmentation_cache,
             models=SegmentationModels(),
-            data_getter=self.get
+            data_getter=self.get,
         )
 
-        pub.subscribe(self.on_crop_selected, 'crop_selected')
+        pub.subscribe(self.on_crop_selected, "crop_selected")
 
     @classmethod
-    def get_instance(cls) -> Optional['ImageData']:
+    def get_instance(cls) -> Optional["ImageData"]:
         """Get the current singleton instance"""
         with cls._lock:
             return cls._instance
 
     @classmethod
-    def create_instance(cls, data, path, is_nd2=True, channel_n=0) -> 'ImageData':
+    def create_instance(cls, data, path, is_nd2=True, channel_n=0) -> "ImageData":
         """Create/replace the singleton instance"""
         with cls._lock:
             # Clean up old instance if it exists
@@ -88,13 +92,13 @@ class ImageData:
                 raw_image = self.data[t]
 
         # Compute if it's a dask array
-        if hasattr(raw_image, 'compute'):
+        if hasattr(raw_image, "compute"):
             raw_image = raw_image.compute()
 
         # Crop/Scale if we have it
         if self.crop_coordinates is not None:
             x, y, width, height = self.crop_coordinates
-            raw_image = raw_image[y:y + height, x:x + width]
+            raw_image = raw_image[y : y + height, x : x + width]
 
         # Apply registration if we have it
         if self.registration_offsets is not None:
@@ -104,13 +108,17 @@ class ImageData:
 
         return raw_image
 
-    def do_registration_p(self, p : int, c : int = 0):
+    def do_registration_p(self, p: int, c: int = 0):
         """
         Runs the image registration at a specific position. Afterward, all images will receive the transformation
         """
         # NOTE: probably heavy because of compute
-        image_series = self.data[:, p, c].compute() # Selects position and channel, PHC by default.
-        image_series = ((image_series / 65535) * 255).astype(np.uint8) # Converting here cause it expects uint8
+        image_series = self.data[
+            :, p, c
+        ].compute()  # Selects position and channel, PHC by default.
+        image_series = ((image_series / 65535) * 255).astype(
+            np.uint8
+        )  # Converting here cause it expects uint8
 
         # TODO: remove, but just validating the time here
 
@@ -169,8 +177,10 @@ class ImageData:
 
         full_data = da.concatenate(cropped, axis=0)
 
-        print(f"Loaded {len(file_paths)} file(s). "
-              f"Cropped P to {min_p}. Final array shape: {full_data.shape}")
+        print(
+            f"Loaded {len(file_paths)} file(s). "
+            f"Cropped P to {min_p}. Final array shape: {full_data.shape}"
+        )
 
         inst = cls.create_instance(data=full_data, path=file_paths, is_nd2=True)
         inst.channel_n = channels
@@ -189,13 +199,10 @@ class ImageData:
             self.segmentation_cache.save(str(cache_path))
 
         # Save other container data
-        container_data = {
-            'nd2_filename': self.nd2_filename,
-            'is_nd2': self.is_nd2
-        }
+        container_data = {"nd2_filename": self.nd2_filename, "is_nd2": self.is_nd2}
 
         # Save container metadata
-        with open(base_dir / "image_data.json", 'w') as f:
+        with open(base_dir / "image_data.json", "w") as f:
             json.dump(container_data, f)
 
     @classmethod
@@ -206,13 +213,17 @@ class ImageData:
         # Load imagedata metadata
         meta_path = base_dir / "image_data.json"
         if meta_path.exists():
-            with open(meta_path, 'r') as f:
+            with open(meta_path, "r") as f:
                 meta_json = json.load(f)
-                nd2_filename = meta_json.get('nd2_filename')
-                is_nd2 = meta_json.get('is_nd2', True)
+                nd2_filename = meta_json.get("nd2_filename")
+                is_nd2 = meta_json.get("is_nd2", True)
 
-                files_ok = (isinstance(nd2_filename, str) and os.path.exists(nd2_filename)) or (
-                        isinstance(nd2_filename, list) and all(os.path.exists(_fname) for _fname in nd2_filename))
+                files_ok = (
+                    isinstance(nd2_filename, str) and os.path.exists(nd2_filename)
+                ) or (
+                    isinstance(nd2_filename, list)
+                    and all(os.path.exists(_fname) for _fname in nd2_filename)
+                )
 
                 if files_ok:
                     image_data = cls.load_nd2(nd2_filename)
@@ -221,16 +232,16 @@ class ImageData:
                     cache_path = base_dir / "segmentation_cache.h5"
                     if cache_path.exists():
                         image_data.segmentation_cache = SegmentationCache.load(
-                            str(cache_path), image_data.data)
+                            str(cache_path), image_data.data
+                        )
                         image_data.segmentation_service = SegmentationService(
                             cache=image_data.segmentation_cache,
                             models=SegmentationModels(),
-                            data_getter=image_data.get
+                            data_getter=image_data.get,
                         )
 
                     return image_data
                 else:
-                    raise FileNotFoundError(
-                        f"ND2 file not found: {nd2_filename}")
+                    raise FileNotFoundError(f"ND2 file not found: {nd2_filename}")
         else:
             raise FileNotFoundError(f"Metadata file not found in {filename}")

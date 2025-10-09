@@ -13,7 +13,7 @@ from nd2_analyzer.data.image_data import ImageData
 from nd2_analyzer.utils import timing_decorator
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('MetricsService')
+logger = logging.getLogger("MetricsService")
 
 
 class MetricsService:
@@ -27,14 +27,16 @@ class MetricsService:
         return cls._instance
 
     def __init__(self):
-        if not getattr(self, '_initialized', False):
+        if not getattr(self, "_initialized", False):
             logger.info("Initializing OptimizedMetricsService")
 
             # Use Polars DataFrame as primary storage
             self.df = pl.DataFrame()
 
             # Fast lookup cache for pending fluorescence updates
-            self._pending_metrics = defaultdict(dict)  # {(t,p): {cell_id: metrics_dict}}
+            self._pending_metrics = defaultdict(
+                dict
+            )  # {(t,p): {cell_id: metrics_dict}}
 
             # Segmentation cache for fluorescence processing
             self._segmentation_cache = {}  # {(t,p): labeled_image}
@@ -47,7 +49,9 @@ class MetricsService:
             self._initialized = True
 
     @timing_decorator("compute_metrics_at_frame")
-    def compute_metrics_at_frame(self, image: np.ndarray, time, position, channel, mode):
+    def compute_metrics_at_frame(
+        self, image: np.ndarray, time, position, channel, mode
+    ):
         if mode != "segmented":
             return
 
@@ -62,9 +66,12 @@ class MetricsService:
         elif chan_n == 2:
             mcherry_frame = ImageData.get_instance().get(time, position, 1)
 
-        curr_analysis_frame = TLFrame(index=(time, position), labeled_phc=labeled_frame,
-                                      mcherry=mcherry_frame,
-                                      yfp=yfp_frame)
+        curr_analysis_frame = TLFrame(
+            index=(time, position),
+            labeled_phc=labeled_frame,
+            mcherry=mcherry_frame,
+            yfp=yfp_frame,
+        )
 
         batch_metrics = MetricsService.calculate_cell_metrics(curr_analysis_frame)
         self.update_frame_metrics(batch_metrics)
@@ -118,8 +125,14 @@ class MetricsService:
 
         # Check for the fluorescence in any channel, if not, -1 and 0 fluorescence
         # mcherry can be None, same for yfp
-        back_fluo_mcherry = _frame.mcherry[_frame.labeled_phc == 0].mean() if _frame.mcherry is not None else -1
-        back_fluo_yfp = _frame.yfp[_frame.labeled_phc == 0].mean() if _frame.yfp is not None else -1
+        back_fluo_mcherry = (
+            _frame.mcherry[_frame.labeled_phc == 0].mean()
+            if _frame.mcherry is not None
+            else -1
+        )
+        back_fluo_yfp = (
+            _frame.yfp[_frame.labeled_phc == 0].mean() if _frame.yfp is not None else -1
+        )
         max_back_fluo = max(back_fluo_mcherry, back_fluo_yfp)
         has_fluorescence = True
         if max_back_fluo < 0.01:
@@ -131,8 +144,16 @@ class MetricsService:
             cell_id = cell.label
 
             # Calculate derived metrics
-            circularity = (4 * np.pi * cell.area) / (cell.perimeter ** 2) if cell.perimeter > 0 else 0
-            aspect_ratio = cell.major_axis_length / cell.minor_axis_length if cell.minor_axis_length > 0 else 1.0
+            circularity = (
+                (4 * np.pi * cell.area) / (cell.perimeter**2)
+                if cell.perimeter > 0
+                else 0
+            )
+            aspect_ratio = (
+                cell.major_axis_length / cell.minor_axis_length
+                if cell.minor_axis_length > 0
+                else 1.0
+            )
             y1, x1, y2, x2 = cell.bbox
 
             metrics_dict = {
@@ -142,7 +163,7 @@ class MetricsService:
                 "circularity": circularity,
                 "solidity": cell.solidity,
                 "equivalent_diameter": cell.equivalent_diameter,
-                "orientation": cell.orientation
+                "orientation": cell.orientation,
             }
 
             # TODO: confirm that we need all these metrics
@@ -153,7 +174,6 @@ class MetricsService:
             # Let's first compute the RPU
             # Based on the background fluorescence, tell which population this cell is from
             if has_fluorescence:
-
                 # If only mcherry has fluo
                 if back_fluo_mcherry != -1 and back_fluo_yfp == -1:
                     mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
@@ -166,7 +186,9 @@ class MetricsService:
                     mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
                     yfp_fluo = _frame.yfp[_frame.labeled_phc == cell_id].mean()
                     if back_fluo_mcherry != -1 and back_fluo_yfp != -1:
-                        if (mcherry_fluo / back_fluo_mcherry) > (yfp_fluo / back_fluo_yfp):
+                        if (mcherry_fluo / back_fluo_mcherry) > (
+                            yfp_fluo / back_fluo_yfp
+                        ):
                             fluorescence_channel = 0
                             fluorescence_level = mcherry_fluo
                         else:
@@ -190,9 +212,12 @@ class MetricsService:
                 "equivalent_diameter": cell.equivalent_diameter,
                 "orientation": cell.orientation,
                 "morphology_class": morphology_class,
-                "y1": y1, "x1": x1, "y2": y2, "x2": x2,
+                "y1": y1,
+                "x1": x1,
+                "y2": y2,
+                "x2": x2,
                 "fluorescence_channel": fluorescence_channel,
-                "fluo_level": fluorescence_level
+                "fluo_level": fluorescence_level,
             }
 
             batch_data.append(row_data)
@@ -207,21 +232,31 @@ class MetricsService:
 
         update_df = pl.DataFrame(updates)
 
-        self.df = self.df.join(
-            update_df,
-            on=["time", "position", "cell_id"],
-            how="left",
-            suffix="_update"
-        ).with_columns([
-            pl.when(pl.col(f"{fluo_column}_update").is_not_null())
-            .then(pl.col(f"{fluo_column}_update"))
-            .otherwise(pl.col(fluo_column))
-            .alias(fluo_column)
-        ]).drop(f"{fluo_column}_update")
+        self.df = (
+            self.df.join(
+                update_df,
+                on=["time", "position", "cell_id"],
+                how="left",
+                suffix="_update",
+            )
+            .with_columns(
+                [
+                    pl.when(pl.col(f"{fluo_column}_update").is_not_null())
+                    .then(pl.col(f"{fluo_column}_update"))
+                    .otherwise(pl.col(fluo_column))
+                    .alias(fluo_column)
+                ]
+            )
+            .drop(f"{fluo_column}_update")
+        )
 
     @timing_decorator("query_optimized")
-    def query_optimized(self, time: Optional[int] = None, position: Optional[int] = None,
-                        cell_id: Optional[int] = None) -> pl.DataFrame:
+    def query_optimized(
+        self,
+        time: Optional[int] = None,
+        position: Optional[int] = None,
+        cell_id: Optional[int] = None,
+    ) -> pl.DataFrame:
         """
         Queries metrics for a given time/position/cell_id.
         Supposedly uses fast operations from polars
@@ -255,17 +290,25 @@ class MetricsService:
 
     def get_position_summary(self, position: int) -> pl.DataFrame:
         """Get summary statistics for a position."""
-        return self.df.filter(pl.col("position") == position).group_by("time").agg([
-            pl.count("cell_id").alias("cell_count"),
-            pl.mean("area").alias("mean_area"),
-            pl.mean("fluo_mcherry").alias("mean_mcherry"),
-            pl.mean("fluo_yfp").alias("mean_yfp")
-        ]).sort("time")
+        return (
+            self.df.filter(pl.col("position") == position)
+            .group_by("time")
+            .agg(
+                [
+                    pl.count("cell_id").alias("cell_count"),
+                    pl.mean("area").alias("mean_area"),
+                    pl.mean("fluo_mcherry").alias("mean_mcherry"),
+                    pl.mean("fluo_yfp").alias("mean_yfp"),
+                ]
+            )
+            .sort("time")
+        )
 
     def save_optimized(self, folder_path: str):
         """Save data in efficient Parquet format."""
         if not self.df.is_empty():
             import os
+
             parquet_path = os.path.join(folder_path, "metrics_data.parquet")
             self.df.write_parquet(parquet_path)
             logger.info(f"Saved {self.df.height} rows to {parquet_path}")
@@ -273,6 +316,7 @@ class MetricsService:
     def load_optimized(self, folder_path: str):
         """Load data from Parquet format."""
         import os
+
         parquet_path = os.path.join(folder_path, "metrics_data.parquet")
         if os.path.exists(parquet_path):
             self.df = pl.read_parquet(parquet_path)

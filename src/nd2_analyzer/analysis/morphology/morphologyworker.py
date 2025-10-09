@@ -10,13 +10,7 @@ class MorphologyWorker(QObject):
     finished = Signal(object)  # Finished with results
     error = Signal(str)  # Emit error message
 
-    def __init__(
-            self,
-            image_data,
-            image_frames,
-            num_frames,
-            position,
-            channel):
+    def __init__(self, image_data, image_frames, num_frames, position, channel):
         super().__init__()
         self.image_data = image_data
         self.image_frames = image_frames
@@ -29,11 +23,9 @@ class MorphologyWorker(QObject):
         results = {}
         try:
             for t in range(self.num_frames):
-
                 current_frame = self.image_frames[t]
                 # Skip empty/invalid frames
-                if np.mean(current_frame) == 0 or np.std(
-                        current_frame) == 0:
+                if np.mean(current_frame) == 0 or np.std(current_frame) == 0:
                     print(f"Skipping empty frame T={t}")
                     self.progress.emit(t + 1)
                     continue
@@ -50,11 +42,11 @@ class MorphologyWorker(QObject):
 
                 # Extract morphology metrics
                 cell_mapping = extract_cells_and_metrics(
-                    self.image_frames[t], binary_image)
+                    self.image_frames[t], binary_image
+                )
 
                 # Then convert the cell_mapping to a metrics dataframe
-                metrics_list = [data["metrics"]
-                                for data in cell_mapping.values()]
+                metrics_list = [data["metrics"] for data in cell_mapping.values()]
                 metrics = pd.DataFrame(metrics_list)
 
                 if not metrics.empty:
@@ -62,17 +54,17 @@ class MorphologyWorker(QObject):
 
                     # Calculate Morphology Fractions
                     morphology_counts = metrics["morphology_class"].value_counts(
-                        normalize=True)
+                        normalize=True
+                    )
                     fractions = morphology_counts.to_dict()
 
                     # Save results for this frame, including the raw metrics
                     results[t] = {
                         "fractions": fractions,
-                        "metrics": metrics  # Include the full metrics dataframe
+                        "metrics": metrics,  # Include the full metrics dataframe
                     }
                 else:
-                    print(
-                        f"Frame {t}: Metrics computation returned no valid data.")
+                    print(f"Frame {t}: Metrics computation returned no valid data.")
 
                 self.progress.emit(t + 1)  # Update progress bar
 

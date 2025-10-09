@@ -17,10 +17,7 @@ def ShiftedImage_2D(Image, XShift, YShift):
     if XShift == 0 and YShift == 0:
         return Image
 
-    M = np.float32([
-        [1, 0, XShift],
-        [0, 1, YShift]
-    ])
+    M = np.float32([[1, 0, XShift], [0, 1, YShift]])
 
     shifted = cv2.warpAffine(Image, M, (Image.shape[1], Image.shape[0]))
     shifted_image = shifted
@@ -28,31 +25,27 @@ def ShiftedImage_2D(Image, XShift, YShift):
     # Shift Down
     if YShift > 0:
         shifted_image = shifted_image[YShift:]
-        shifted_image = np.pad(
-            shifted_image, ((YShift, 0), (0, 0)), 'edge')  # Pad Up
+        shifted_image = np.pad(shifted_image, ((YShift, 0), (0, 0)), "edge")  # Pad Up
 
     # Shift Up
     if YShift < 0:
-        shifted_image = shifted_image[:shifted.shape[0] - abs(YShift)]
+        shifted_image = shifted_image[: shifted.shape[0] - abs(YShift)]
         shifted_image = np.pad(
-            shifted_image, ((0, abs(YShift)), (0, 0)), 'edge')  # Pad Down
+            shifted_image, ((0, abs(YShift)), (0, 0)), "edge"
+        )  # Pad Down
 
     # Shift Left
     if XShift > 0:
         shifted_image = np.delete(shifted_image, slice(0, XShift), 1)
-        shifted_image = np.pad(
-            shifted_image, ((0, 0), (XShift, 0)), 'edge')  # Pad Left
+        shifted_image = np.pad(shifted_image, ((0, 0), (XShift, 0)), "edge")  # Pad Left
 
     if XShift < 0:
         shifted_image = np.delete(
-            shifted_image,
-            slice(
-                shifted.shape[1] -
-                abs(XShift),
-                shifted.shape[1]),
-            1)
+            shifted_image, slice(shifted.shape[1] - abs(XShift), shifted.shape[1]), 1
+        )
         shifted_image = np.pad(
-            shifted_image, ((0, 0), (0, abs(XShift))), 'edge')  # Pad Right
+            shifted_image, ((0, 0), (0, abs(XShift))), "edge"
+        )  # Pad Right
 
     return shifted_image
 
@@ -60,12 +53,7 @@ def ShiftedImage_2D(Image, XShift, YShift):
 def SAD(A, B):
     cutA = A.ravel()
     cutB = B.ravel()
-    MAE = np.sum(
-        np.abs(
-            np.subtract(
-                cutA,
-                cutB,
-                dtype=np.float64))) / cutA.shape[0]
+    MAE = np.sum(np.abs(np.subtract(cutA, cutB, dtype=np.float64))) / cutA.shape[0]
     return MAE
 
 
@@ -155,13 +143,15 @@ def edge_cropping_estimation_vertical_high_low_distr(img):
 
     for i in range(0, len(dydx_vertical)):
         # Below Crazy 150 values
-        if ((dydx_vertical[i] >= 150 and i <= 100) or (
-                dydx_vertical[i] <= -150 and i <= 100)):
+        if (dydx_vertical[i] >= 150 and i <= 100) or (
+            dydx_vertical[i] <= -150 and i <= 100
+        ):
             dydx_vertical[i] = 0
 
         # Above Crazy 150 values
-        if ((dydx_vertical[i] >= 150 and i >= (main_bright.shape[0] - 100))
-                or (dydx_vertical[i] <= -150 and (main_bright.shape[0] - 100))):
+        if (dydx_vertical[i] >= 150 and i >= (main_bright.shape[0] - 100)) or (
+            dydx_vertical[i] <= -150 and (main_bright.shape[0] - 100)
+        ):
             dydx_vertical[i] = 0
 
     max_val = np.max(dydx_vertical)
@@ -184,8 +174,8 @@ def edge_cropping_estimation_vertical_high_low_distr(img):
 
     # print("The VERTICAL DERIVATIVE (Pattern Distribution):")
     plt.plot(y_verticle_dydx, dydx_vertical)
-    plt.axvline(x=max_index, color='r')
-    plt.axvline(x=min_index, color='r')
+    plt.axvline(x=max_index, color="r")
+    plt.axvline(x=min_index, color="r")
     plt.show()
 
     top = max_index

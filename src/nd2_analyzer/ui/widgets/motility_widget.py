@@ -4,9 +4,25 @@ import numpy as np
 import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                               QTabWidget, QWidget, QMessageBox, QFileDialog, QCheckBox, QDialogButtonBox, QTableWidget,
-                               QTableWidgetItem, QComboBox, QGridLayout, QApplication, QRadioButton)
+from PySide6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QWidget,
+    QMessageBox,
+    QFileDialog,
+    QCheckBox,
+    QDialogButtonBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QComboBox,
+    QGridLayout,
+    QApplication,
+    QRadioButton,
+)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.cm import plasma, viridis
 from matplotlib.colors import Normalize
@@ -14,12 +30,16 @@ from matplotlib.colors import to_hex
 from pubsub import pub
 from skimage.measure import label, regionprops
 
-from nd2_analyzer.analysis.tracking.tracking import (create_density_based_regions_from_forecast_data,
-                                                     enhanced_motility_index, \
-                                                     visualize_motility_with_chamber_regions, visualize_motility_map)
+from nd2_analyzer.analysis.tracking.tracking import (
+    create_density_based_regions_from_forecast_data,
+    enhanced_motility_index,
+    visualize_motility_with_chamber_regions,
+    visualize_motility_map,
+)
 
 
 # Modify in motility_widget.py
+
 
 class MotilityDialog(QDialog):
     """
@@ -36,6 +56,7 @@ class MotilityDialog(QDialog):
 
         # ADD THIS LINE - Import and initialize MetricsService
         from nd2_analyzer.analysis.metrics_service import MetricsService
+
         self.metrics_service = MetricsService()
 
         self.calibration = 0.07
@@ -237,15 +258,20 @@ class MotilityDialog(QDialog):
                     height = self.image_data.data.shape[-2]
                     width = self.image_data.data.shape[-1]
                     chamber_dimensions = (width, height)
-                    print(f"Using chamber dimensions from image data: {chamber_dimensions}")
+                    print(
+                        f"Using chamber dimensions from image data: {chamber_dimensions}"
+                    )
 
             # Collect all cell positions
             all_cell_positions = self.collect_cell_positions(p, c)
-            print(f"Collected {len(all_cell_positions)} cell positions for visualization")
+            print(
+                f"Collected {len(all_cell_positions)} cell positions for visualization"
+            )
 
             # Calculate motility metrics
             self.motility_metrics = enhanced_motility_index(
-                self.tracked_cells, chamber_dimensions)
+                self.tracked_cells, chamber_dimensions
+            )
 
             # Create visualizations
             self.create_visualizations(chamber_dimensions, all_cell_positions)
@@ -258,6 +284,7 @@ class MotilityDialog(QDialog):
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             QMessageBox.warning(self, "Error", f"Failed to analyze motility: {str(e)}")
 
@@ -269,11 +296,11 @@ class MotilityDialog(QDialog):
         all_cell_positions = []
 
         # Try to use segmentation cache if available
-        if self.image_data and hasattr(self.image_data, 'segmentation_cache'):
+        if self.image_data and hasattr(self.image_data, "segmentation_cache"):
             try:
                 # Determine number of time frames
                 t_max = 20
-                if hasattr(self.image_data, 'data'):
+                if hasattr(self.image_data, "data"):
                     t_max = min(20, self.image_data.data.shape[0])
 
                 for t in range(t_max):
@@ -298,8 +325,8 @@ class MotilityDialog(QDialog):
         if not all_cell_positions:
             print(f"Falling back to collecting positions from tracks")
             for track in self.lineage_tracks:
-                if 'x' in track and 'y' in track:
-                    all_cell_positions.extend(list(zip(track['x'], track['y'])))
+                if "x" in track and "y" in track:
+                    all_cell_positions.extend(list(zip(track["x"], track["y"])))
             print(f"Collected {len(all_cell_positions)} cell positions from tracks")
 
         return all_cell_positions
@@ -313,7 +340,11 @@ class MotilityDialog(QDialog):
 
         # Combined visualization
         combined_fig, self.combined_ax = visualize_motility_with_chamber_regions(
-            self.tracked_cells, all_cell_positions, chamber_dimensions, self.motility_metrics)
+            self.tracked_cells,
+            all_cell_positions,
+            chamber_dimensions,
+            self.motility_metrics,
+        )
         combined_canvas = FigureCanvas(combined_fig)
         self.combined_layout.addWidget(combined_canvas)
         self.combined_fig = combined_fig
@@ -325,7 +356,8 @@ class MotilityDialog(QDialog):
 
         # Motility map
         map_fig, _ = visualize_motility_map(
-            self.tracked_cells, chamber_dimensions, self.motility_metrics)
+            self.tracked_cells, chamber_dimensions, self.motility_metrics
+        )
         map_canvas = FigureCanvas(map_fig)
         self.map_layout.addWidget(map_canvas)
         self.map_fig = map_fig
@@ -342,13 +374,16 @@ class MotilityDialog(QDialog):
 
         # First add all tracks from tracked_cells
         for track in self.tracked_cells:
-            if 'ID' in track:
-                track_ids.add(track['ID'])
+            if "ID" in track:
+                track_ids.add(track["ID"])
 
         # Create a lookup for metrics (if available)
         metrics_lookup = {}
-        if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-            metrics_lookup = {m.get('track_id'): m for m in self.motility_metrics['individual_metrics']}
+        if self.motility_metrics and "individual_metrics" in self.motility_metrics:
+            metrics_lookup = {
+                m.get("track_id"): m
+                for m in self.motility_metrics["individual_metrics"]
+            }
 
         # Sort track IDs numerically
         sorted_ids = sorted(track_ids)
@@ -358,8 +393,10 @@ class MotilityDialog(QDialog):
             # Check if we have metrics for this track
             if track_id in metrics_lookup:
                 metric = metrics_lookup[track_id]
-                motility = metric.get('motility_index', 0)
-                self.track_combo.addItem(f"Track {track_id} (MI: {motility:.1f})", track_id)
+                motility = metric.get("motility_index", 0)
+                self.track_combo.addItem(
+                    f"Track {track_id} (MI: {motility:.1f})", track_id
+                )
             else:
                 # Add track even without motility data
                 self.track_combo.addItem(f"Track {track_id}", track_id)
@@ -374,61 +411,100 @@ class MotilityDialog(QDialog):
         track_id = self.track_combo.itemData(index)
 
         # Find the track
-        selected_track = next((t for t in self.tracked_cells if t.get('ID', -1) == track_id), None)
+        selected_track = next(
+            (t for t in self.tracked_cells if t.get("ID", -1) == track_id), None
+        )
 
         # Clear any existing highlight
         self.clear_track_highlight()
 
-        if selected_track and 'x' in selected_track and 'y' in selected_track:
+        if selected_track and "x" in selected_track and "y" in selected_track:
             # Highlight the track
             self.highlighted_line = self.combined_ax.plot(
-                selected_track['x'], selected_track['y'], '-',
-                linewidth=3, color='red', zorder=100)[0]
+                selected_track["x"],
+                selected_track["y"],
+                "-",
+                linewidth=3,
+                color="red",
+                zorder=100,
+            )[0]
 
             # Add start/end markers
             self.highlighted_start = self.combined_ax.plot(
-                selected_track['x'][0], selected_track['y'][0], 'o',
-                markersize=8, color='red', zorder=100)[0]
+                selected_track["x"][0],
+                selected_track["y"][0],
+                "o",
+                markersize=8,
+                color="red",
+                zorder=100,
+            )[0]
 
             self.highlighted_end = self.combined_ax.plot(
-                selected_track['x'][-1], selected_track['y'][-1], 's',
-                markersize=8, color='red', zorder=100)[0]
+                selected_track["x"][-1],
+                selected_track["y"][-1],
+                "s",
+                markersize=8,
+                color="red",
+                zorder=100,
+            )[0]
 
             # Prepare info text with available data
             info_text = [f"Track ID: {track_id}"]
 
             # Add track length
-            if 'x' in selected_track:
+            if "x" in selected_track:
                 info_text.append(f"Track Length: {len(selected_track['x'])} frames")
 
             # Calculate path length (if not available)
-            if 'x' in selected_track and 'y' in selected_track and len(selected_track['x']) > 1:
+            if (
+                "x" in selected_track
+                and "y" in selected_track
+                and len(selected_track["x"]) > 1
+            ):
                 # Calculate path length
                 path_length = 0
-                for i in range(len(selected_track['x']) - 1):
-                    dx = selected_track['x'][i + 1] - selected_track['x'][i]
-                    dy = selected_track['y'][i + 1] - selected_track['y'][i]
-                    path_length += np.sqrt(dx ** 2 + dy ** 2)
+                for i in range(len(selected_track["x"]) - 1):
+                    dx = selected_track["x"][i + 1] - selected_track["x"][i]
+                    dy = selected_track["y"][i + 1] - selected_track["y"][i]
+                    path_length += np.sqrt(dx**2 + dy**2)
                 info_text.append(f"Path Length: {path_length:.1f} px")
 
             # Look up motility metrics for this track (if available)
-            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-                track_metric = next((m for m in self.motility_metrics['individual_metrics']
-                                     if m.get('track_id') == track_id), None)
+            if self.motility_metrics and "individual_metrics" in self.motility_metrics:
+                track_metric = next(
+                    (
+                        m
+                        for m in self.motility_metrics["individual_metrics"]
+                        if m.get("track_id") == track_id
+                    ),
+                    None,
+                )
 
                 if track_metric:
                     # Add motility metrics
-                    info_text.append(f"Motility Index: {track_metric.get('motility_index', 0):.1f}")
-                    info_text.append(f"Avg Velocity: {track_metric.get('avg_velocity', 0):.2f} px/frame")
-                    info_text.append(f"Confinement: {track_metric.get('confinement_ratio', 0):.2f}")
-                    info_text.append(f"Persistence: {track_metric.get('directional_persistence', 0):.2f}")
+                    info_text.append(
+                        f"Motility Index: {track_metric.get('motility_index', 0):.1f}"
+                    )
+                    info_text.append(
+                        f"Avg Velocity: {track_metric.get('avg_velocity', 0):.2f} px/frame"
+                    )
+                    info_text.append(
+                        f"Confinement: {track_metric.get('confinement_ratio', 0):.2f}"
+                    )
+                    info_text.append(
+                        f"Persistence: {track_metric.get('directional_persistence', 0):.2f}"
+                    )
 
             # Add text near track end
             self.highlighted_text = self.combined_ax.text(
-                selected_track['x'][-1] + 10, selected_track['y'][-1] + 10,
+                selected_track["x"][-1] + 10,
+                selected_track["y"][-1] + 10,
                 "\n".join(info_text),
-                bbox=dict(facecolor='white', alpha=0.9, edgecolor='black', boxstyle='round'),
-                zorder=100)
+                bbox=dict(
+                    facecolor="white", alpha=0.9, edgecolor="black", boxstyle="round"
+                ),
+                zorder=100,
+            )
 
             # Update the canvas
             self.combined_canvas.draw()
@@ -436,24 +512,24 @@ class MotilityDialog(QDialog):
     def clear_track_highlight(self):
         """Clear the highlighted track"""
         # Remove any existing highlight elements
-        if hasattr(self, 'highlighted_line') and self.highlighted_line:
+        if hasattr(self, "highlighted_line") and self.highlighted_line:
             self.highlighted_line.remove()
             self.highlighted_line = None
 
-        if hasattr(self, 'highlighted_start') and self.highlighted_start:
+        if hasattr(self, "highlighted_start") and self.highlighted_start:
             self.highlighted_start.remove()
             self.highlighted_start = None
 
-        if hasattr(self, 'highlighted_end') and self.highlighted_end:
+        if hasattr(self, "highlighted_end") and self.highlighted_end:
             self.highlighted_end.remove()
             self.highlighted_end = None
 
-        if hasattr(self, 'highlighted_text') and self.highlighted_text:
+        if hasattr(self, "highlighted_text") and self.highlighted_text:
             self.highlighted_text.remove()
             self.highlighted_text = None
 
         # Update the canvas
-        if hasattr(self, 'combined_canvas'):
+        if hasattr(self, "combined_canvas"):
             self.combined_canvas.draw()
 
     def update_summary_visibility(self, index):
@@ -506,34 +582,42 @@ class MotilityDialog(QDialog):
         export_csv.setChecked(True)
         export_layout.addWidget(export_csv)
 
-        export_buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        export_buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         export_buttons.accepted.connect(export_dialog.accept)
         export_buttons.rejected.connect(export_dialog.reject)
         export_layout.addWidget(export_buttons)
 
         if export_dialog.exec() == QDialog.Accepted:
             save_path, _ = QFileDialog.getSaveFileName(
-                export_dialog, "Save Results", "", "All Files (*)")
+                export_dialog, "Save Results", "", "All Files (*)"
+            )
 
             if save_path:
                 base_path = save_path.replace(".png", "").replace(".csv", "")
 
                 if export_map.isChecked():
                     self.map_fig.savefig(
-                        f"{base_path}_motility_map.png", dpi=300, bbox_inches='tight')
+                        f"{base_path}_motility_map.png", dpi=300, bbox_inches="tight"
+                    )
 
                 if export_metrics.isChecked():
                     self.metrics_fig.savefig(
-                        f"{base_path}_detailed_metrics.png", dpi=300, bbox_inches='tight')
+                        f"{base_path}_detailed_metrics.png",
+                        dpi=300,
+                        bbox_inches="tight",
+                    )
 
                 if export_csv.isChecked():
-                    metrics_df = pd.DataFrame(self.motility_metrics['individual_metrics'])
+                    metrics_df = pd.DataFrame(
+                        self.motility_metrics["individual_metrics"]
+                    )
                     metrics_df.to_csv(f"{base_path}_motility_metrics.csv", index=False)
 
                 QMessageBox.information(
-                    export_dialog, "Export Complete",
-                    f"Results exported to {base_path}_*.png/csv")
+                    export_dialog,
+                    "Export Complete",
+                    f"Results exported to {base_path}_*.png/csv",
+                )
 
     def populate_velocity_track_list(self):
         """Populate the track list for velocity-time analysis with motility information"""
@@ -541,35 +625,44 @@ class MotilityDialog(QDialog):
 
         # Create a lookup for metrics
         metrics_lookup = {}
-        if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-            metrics_lookup = {m.get('track_id'): m for m in self.motility_metrics['individual_metrics']}
+        if self.motility_metrics and "individual_metrics" in self.motility_metrics:
+            metrics_lookup = {
+                m.get("track_id"): m
+                for m in self.motility_metrics["individual_metrics"]
+            }
 
         # Get tracks with metrics
         valid_tracks = []
         for track in self.tracked_cells:
-            if 'ID' in track and track['ID'] in metrics_lookup:
-                valid_tracks.append((track, metrics_lookup[track['ID']]))
+            if "ID" in track and track["ID"] in metrics_lookup:
+                valid_tracks.append((track, metrics_lookup[track["ID"]]))
 
         # Sort by motility index
-        valid_tracks.sort(key=lambda item: item[1].get('motility_index', 0), reverse=True)
+        valid_tracks.sort(
+            key=lambda item: item[1].get("motility_index", 0), reverse=True
+        )
 
         # Add to table with three columns: ID, Motility, Show
         self.velocity_track_list.setColumnCount(3)
-        self.velocity_track_list.setHorizontalHeaderLabels(["Track ID", "Motility", "Show"])
+        self.velocity_track_list.setHorizontalHeaderLabels(
+            ["Track ID", "Motility", "Show"]
+        )
 
         # Add to table
         self.velocity_track_list.setRowCount(len(valid_tracks))
 
         for i, (track, metrics) in enumerate(valid_tracks):
             # Track ID
-            id_item = QTableWidgetItem(str(track['ID']))
+            id_item = QTableWidgetItem(str(track["ID"]))
             id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)  # Make read-only
             self.velocity_track_list.setItem(i, 0, id_item)
 
             # Motility Index
-            motility_value = metrics.get('motility_index', 0)
+            motility_value = metrics.get("motility_index", 0)
             motility_item = QTableWidgetItem(f"{motility_value:.1f}")
-            motility_item.setFlags(motility_item.flags() & ~Qt.ItemIsEditable)  # Make read-only
+            motility_item.setFlags(
+                motility_item.flags() & ~Qt.ItemIsEditable
+            )  # Make read-only
 
             # Set background color based on motility (matching the visualization color)
             color_value = plasma(motility_value / 100)
@@ -581,7 +674,7 @@ class MotilityDialog(QDialog):
             # A simple heuristic: if the sum of RGB values is less than 384 (avg 128 per channel), use white text
             r, g, b = [int(255 * c) for c in color_value[:3]]
             if r + g + b < 384:
-                motility_item.setForeground(QColor('white'))
+                motility_item.setForeground(QColor("white"))
 
             self.velocity_track_list.setItem(i, 1, motility_item)
 
@@ -603,7 +696,9 @@ class MotilityDialog(QDialog):
         """Get list of track IDs that are selected in the velocity tab"""
         selected_ids = []
         for i in range(self.velocity_track_list.rowCount()):
-            if self.velocity_track_list.item(i, 2).checkState() == Qt.Checked:  # Changed from column 1 to 2
+            if (
+                self.velocity_track_list.item(i, 2).checkState() == Qt.Checked
+            ):  # Changed from column 1 to 2
                 track_id = int(self.velocity_track_list.item(i, 0).text())
                 selected_ids.append(track_id)
         return selected_ids
@@ -639,17 +734,19 @@ class MotilityDialog(QDialog):
 
         # Calculate instantaneous velocities for each selected track
         for track_id in selected_ids:
-            track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
-            if not track or 'x' not in track or 'y' not in track:
+            track = next(
+                (t for t in self.tracked_cells if t.get("ID") == track_id), None
+            )
+            if not track or "x" not in track or "y" not in track:
                 continue
 
             # Calculate instantaneous velocities
             times_hours = []
             velocities_um_per_s = []
 
-            x = track['x']
-            y = track['y']
-            t = track['t'] if 't' in track else range(len(x))
+            x = track["x"]
+            y = track["y"]
+            t = track["t"] if "t" in track else range(len(x))
 
             for i in range(len(t) - 1):
                 dx = x[i + 1] - x[i]
@@ -657,7 +754,7 @@ class MotilityDialog(QDialog):
                 dt_frames = max(1, t[i + 1] - t[i])  # Prevent division by zero
 
                 # Calculate distance in pixels
-                distance_pixels = np.sqrt(dx ** 2 + dy ** 2)
+                distance_pixels = np.sqrt(dx**2 + dy**2)
 
                 # Convert to µm
                 distance_um = distance_pixels * calibration
@@ -676,57 +773,78 @@ class MotilityDialog(QDialog):
 
             # Plot this track's velocity
             color = viridis(selected_ids.index(track_id) / max(1, len(selected_ids)))
-            self.velocity_ax.plot(times_hours, velocities_um_per_s, '-o', label=f"Track {track_id}",
-                                  color=color, markersize=3, alpha=0.8)
+            self.velocity_ax.plot(
+                times_hours,
+                velocities_um_per_s,
+                "-o",
+                label=f"Track {track_id}",
+                color=color,
+                markersize=3,
+                alpha=0.8,
+            )
 
             # Add division markers if enabled
-            if self.show_divisions_checkbox.isChecked() and 'children' in track and track['children']:
+            if (
+                self.show_divisions_checkbox.isChecked()
+                and "children" in track
+                and track["children"]
+            ):
                 last_time = t[-1] * hours_per_frame
                 if velocities_um_per_s:  # Make sure we have velocity data
-                    last_velocity = velocities_um_per_s[-1] if len(velocities_um_per_s) == len(times_hours) else 0
-                    self.velocity_ax.plot(last_time, last_velocity, 'r*', markersize=10,
-                                          label=f"Division (Track {track_id})")
+                    last_velocity = (
+                        velocities_um_per_s[-1]
+                        if len(velocities_um_per_s) == len(times_hours)
+                        else 0
+                    )
+                    self.velocity_ax.plot(
+                        last_time,
+                        last_velocity,
+                        "r*",
+                        markersize=10,
+                        label=f"Division (Track {track_id})",
+                    )
 
         # Add population average if requested
         if self.show_average_checkbox.isChecked() and selected_ids:
             self.add_population_average(hours_per_frame)
 
         # Set labels and title
-        self.velocity_ax.set_xlabel('Time (hours)')
-        self.velocity_ax.set_ylabel('Velocity (µm/s)')
-        self.velocity_ax.set_title('Cell Velocity vs. Time')
+        self.velocity_ax.set_xlabel("Time (hours)")
+        self.velocity_ax.set_ylabel("Velocity (µm/s)")
+        self.velocity_ax.set_title("Cell Velocity vs. Time")
 
         # Add grid and legend
-        self.velocity_ax.grid(True, linestyle='--', alpha=0.7)
+        self.velocity_ax.grid(True, linestyle="--", alpha=0.7)
         if selected_ids:
-            self.velocity_ax.legend(loc='upper right')
+            self.velocity_ax.legend(loc="upper right")
 
         # Redraw
         self.velocity_fig.tight_layout()
         self.velocity_canvas.draw()
 
     def add_summary_stats_box(self, selected_ids, hours_per_frame=1):
-
         calibration = self.calibration
 
         """Add a box with summary statistics for selected tracks"""
         stats_text = []
 
         for track_id in selected_ids:
-            track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
-            if not track or 'x' not in track or 'y' not in track:
+            track = next(
+                (t for t in self.tracked_cells if t.get("ID") == track_id), None
+            )
+            if not track or "x" not in track or "y" not in track:
                 continue
 
             # Calculate average velocity in both units
-            x = track['x']
-            y = track['y']
-            t = track['t'] if 't' in track else range(len(x))
+            x = track["x"]
+            y = track["y"]
+            t = track["t"] if "t" in track else range(len(x))
 
             total_distance_px = 0
             for i in range(len(x) - 1):
                 dx = x[i + 1] - x[i]
                 dy = y[i + 1] - y[i]
-                distance = np.sqrt(dx ** 2 + dy ** 2)
+                distance = np.sqrt(dx**2 + dy**2)
                 total_distance_px += distance
 
             # Calculate average velocities
@@ -741,9 +859,15 @@ class MotilityDialog(QDialog):
 
             # Find track metrics if available
             metrics_str = ""
-            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-                track_metric = next((m for m in self.motility_metrics['individual_metrics']
-                                     if m.get('track_id') == track_id), None)
+            if self.motility_metrics and "individual_metrics" in self.motility_metrics:
+                track_metric = next(
+                    (
+                        m
+                        for m in self.motility_metrics["individual_metrics"]
+                        if m.get("track_id") == track_id
+                    ),
+                    None,
+                )
                 if track_metric:
                     metrics_str = f"MI: {track_metric.get('motility_index', 0):.1f}"
 
@@ -759,17 +883,16 @@ class MotilityDialog(QDialog):
         if stats_text:
             # Position in upper left corner
             self.velocity_ax.text(
-                0.02, 0.98,
+                0.02,
+                0.98,
                 "\n\n".join(stats_text),
                 transform=self.velocity_ax.transAxes,
-                va='top', ha='left',
+                va="top",
+                ha="left",
                 bbox=dict(
-                    boxstyle='round',
-                    facecolor='white',
-                    alpha=0.8,
-                    edgecolor='gray'
+                    boxstyle="round", facecolor="white", alpha=0.8, edgecolor="gray"
                 ),
-                fontsize=9
+                fontsize=9,
             )
 
     def add_population_average(self, hours_per_frame=1):
@@ -780,12 +903,12 @@ class MotilityDialog(QDialog):
         time_to_velocities = {}
 
         for track in self.tracked_cells:
-            if 'x' not in track or 'y' not in track:
+            if "x" not in track or "y" not in track:
                 continue
 
-            x = track['x']
-            y = track['y']
-            t = track['t'] if 't' in track else range(len(x))
+            x = track["x"]
+            y = track["y"]
+            t = track["t"] if "t" in track else range(len(x))
 
             for i in range(len(t) - 1):
                 dx = x[i + 1] - x[i]
@@ -793,12 +916,14 @@ class MotilityDialog(QDialog):
                 dt_frames = max(1, t[i + 1] - t[i])
 
                 # Calculate distance in pixels and convert to µm
-                distance_pixels = np.sqrt(dx ** 2 + dy ** 2)
+                distance_pixels = np.sqrt(dx**2 + dy**2)
                 distance_um = distance_pixels * calibration
 
                 # Convert time to hours and seconds
                 dt_hours = dt_frames * hours_per_frame
-                dt_seconds = dt_hours * 3600  # Convert to seconds for velocity calculation
+                dt_seconds = (
+                    dt_hours * 3600
+                )  # Convert to seconds for velocity calculation
 
                 # Calculate velocity in µm/s
                 velocity = distance_um / dt_seconds
@@ -816,13 +941,19 @@ class MotilityDialog(QDialog):
         avg_velocities = [np.mean(time_to_velocities[t]) for t in times]
 
         # Plot the average
-        self.velocity_ax.plot(times, avg_velocities, 'k--',
-                              label="Population Average", linewidth=2, alpha=0.7)
+        self.velocity_ax.plot(
+            times,
+            avg_velocities,
+            "k--",
+            label="Population Average",
+            linewidth=2,
+            alpha=0.7,
+        )
 
     def calculate_sliding_window_motility(self, track, window_size=10):
         """Calculate motility index over a sliding window"""
-        times = track['t'] if 't' in track else range(len(track['x']))
-        x, y = track['x'], track['y']
+        times = track["t"] if "t" in track else range(len(track["x"]))
+        x, y = track["x"], track["y"]
         motilities = []
 
         # Need at least window_size+1 points to calculate first window
@@ -832,7 +963,7 @@ class MotilityDialog(QDialog):
 
             # Calculate path length
             dx, dy = np.diff(x), np.diff(y)
-            step_distances = np.sqrt(dx ** 2 + dy ** 2)
+            step_distances = np.sqrt(dx**2 + dy**2)
             path_length = np.sum(step_distances)
 
             # Calculate motility index (simple version)
@@ -842,16 +973,17 @@ class MotilityDialog(QDialog):
         # For each time point, calculate motility using previous window_size points
         for i in range(window_size, len(times)):
             # Get window positions (including current point)
-            window_x = x[i - window_size:i + 1]
-            window_y = y[i - window_size:i + 1]
+            window_x = x[i - window_size : i + 1]
+            window_y = y[i - window_size : i + 1]
 
             # Calculate net displacement in window
-            net_displacement = np.sqrt((window_x[-1] - window_x[0]) ** 2 +
-                                       (window_y[-1] - window_y[0]) ** 2)
+            net_displacement = np.sqrt(
+                (window_x[-1] - window_x[0]) ** 2 + (window_y[-1] - window_y[0]) ** 2
+            )
 
             # Calculate path length in window
             window_dx, window_dy = np.diff(window_x), np.diff(window_y)
-            window_steps = np.sqrt(window_dx ** 2 + window_dy ** 2)
+            window_steps = np.sqrt(window_dx**2 + window_dy**2)
             path_length = np.sum(window_steps)
 
             # Calculate motility index
@@ -880,8 +1012,11 @@ class MotilityDialog(QDialog):
 
         # Extract all motility indices for calculating normalization
         all_motility_indices = []
-        if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-            all_motility_indices = [m.get('motility_index', 0) for m in self.motility_metrics['individual_metrics']]
+        if self.motility_metrics and "individual_metrics" in self.motility_metrics:
+            all_motility_indices = [
+                m.get("motility_index", 0)
+                for m in self.motility_metrics["individual_metrics"]
+            ]
 
         # Calculate statistics for normalization
         if all_motility_indices:
@@ -906,25 +1041,27 @@ class MotilityDialog(QDialog):
 
         # Plot motility and velocity for each selected track
         for track_id in selected_ids:
-            track = next((t for t in self.tracked_cells if t.get('ID') == track_id), None)
-            if not track or 'x' not in track or 'y' not in track:
+            track = next(
+                (t for t in self.tracked_cells if t.get("ID") == track_id), None
+            )
+            if not track or "x" not in track or "y" not in track:
                 continue
 
             # Find the motility index for this track
             track_motility = 50  # Default
-            if self.motility_metrics and 'individual_metrics' in self.motility_metrics:
-                for metric in self.motility_metrics['individual_metrics']:
-                    if metric.get('track_id') == track_id:
-                        track_motility = metric.get('motility_index', 50)
+            if self.motility_metrics and "individual_metrics" in self.motility_metrics:
+                for metric in self.motility_metrics["individual_metrics"]:
+                    if metric.get("track_id") == track_id:
+                        track_motility = metric.get("motility_index", 50)
                         break
 
             # CRITICAL: Apply the EXACT SAME color mapping as in visualize_motility_with_chamber_regions
             color = plasma(norm(track_motility))
 
             # Rest of your code for calculating and plotting velocity/motility...
-            x = track['x']
-            y = track['y']
-            t = track['t'] if 't' in track else range(len(x))
+            x = track["x"]
+            y = track["y"]
+            t = track["t"] if "t" in track else range(len(x))
 
             # Calculate instantaneous velocities
             times_hours = []
@@ -936,7 +1073,7 @@ class MotilityDialog(QDialog):
                 dt_frames = max(1, t[i + 1] - t[i])
 
                 # Calculate distance and velocity
-                distance_pixels = np.sqrt(dx ** 2 + dy ** 2)
+                distance_pixels = np.sqrt(dx**2 + dy**2)
                 distance_um = distance_pixels * calibration
                 dt_hours = dt_frames * hours_per_frame
                 dt_seconds = dt_hours * 3600
@@ -948,36 +1085,50 @@ class MotilityDialog(QDialog):
                 velocities_um_per_s.append(velocity)
 
             # Calculate sliding window motility values
-            sliding_motility_values = self.calculate_sliding_window_motility(track, window_size)
+            sliding_motility_values = self.calculate_sliding_window_motility(
+                track, window_size
+            )
 
             # Adjust lengths if necessary
             if len(sliding_motility_values) > len(times_hours):
-                sliding_motility_values = sliding_motility_values[:len(times_hours)]
+                sliding_motility_values = sliding_motility_values[: len(times_hours)]
 
             # Plot motility and velocity with EXACTLY the same color
-            self.motility_ax.plot(times_hours, sliding_motility_values, '-o',
-                                  label=f"Track {track_id} (MI: {track_motility:.1f})",
-                                  color=color, markersize=3, alpha=0.8)
+            self.motility_ax.plot(
+                times_hours,
+                sliding_motility_values,
+                "-o",
+                label=f"Track {track_id} (MI: {track_motility:.1f})",
+                color=color,
+                markersize=3,
+                alpha=0.8,
+            )
 
-            self.velocity_comp_ax.plot(times_hours, velocities_um_per_s, '-o',
-                                       label=f"Track {track_id} (MI: {track_motility:.1f})",
-                                       color=color, markersize=3, alpha=0.8)
+            self.velocity_comp_ax.plot(
+                times_hours,
+                velocities_um_per_s,
+                "-o",
+                label=f"Track {track_id} (MI: {track_motility:.1f})",
+                color=color,
+                markersize=3,
+                alpha=0.8,
+            )
 
         # Rest of your code for labels, titles, etc.
-        self.motility_ax.set_xlabel('Time (hours)')
-        self.motility_ax.set_ylabel('Motility Index (0-100)')
-        self.motility_ax.set_title('Motility Index Over Time')
-        self.motility_ax.grid(True, linestyle='--', alpha=0.7)
+        self.motility_ax.set_xlabel("Time (hours)")
+        self.motility_ax.set_ylabel("Motility Index (0-100)")
+        self.motility_ax.set_title("Motility Index Over Time")
+        self.motility_ax.grid(True, linestyle="--", alpha=0.7)
 
-        self.velocity_comp_ax.set_xlabel('Time (hours)')
-        self.velocity_comp_ax.set_ylabel('Velocity (µm/s)')
-        self.velocity_comp_ax.set_title('Velocity Over Time')
-        self.velocity_comp_ax.grid(True, linestyle='--', alpha=0.7)
+        self.velocity_comp_ax.set_xlabel("Time (hours)")
+        self.velocity_comp_ax.set_ylabel("Velocity (µm/s)")
+        self.velocity_comp_ax.set_title("Velocity Over Time")
+        self.velocity_comp_ax.grid(True, linestyle="--", alpha=0.7)
 
         # Add legends if tracks are selected
         if selected_ids:
-            self.motility_ax.legend(loc='upper right')
-            self.velocity_comp_ax.legend(loc='upper right')
+            self.motility_ax.legend(loc="upper right")
+            self.velocity_comp_ax.legend(loc="upper right")
 
         # Redraw
         self.motility_fig.tight_layout()
@@ -1018,14 +1169,16 @@ class MotilityDialog(QDialog):
             return  # User cancelled
 
         # Use selected tracks
-        tracks_to_use = self.lineage_tracks if all_radio.isChecked() else self.tracked_cells
+        tracks_to_use = (
+            self.lineage_tracks if all_radio.isChecked() else self.tracked_cells
+        )
 
         # Create density analysis with selected tracks
         self.density_data = create_density_based_regions_from_forecast_data(
             self.all_cell_positions,
             self.chamber_dimensions,
             grid_size=50,
-            tracks=tracks_to_use  # Use user's selection
+            tracks=tracks_to_use,  # Use user's selection
         )
 
         # Create visualization
@@ -1044,45 +1197,61 @@ class MotilityDialog(QDialog):
         density_ax = density_fig.add_subplot(111)
 
         # Plot density heatmap
-        density_grid = self.density_data['density_grid']
-        x_bins = self.density_data['x_bins']
-        y_bins = self.density_data['y_bins']
+        density_grid = self.density_data["density_grid"]
+        x_bins = self.density_data["x_bins"]
+        y_bins = self.density_data["y_bins"]
 
         # Create heatmap overlay
-        im = density_ax.imshow(density_grid, extent=[x_bins[0], x_bins[-1], y_bins[0], y_bins[-1]],
-                               origin='lower', cmap='viridis', alpha=0.6)
+        im = density_ax.imshow(
+            density_grid,
+            extent=[x_bins[0], x_bins[-1], y_bins[0], y_bins[-1]],
+            origin="lower",
+            cmap="viridis",
+            alpha=0.6,
+        )
 
         # Add colorbar
         cbar = plt.colorbar(im, ax=density_ax)
-        cbar.set_label('Cell Count per Grid Block')
+        cbar.set_label("Cell Count per Grid Block")
 
         # Overlay actual cell positions (recreate forecast plot)
-        export_data = self.density_data['export_data']
-        all_x = [pos['x_position_pixels'] for pos in export_data]
-        all_y = [pos['y_position_pixels'] for pos in export_data]
+        export_data = self.density_data["export_data"]
+        all_x = [pos["x_position_pixels"] for pos in export_data]
+        all_y = [pos["y_position_pixels"] for pos in export_data]
 
         # Calculate dynamic counts
         unique_cells = len(
-            set(pos.get('cell_id') for pos in export_data if pos.get('cell_id') is not None))  # Number of unique cells
+            set(
+                pos.get("cell_id")
+                for pos in export_data
+                if pos.get("cell_id") is not None
+            )
+        )  # Number of unique cells
         total_positions = len(export_data)  # Total position records
 
-        density_ax.scatter(all_x, all_y, s=1, color='blue', alpha=0.2,
-                           label=f'Cell Tracking Data ({unique_cells} cells, {total_positions:,} position records)')
+        density_ax.scatter(
+            all_x,
+            all_y,
+            s=1,
+            color="blue",
+            alpha=0.2,
+            label=f"Cell Tracking Data ({unique_cells} cells, {total_positions:,} position records)",
+        )
 
         # Add grid lines to show density blocks
         for x in x_bins[::2]:  # Show every other line to avoid clutter
-            density_ax.axvline(x, color='white', alpha=0.4, linewidth=0.5)
+            density_ax.axvline(x, color="white", alpha=0.4, linewidth=0.5)
         for y in y_bins[::2]:
-            density_ax.axhline(y, color='white', alpha=0.4, linewidth=0.5)
+            density_ax.axhline(y, color="white", alpha=0.4, linewidth=0.5)
 
         # Labels and title
-        density_ax.set_xlabel('X Position (pixels)')
-        density_ax.set_ylabel('Y Position (pixels)')
-        density_ax.set_title('Cell Density Map - Raw Data for Flow Simulations')
+        density_ax.set_xlabel("X Position (pixels)")
+        density_ax.set_ylabel("Y Position (pixels)")
+        density_ax.set_title("Cell Density Map - Raw Data for Flow Simulations")
         density_ax.legend()
 
         # Set same limits as chamber
-        chamber_dims = self.density_data['chamber_dimensions']
+        chamber_dims = self.density_data["chamber_dimensions"]
         density_ax.set_xlim(0, chamber_dims[0])
         density_ax.set_ylim(0, chamber_dims[1])
 
@@ -1157,58 +1326,68 @@ class MotilityDialog(QDialog):
         scope = "all" if all_radio.isChecked() else "filtered"
 
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Cell Tracking Data", f"forcast_data_{scope}_tracks.csv", "CSV Files (*.csv)")
+            self,
+            "Export Cell Tracking Data",
+            f"forcast_data_{scope}_tracks.csv",
+            "CSV Files (*.csv)",
+        )
 
         if file_path:
             # Create enhanced data with IDs and time points
             export_data = []
             for track in tracks:
-                track_id = track.get('ID', -1)
-                x_coords = track['x']
-                y_coords = track['y']
-                t_coords = track.get('t', list(range(len(x_coords))))
+                track_id = track.get("ID", -1)
+                x_coords = track["x"]
+                y_coords = track["y"]
+                t_coords = track.get("t", list(range(len(x_coords))))
 
                 # Get lineage information
-                parent_id = track.get('parent')
-                children_ids = track.get('children', [])
+                parent_id = track.get("parent")
+                children_ids = track.get("children", [])
 
                 for i, (x, y, t) in enumerate(zip(x_coords, y_coords, t_coords)):
-                    export_data.append({
-                        'cell_id': track_id,
-                        'time_point': t,
-                        'position_in_track': i,
-                        'x_pixels': x,
-                        'y_pixels': y,
-                        'x_um': x * 0.07,
-                        'y_um': y * 0.07,
-                        'parent_id': parent_id,
-                        'has_children': len(children_ids) > 0,
-                        'track_length': len(x_coords),
-                        'source': f'{scope}_tracks'
-                    })
+                    export_data.append(
+                        {
+                            "cell_id": track_id,
+                            "time_point": t,
+                            "position_in_track": i,
+                            "x_pixels": x,
+                            "y_pixels": y,
+                            "x_um": x * 0.07,
+                            "y_um": y * 0.07,
+                            "parent_id": parent_id,
+                            "has_children": len(children_ids) > 0,
+                            "track_length": len(x_coords),
+                            "source": f"{scope}_tracks",
+                        }
+                    )
 
             df = pd.DataFrame(export_data)
             df.to_csv(file_path, index=False)
 
-            QMessageBox.information(self, "Export Complete",
-                                    f"Exported {len(tracks)} tracks with {len(export_data)} position records\n"
-                                    f"Each record includes cell_id, time_point, and lineage info\n"
-                                    f"Perfect for Hamed's flow simulations!")
+            QMessageBox.information(
+                self,
+                "Export Complete",
+                f"Exported {len(tracks)} tracks with {len(export_data)} position records\n"
+                f"Each record includes cell_id, time_point, and lineage info\n"
+                f"Perfect for Hamed's flow simulations!",
+            )
 
     def export_density_grid(self):
         """Export density grid analysis"""
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Density Grid", "density_grid.csv",
-            "CSV Files (*.csv)")
+            self, "Export Density Grid", "density_grid.csv", "CSV Files (*.csv)"
+        )
 
         if file_path:
-            df = pd.DataFrame(self.density_data['grid_export_data'])
+            df = pd.DataFrame(self.density_data["grid_export_data"])
             df.to_csv(file_path, index=False)
 
             QMessageBox.information(
-                self, "Export Successful",
+                self,
+                "Export Successful",
                 f"Density grid data exported to {file_path}\n"
-                f"Contains {len(df)} grid blocks with cell counts."
+                f"Contains {len(df)} grid blocks with cell counts.",
             )
 
     def show_density_summary_dialog(self):
@@ -1279,13 +1458,13 @@ class MotilityDialog(QDialog):
         density_layout.addWidget(density_title)
 
         # Get the actual data
-        grid_data = self.density_data['grid_export_data']
-        total_cells = self.density_data['total_cells']
+        grid_data = self.density_data["grid_export_data"]
+        total_cells = self.density_data["total_cells"]
 
         # Calculate region counts
         region_counts = {}
         for block in grid_data:
-            region_type = block['region_type']
+            region_type = block["region_type"]
             region_counts[region_type] = region_counts.get(region_type, 0) + 1
 
         # Create density cards in a 2x2 grid for better space usage
@@ -1294,10 +1473,10 @@ class MotilityDialog(QDialog):
         cards_grid.setSpacing(12)
 
         density_configs = [
-            ('High-Density', '#e74c3c', '#ffffff', 0, 0),  # Red, top-left
-            ('Medium-Density', '#f39c12', '#ffffff', 0, 1),  # Orange, top-right  
-            ('Low-Density', '#3498db', '#ffffff', 1, 0),  # Blue, bottom-left
-            ('Empty', '#95a5a6', '#ffffff', 1, 1)  # Gray, bottom-right
+            ("High-Density", "#e74c3c", "#ffffff", 0, 0),  # Red, top-left
+            ("Medium-Density", "#f39c12", "#ffffff", 0, 1),  # Orange, top-right
+            ("Low-Density", "#3498db", "#ffffff", 1, 0),  # Blue, bottom-left
+            ("Empty", "#95a5a6", "#ffffff", 1, 1),  # Gray, bottom-right
         ]
 
         for density_type, bg_color, text_color, row, col in density_configs:
@@ -1388,8 +1567,14 @@ class MotilityDialog(QDialog):
         stats_grid.setSpacing(15)
 
         # Define the 4 stat cards
-        export_data = self.density_data['export_data']
-        unique_cells = len(set(pos.get('cell_id') for pos in export_data if pos.get('cell_id') is not None))
+        export_data = self.density_data["export_data"]
+        unique_cells = len(
+            set(
+                pos.get("cell_id")
+                for pos in export_data
+                if pos.get("cell_id") is not None
+            )
+        )
         total_positions = len(export_data)
 
         # Define the 4 stat cards with correct labels
@@ -1397,7 +1582,7 @@ class MotilityDialog(QDialog):
             (f"{unique_cells:,}", "Unique Cells", "#3498db", 0, 0),
             (f"{total_positions:,}", "Position Records", "#2ecc71", 0, 1),
             ("50px", "Block Size", "#9b59b6", 1, 0),
-            ("4", "Density Types", "#e67e22", 1, 1)
+            ("4", "Density Types", "#e67e22", 1, 1),
         ]
 
         for value, label, color, row, col in stat_configs:

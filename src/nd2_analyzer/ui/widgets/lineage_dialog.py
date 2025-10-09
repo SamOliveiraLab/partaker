@@ -1,7 +1,17 @@
 # lineage_dialog.py
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                               QComboBox, QRadioButton, QButtonGroup, QFileDialog, QMessageBox)
+from PySide6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QRadioButton,
+    QButtonGroup,
+    QFileDialog,
+    QMessageBox,
+)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from pubsub import pub
@@ -61,8 +71,9 @@ class LineageDialog(QDialog):
         selection_layout.addWidget(self.cell_combo)
 
         # Populate cell dropdown
-        dividing_cells = [track['ID'] for track in self.lineage_tracks
-                          if track.get('children', [])]
+        dividing_cells = [
+            track["ID"] for track in self.lineage_tracks if track.get("children", [])
+        ]
         dividing_cells.sort()
         for cell_id in dividing_cells:
             self.cell_combo.addItem(f"Cell {cell_id}")
@@ -135,13 +146,19 @@ class LineageDialog(QDialog):
         if self.viz_type.currentText() == "Standard Lineage Tree":
             # Call the standard visualization function
             from nd2_analyzer.analysis.lineage_visualization import LineageVisualization
+
             visualizer = LineageVisualization()
-            visualizer.create_lineage_tree(self.lineage_tracks, self.canvas, root_cell_id)
+            visualizer.create_lineage_tree(
+                self.lineage_tracks, self.canvas, root_cell_id
+            )
         else:
             # Call the morphology-enhanced visualization function
             from nd2_analyzer.analysis.lineage_visualization import LineageVisualization
+
             visualizer = LineageVisualization()
-            visualizer.visualize_morphology_lineage_tree(self.lineage_tracks, self.canvas, root_cell_id)
+            visualizer.visualize_morphology_lineage_tree(
+                self.lineage_tracks, self.canvas, root_cell_id
+            )
 
         # Update UI
         self.update_ui_for_current_tree()
@@ -157,14 +174,15 @@ class LineageDialog(QDialog):
         else:
             # Use top tree mode - find connected components
             import networkx as nx
+
             G = nx.DiGraph()
 
             # Build graph
             for track in self.lineage_tracks:
-                G.add_node(track['ID'])
-                if 'children' in track and track['children']:
-                    for child_id in track['children']:
-                        G.add_edge(track['ID'], child_id)
+                G.add_node(track["ID"])
+                if "children" in track and track["children"]:
+                    for child_id in track["children"]:
+                        G.add_edge(track["ID"], child_id)
 
             # Find components
             components = list(nx.weakly_connected_components(G))
@@ -188,8 +206,8 @@ class LineageDialog(QDialog):
             for node in current_tree:
                 is_root = True
                 for track in self.lineage_tracks:
-                    if 'children' in track and node in track['children']:
-                        if track['ID'] in current_tree:
+                    if "children" in track and node in track["children"]:
+                        if track["ID"] in current_tree:
                             is_root = False
                             break
                 if is_root:
@@ -206,7 +224,9 @@ class LineageDialog(QDialog):
             self.prev_button.setEnabled(False)
             self.next_button.setEnabled(False)
         else:
-            self.tree_counter.setText(f"Tree {self.current_tree_index + 1}/{len(self.available_trees)}")
+            self.tree_counter.setText(
+                f"Tree {self.current_tree_index + 1}/{len(self.available_trees)}"
+            )
             self.prev_button.setEnabled(len(self.available_trees) > 1)
             self.next_button.setEnabled(len(self.available_trees) > 1)
 
@@ -215,7 +235,9 @@ class LineageDialog(QDialog):
         if not self.available_trees or len(self.available_trees) <= 1:
             return
 
-        self.current_tree_index = (self.current_tree_index + 1) % len(self.available_trees)
+        self.current_tree_index = (self.current_tree_index + 1) % len(
+            self.available_trees
+        )
         self.generate_visualization()
 
     def previous_tree(self):
@@ -223,18 +245,26 @@ class LineageDialog(QDialog):
         if not self.available_trees or len(self.available_trees) <= 1:
             return
 
-        self.current_tree_index = (self.current_tree_index - 1) % len(self.available_trees)
+        self.current_tree_index = (self.current_tree_index - 1) % len(
+            self.available_trees
+        )
         self.generate_visualization()
 
     def save_visualization(self):
         """Save the tree visualization as an image"""
         output_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Lineage Tree", "", "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg)")
+            self,
+            "Save Lineage Tree",
+            "",
+            "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg)",
+        )
 
         if output_path:
-            self.figure.savefig(output_path, dpi=300, bbox_inches='tight')
+            self.figure.savefig(output_path, dpi=300, bbox_inches="tight")
             QMessageBox.information(self, "Success", f"Image saved to {output_path}")
 
     def show_time_comparison(self):
         """Open the time comparison dialog"""
-        pub.sendMessage("show_time_comparison_request", lineage_tracks=self.lineage_tracks)
+        pub.sendMessage(
+            "show_time_comparison_request", lineage_tracks=self.lineage_tracks
+        )

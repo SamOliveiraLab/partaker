@@ -152,7 +152,7 @@
 #         timestamps.append(i)
 #
 #     return results, timestamps
-from nd2_analyzer.data.frame import TLFrame
+# from nd2_analyzer.data.frame import TLFrame
 
 
-def analyze_fluorescence(_frame: TLFrame):
+# def analyze_fluorescence(_frame: TLFrame):

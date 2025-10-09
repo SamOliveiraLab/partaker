@@ -6,8 +6,16 @@ import matplotlib.pyplot as plt
 import polars as pl  # Import Polars
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QSpinBox, QListWidget, QListWidgetItem,
-    QFileDialog
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QSpinBox,
+    QListWidget,
+    QListWidgetItem,
+    QFileDialog,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from pubsub import pub
@@ -143,14 +151,16 @@ class PopulationWidget(QWidget):
         time_end_filter = df["time"] <= t_end
 
         print(f"Position filter matches: {df.filter(pos_filter).shape[0]} rows")
-        print(f"Time start filter matches: {df.filter(time_start_filter).shape[0]} rows")
+        print(
+            f"Time start filter matches: {df.filter(time_start_filter).shape[0]} rows"
+        )
         print(f"Time end filter matches: {df.filter(time_end_filter).shape[0]} rows")
 
         # Filter for selected positions, channel, and time range
         mask = (
-                df["position"].is_in(selected_positions)
-                & (df["time"] >= t_start)
-                & (df["time"] <= t_end)
+            df["position"].is_in(selected_positions)
+            & (df["time"] >= t_start)
+            & (df["time"] <= t_end)
         )
         subdf = df.filter(mask)
 
@@ -168,15 +178,21 @@ class PopulationWidget(QWidget):
         # Group by time, aggregate mean and std of the selected metric across cells and positions
         grouped = (
             valid.group_by("time")
-            .agg([
-                pl.col(metric_col).mean().alias("mean_metric"),
-                pl.col(metric_col).std().alias("std_metric"),
-            ])
+            .agg(
+                [
+                    pl.col(metric_col).mean().alias("mean_metric"),
+                    pl.col(metric_col).std().alias("std_metric"),
+                ]
+            )
             .sort("time")
         )
 
         # Get the interval from experiment or use a default value
-        if hasattr(self, "experiment") and self.experiment is not None and hasattr(self.experiment, "interval"):
+        if (
+            hasattr(self, "experiment")
+            and self.experiment is not None
+            and hasattr(self.experiment, "interval")
+        ):
             factor = self.experiment.phc_interval
         else:
             # Use a default interval value of 300 seconds (5 minutes)
@@ -213,8 +229,14 @@ class PopulationWidget(QWidget):
         self.population_figure.clear()
         ax = self.population_figure.add_subplot(111)
         ax.plot(times, mean_metric, color=line_color, label=f"Mean {metric_name}")
-        ax.fill_between(times, mean_metric - std_metric, mean_metric + std_metric, color=line_color, alpha=0.2,
-                        label="Std Dev")
+        ax.fill_between(
+            times,
+            mean_metric - std_metric,
+            mean_metric + std_metric,
+            color=line_color,
+            alpha=0.2,
+            label="Std Dev",
+        )
         ax.set_xlabel("Time (h)")
         ax.set_ylabel(f"Fluorescence (RPU)")
         # ax.set_title(f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})")
@@ -240,18 +262,21 @@ class PopulationWidget(QWidget):
                 "mean_metric": getattr(self, "last_plotted_mean", None),
                 "std_metric": getattr(self, "last_plotted_std", None),
                 "metric_name": getattr(self, "last_plotted_metric_name", None),
-
                 # Store the user selections
-                "selected_positions": [item.text() for item in self.position_list.selectedItems()],
-                "selected_channel": self.channel_combo.currentText() if self.channel_combo.count() > 0 else None,
+                "selected_positions": [
+                    item.text() for item in self.position_list.selectedItems()
+                ],
+                "selected_channel": self.channel_combo.currentText()
+                if self.channel_combo.count() > 0
+                else None,
                 "selected_metric": self.metric_combo.currentText(),
                 "time_min": self.time_min_box.value(),
-                "time_max": self.time_max_box.value()
+                "time_max": self.time_max_box.value(),
             }
 
             # Save to file
             population_file = os.path.join(folder_path, "population_data.pkl")
-            with open(population_file, 'wb') as f:
+            with open(population_file, "wb") as f:
                 pickle.dump(population_data, f)
 
             print(f"Population data saved to {population_file}")
@@ -259,6 +284,7 @@ class PopulationWidget(QWidget):
         except Exception as e:
             print(f"Error saving population data: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -275,7 +301,7 @@ class PopulationWidget(QWidget):
                 return False
 
             # Load the data
-            with open(population_file, 'rb') as f:
+            with open(population_file, "rb") as f:
                 population_data = pickle.load(f)
 
             # Store the loaded plot data
@@ -324,15 +350,18 @@ class PopulationWidget(QWidget):
         except Exception as e:
             print(f"Error loading population data: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
     def update_plot_from_loaded_data(self):
         """Update the plot with loaded data"""
-        if (not hasattr(self, "last_plotted_times") or
-                self.last_plotted_times is None or
-                not hasattr(self, "last_plotted_mean") or
-                self.last_plotted_mean is None):
+        if (
+            not hasattr(self, "last_plotted_times")
+            or self.last_plotted_times is None
+            or not hasattr(self, "last_plotted_mean")
+            or self.last_plotted_mean is None
+        ):
             print("No population data to plot")
             return
 
@@ -349,17 +378,31 @@ class PopulationWidget(QWidget):
             ax.plot(times, mean_metric, color="red", label=f"Mean {metric_name}")
 
             if std_metric is not None:
-                ax.fill_between(times, mean_metric - std_metric, mean_metric + std_metric,
-                                color="red", alpha=0.2, label="Std Dev")
+                ax.fill_between(
+                    times,
+                    mean_metric - std_metric,
+                    mean_metric + std_metric,
+                    color="red",
+                    alpha=0.2,
+                    label="Std Dev",
+                )
 
             ax.set_xlabel("Time [h]")
             ax.set_ylabel(f"Mean Cell {metric_name}")
 
             # Get the channel and positions for the title
-            selected_positions = [item.text() for item in self.position_list.selectedItems()]
-            channel = self.channel_combo.currentText() if self.channel_combo.count() > 0 else "Unknown"
+            selected_positions = [
+                item.text() for item in self.position_list.selectedItems()
+            ]
+            channel = (
+                self.channel_combo.currentText()
+                if self.channel_combo.count() > 0
+                else "Unknown"
+            )
 
-            ax.set_title(f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})")
+            ax.set_title(
+                f"{metric_name} over Time (Positions: {selected_positions}, Channel: {channel})"
+            )
             ax.legend()
             self.population_canvas.draw()
 
@@ -367,6 +410,7 @@ class PopulationWidget(QWidget):
         except Exception as e:
             print(f"Error updating population plot: {e}")
             import traceback
+
             traceback.print_exc()
 
     def calculate_rpu_values(self):
@@ -374,21 +418,34 @@ class PopulationWidget(QWidget):
         Calculate RPU reference values from all segmented cells across all frames.
         Displays results in a dialog and offers to export to CSV.
         """
-        from PySide6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
+        from PySide6.QtWidgets import (
+            QMessageBox,
+            QDialog,
+            QVBoxLayout,
+            QLabel,
+            QDialogButtonBox,
+        )
 
         # Get the metrics DataFrame from the singleton
         df = self.metrics_service.df
 
         if df.is_empty():
-            QMessageBox.warning(self, "No Data", "No metrics data available. Please run segmentation first.")
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No metrics data available. Please run segmentation first.",
+            )
             return
 
         # Get available fluorescence channels
         fluo_columns = [col for col in df.columns if col.startswith("fluo_")]
 
         if not fluo_columns:
-            QMessageBox.warning(self, "No Data",
-                                "No fluorescence data found in metrics. Please run segmentation with fluorescence channels.")
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No fluorescence data found in metrics. Please run segmentation with fluorescence channels.",
+            )
             return
 
         # Calculate average values for each channel (ignoring zeros)
@@ -414,11 +471,15 @@ class PopulationWidget(QWidget):
                     "name": channel_name,
                     "avg_value": avg_value,
                     "std_value": std_value,
-                    "cell_count": cell_count
+                    "cell_count": cell_count,
                 }
 
         if not rpu_values:
-            QMessageBox.warning(self, "No Data", "No valid fluorescence data found (all values are zero or missing).")
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No valid fluorescence data found (all values are zero or missing).",
+            )
             return
 
         # Create a dialog to display the results
@@ -474,28 +535,41 @@ class PopulationWidget(QWidget):
 
         # Ask for save location
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save RPU Reference Values", "rpu_reference_values.csv", "CSV Files (*.csv)"
+            self,
+            "Save RPU Reference Values",
+            "rpu_reference_values.csv",
+            "CSV Files (*.csv)",
         )
 
         if not file_path:
             return
 
         try:
-            with open(file_path, 'w', newline='') as csvfile:
+            with open(file_path, "w", newline="") as csvfile:
                 writer = csv.writer(csvfile)
 
                 # Write header row
-                writer.writerow(["Channel", "Channel Name", "RPU Reference Value", "Standard Deviation", "Cell Count"])
+                writer.writerow(
+                    [
+                        "Channel",
+                        "Channel Name",
+                        "RPU Reference Value",
+                        "Standard Deviation",
+                        "Cell Count",
+                    ]
+                )
 
                 # Write data rows
                 for channel_num, values in rpu_values.items():
-                    writer.writerow([
-                        channel_num,
-                        values['name'],
-                        f"{values['avg_value']:.6f}",
-                        f"{values['std_value']:.6f}",
-                        values['cell_count']
-                    ])
+                    writer.writerow(
+                        [
+                            channel_num,
+                            values["name"],
+                            f"{values['avg_value']:.6f}",
+                            f"{values['std_value']:.6f}",
+                            values["cell_count"],
+                        ]
+                    )
 
                 # Write metadata
                 writer.writerow([])
@@ -503,14 +577,29 @@ class PopulationWidget(QWidget):
 
                 # If experiment info is available, add it
                 if self.experiment:
-                    writer.writerow(["Experiment Name", getattr(self.experiment, "name", "Unknown")])
-                    writer.writerow(["ND2 Files", ", ".join(getattr(self.experiment, "nd2_files", ["Unknown"]))])
+                    writer.writerow(
+                        ["Experiment Name", getattr(self.experiment, "name", "Unknown")]
+                    )
+                    writer.writerow(
+                        [
+                            "ND2 Files",
+                            ", ".join(
+                                getattr(self.experiment, "nd2_files", ["Unknown"])
+                            ),
+                        ]
+                    )
 
             dialog.accept()
 
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "Export Complete", f"RPU reference values saved to:\n{file_path}")
+
+            QMessageBox.information(
+                self, "Export Complete", f"RPU reference values saved to:\n{file_path}"
+            )
 
         except Exception as e:
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Export Error", f"Failed to export RPU values: {str(e)}")
+
+            QMessageBox.warning(
+                self, "Export Error", f"Failed to export RPU values: {str(e)}"
+            )

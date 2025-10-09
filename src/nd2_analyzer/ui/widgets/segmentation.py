@@ -1,6 +1,17 @@
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                               QComboBox, QSpinBox, QProgressBar, QGroupBox, QListWidget, QAbstractItemView)
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QSpinBox,
+    QProgressBar,
+    QGroupBox,
+    QListWidget,
+    QAbstractItemView,
+)
 from pubsub import pub
 
 
@@ -162,14 +173,19 @@ class SegmentationWidget(QWidget):
 
         # Populate model combo
         self.model_combo.clear()
-        from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
-        self.model_combo.addItems([
-            SegmentationModels.OMNIPOSE_BACT_PHASE,
-            SegmentationModels.CELLPOSE_BACT_PHASE,
-            SegmentationModels.CELLPOSE_BACT_FLUOR,
-            SegmentationModels.CELLPOSE,
-            SegmentationModels.UNET
-        ])
+        from nd2_analyzer.analysis.segmentation.segmentation_models import (
+            SegmentationModels,
+        )
+
+        self.model_combo.addItems(
+            [
+                SegmentationModels.OMNIPOSE_BACT_PHASE,
+                SegmentationModels.CELLPOSE_BACT_PHASE,
+                SegmentationModels.CELLPOSE_BACT_FLUOR,
+                SegmentationModels.CELLPOSE,
+                SegmentationModels.UNET,
+            ]
+        )
 
     def select_all_positions(self):
         """Select all positions in the list"""
@@ -213,6 +229,7 @@ class SegmentationWidget(QWidget):
 
         # Check if metrics data already exists for these parameters
         from nd2_analyzer.analysis.metrics_service import MetricsService
+
         metrics_service = MetricsService()
 
         # Check if we need to segment anything
@@ -259,12 +276,14 @@ class SegmentationWidget(QWidget):
         time, position = self.queue[0]
 
         # Request segmentation
-        pub.sendMessage("segmented_image_request",
-                        time=time,
-                        position=position,
-                        channel=self.channel,
-                        mode=self.mode,
-                        model=self.current_model)
+        pub.sendMessage(
+            "segmented_image_request",
+            time=time,
+            position=position,
+            channel=self.channel,
+            mode=self.mode,
+            model=self.current_model,
+        )
 
         # Update status
         self.progress_label.setText(f"Processing T={time}, P={position}")
@@ -275,10 +294,12 @@ class SegmentationWidget(QWidget):
             return
 
         # Check if this is a response to one of our requests
-        if (mode != self.mode or
-                channel != self.channel or
-                position not in self.positions or
-                not (self.time_range[0] <= time <= self.time_range[1])):
+        if (
+            mode != self.mode
+            or channel != self.channel
+            or position not in self.positions
+            or not (self.time_range[0] <= time <= self.time_range[1])
+        ):
             return
 
         # Create a unique key for this frame
@@ -318,7 +339,9 @@ class SegmentationWidget(QWidget):
         self.progress_label.setText("Completed")
 
         # Notify that batch segmentation is complete
-        pub.sendMessage("batch_segmentation_completed",
-                        time_range=self.time_range,
-                        positions=self.positions,
-                        model=self.current_model)
+        pub.sendMessage(
+            "batch_segmentation_completed",
+            time_range=self.time_range,
+            positions=self.positions,
+            model=self.current_model,
+        )

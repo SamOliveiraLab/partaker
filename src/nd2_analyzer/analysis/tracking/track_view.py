@@ -7,7 +7,7 @@ import numpy as np
 
 
 def save_tracks(segmentation, tracks):
-    cmap = matplotlib.colormaps['gist_rainbow']
+    cmap = matplotlib.colormaps["gist_rainbow"]
 
     tracking_views = []
 
@@ -39,11 +39,12 @@ def save_tracks(segmentation, tracks):
         tracking_views[i] += temp
         temp = tracking_views[i].copy()
 
-    tracking_views = [(np.clip(tv, 0, 1) * 255).astype('uint8')
-                      for tv in tracking_views]
+    tracking_views = [
+        (np.clip(tv, 0, 1) * 255).astype("uint8") for tv in tracking_views
+    ]
 
     tracking_views = np.array(tracking_views)
 
     # Now, aligning with the segmentation
 
-    iio.mimsave('tracks.gif', tracking_views, fps=15)
+    iio.mimsave("tracks.gif", tracking_views, fps=15)

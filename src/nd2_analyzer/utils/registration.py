@@ -5,6 +5,7 @@ import numpy as np
 from skimage import exposure
 from tqdm import tqdm
 
+
 @jit(nopython=True)
 def ShiftedImage_2D_numba(Image, XShift, YShift):
     """Ultra-fast numba-compiled version."""
@@ -45,6 +46,7 @@ def ShiftedImage_2D_numba(Image, XShift, YShift):
 
     return result
 
+
 # # sum of absolute differences (SAD) metric alignment
 # # Optimized version
 # @jit(nopython=True, parallel=True)
@@ -56,6 +58,7 @@ def ShiftedImage_2D_numba(Image, XShift, YShift):
 #     for i in range(len(flat_a)):
 #         total += abs(float(flat_a[i]) - float(flat_b[i]))
 #     return total / len(flat_a)
+
 
 # NOTE: I hate 'AI' so much. It gave me f****** unsafe code
 # Alternative: Use numba's parallel reduction
@@ -76,26 +79,25 @@ def SAD(a, b):
 
     return np.sum(local_sums) / n
 
+
 # We use a Tree Search Algorithm to find possible alignment
 # Let Image_1 be the orginal
 # Let Image_2 be the aligned
 # Displacement object is our nodes, [x,y]
 # Assumption, there is always a better alignment up, down, left, and right if its not the same image
 def alignment_MAE(Image_1, Image_2, depth_cap):
-    iterative_cap = 0;
-    Best_SAD = SAD(Image_1, Image_2);
-    Best_Displacement = [0, 0];
-    q = [];
-    visited_states = [[0, 0]];  # Add (0,0) displacement
-    q.append(Best_Displacement);  # Append (0,0) displacement
+    iterative_cap = 0
+    Best_SAD = SAD(Image_1, Image_2)
+    Best_Displacement = [0, 0]
+    q = []
+    visited_states = [[0, 0]]  # Add (0,0) displacement
+    q.append(Best_Displacement)  # Append (0,0) displacement
 
-    while (iterative_cap != depth_cap and q):
-        curr_state = q.pop(0);
-        x = curr_state[0];
-        y = curr_state[1];
-
-        iterative_cap += 1;
-
+    while iterative_cap != depth_cap and q:
+        curr_state = q.pop(0)
+        x = curr_state[0]
+        y = curr_state[1]
+        iterative_cap += 1
         movement_arr = [
             [x, y - 1],  # Up
             [x, y + 1],  # Down
@@ -108,21 +110,20 @@ def alignment_MAE(Image_1, Image_2, depth_cap):
         ]
 
         for move in movement_arr:
-            if (move not in visited_states):
-                visited_states.append(move);  # Marked as Visited
+            if move not in visited_states:
+                visited_states.append(move)  # Marked as Visited
 
                 # Perform shift and calculate
-                new_image = ShiftedImage_2D_numba(Image_2, move[0], move[1]);
-                cand_SAD = SAD(Image_1, new_image);
+                new_image = ShiftedImage_2D_numba(Image_2, move[0], move[1])
+                cand_SAD = SAD(Image_1, new_image)
+                if cand_SAD < Best_SAD:
+                    Best_SAD = cand_SAD
+                    Best_Displacement = move
+                    q.append(move)
 
-                if (cand_SAD < Best_SAD):
-                    Best_SAD = cand_SAD;
-                    Best_Displacement = move;
-
-                    q.append(move);
-
-                # This means we cannot find a better move.
+    # This means we cannot find a better move.
     return Best_Displacement, Best_SAD
+
 
 # This was a good fix for edge detection
 @jit(nopython=True)
@@ -137,6 +138,7 @@ def compute_row_means_2d(img):
         row_means[i] = total / cols
     return row_means
 
+
 @jit(nopython=True)
 def compute_row_means_3d(img):
     """Custom row mean computation for 3D arrays."""
@@ -150,9 +152,9 @@ def compute_row_means_3d(img):
         row_means[i] = total / (cols * channels)
     return row_means
 
+
 @jit(nopython=True)
 def compute_bottom_top_gradient(row_brightness):
-
     # Calculate gradient manually
     gradient = np.empty(len(row_brightness) - 1, dtype=np.float64)
     for i in range(len(gradient)):
@@ -184,6 +186,7 @@ def compute_bottom_top_gradient(row_brightness):
 
     return top_edge, bottom_edge
 
+
 def edge_detection_numba_fixed(img):
     """
     Numba-compatible vertical edge detection function.
@@ -202,14 +205,24 @@ def edge_detection_numba_fixed(img):
 
     return compute_bottom_top_gradient(row_brightness)
 
+
 from dataclasses import dataclass
+
+
 @dataclass
 class ImageRegistrationResult:
-    registered_images : Optional[np.ndarray] = None
-    offsets : Optional[np.ndarray] = None
+    registered_images: Optional[np.ndarray] = None
+    offsets: Optional[np.ndarray] = None
 
-def register_images(img_array, iteration_depth: int = 1000, m=False, verbose: bool = False,
-                                mcm: bool = False, return_images : bool = False):
+
+def register_images(
+    img_array,
+    iteration_depth: int = 1000,
+    m=False,
+    verbose: bool = False,
+    mcm: bool = False,
+    return_images: bool = False,
+):
     """
     Previously called remove_stage_jitter_MAE_opt
 
@@ -218,7 +231,7 @@ def register_images(img_array, iteration_depth: int = 1000, m=False, verbose: bo
 
     # Add Scores path just for curiosity
     scores = []
-    image_offsets = [(0, 0)] # Base is the reference, no transformation
+    image_offsets = [(0, 0)]  # Base is the reference, no transformation
     transformed_images = []
 
     if img_array.ndim != 3:
@@ -250,11 +263,15 @@ def register_images(img_array, iteration_depth: int = 1000, m=False, verbose: bo
         if mcm:
             displacement[0] = 0
 
-        y_shift = int(np.mean([(base_top - template_top), (base_bottom - template_bottom)]))
+        y_shift = int(
+            np.mean([(base_top - template_top), (base_bottom - template_bottom)])
+        )
         image_offsets.append((displacement[0], y_shift))
 
         if return_images:
-            shifted_image = ShiftedImage_2D_numba(template_image, displacement[0], y_shift)  # X,Y
+            shifted_image = ShiftedImage_2D_numba(
+                template_image, displacement[0], y_shift
+            )  # X,Y
             transformed_images.append(shifted_image)
 
         # For my purposes
@@ -276,4 +293,7 @@ def register_images(img_array, iteration_depth: int = 1000, m=False, verbose: bo
 
     image_offsets = np.array(image_offsets)
 
-    return ImageRegistrationResult(registered_images=transformed_images if return_images else None, offsets=image_offsets)
+    return ImageRegistrationResult(
+        registered_images=transformed_images if return_images else None,
+        offsets=image_offsets,
+    )

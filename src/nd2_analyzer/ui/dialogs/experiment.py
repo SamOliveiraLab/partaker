@@ -1,10 +1,19 @@
 import os
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                               QLineEdit, QPushButton, QListWidget,
-                               QFileDialog, QMessageBox, QDoubleSpinBox, QGroupBox,
-                               QFormLayout)
+from PySide6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QListWidget,
+    QFileDialog,
+    QMessageBox,
+    QDoubleSpinBox,
+    QGroupBox,
+    QFormLayout,
+)
 from PySide6.QtWidgets import QSpinBox
 from pubsub import pub
 
@@ -138,7 +147,9 @@ class ExperimentDialog(QDialog):
                 for file_path in selected_files:
                     # Check if file is already in our UI list
                     if file_path in self.file_paths:
-                        QMessageBox.warning(self, "Duplicate File", "This file is already in the list.")
+                        QMessageBox.warning(
+                            self, "Duplicate File", "This file is already in the list."
+                        )
                         continue
 
                     # Add to our internal list and UI
@@ -161,7 +172,6 @@ class ExperimentDialog(QDialog):
                     break
 
     def create_experiment(self):
-
         """Gather input and attempt to create an Experiment instance"""
 
         name = self.name_edit.text().strip()
@@ -174,7 +184,9 @@ class ExperimentDialog(QDialog):
         time_step = self.time_step_spinbox.value()
 
         if not self.file_paths:
-            QMessageBox.warning(self, "Input Error", "Please add at least one ND2 file.")
+            QMessageBox.warning(
+                self, "Input Error", "Please add at least one ND2 file."
+            )
             return
 
         try:
@@ -225,7 +237,9 @@ class ExperimentDialog(QDialog):
         # Optional: check for duplicates
         for n, t in self.events:
             if n == name and abs(t - time) < 1e-6:
-                QMessageBox.warning(self, "Duplicate Event", "This event already exists.")
+                QMessageBox.warning(
+                    self, "Duplicate Event", "This event already exists."
+                )
                 return
         self.events.append((name, time))
         self.events_list_widget.addItem(f"{name} @ {time:.3f} s")

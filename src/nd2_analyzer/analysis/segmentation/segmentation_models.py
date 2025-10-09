@@ -1,4 +1,3 @@
-import numpy as np
 import os
 
 import cv2
@@ -19,21 +18,19 @@ use_gpu = True
 
 
 class SegmentationModels:
-    CELLPOSE = 'cellpose'
-    UNET = 'unet'
-    CELLPOSE_FT_0 = 'cellpose_finetuned'
-    CELLPOSE_BACT_PHASE = 'bact_phase_cp3'
-    CELLPOSE_BACT_FLUOR = 'bact_fluor_cp3'
-    CELLPOSE_BACT_HHLN_MAR_14 = 'CP_20250314_100004_bact_phase_hhln'
-    OMNIPOSE_BACT_PHASE = 'omnipose_bact_phase'
+    CELLPOSE = "cellpose"
+    UNET = "unet"
+    CELLPOSE_FT_0 = "cellpose_finetuned"
+    CELLPOSE_BACT_PHASE = "bact_phase_cp3"
+    CELLPOSE_BACT_FLUOR = "bact_fluor_cp3"
+    CELLPOSE_BACT_HHLN_MAR_14 = "CP_20250314_100004_bact_phase_hhln"
+    OMNIPOSE_BACT_PHASE = "omnipose_bact_phase"
 
     _instance = None
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            cls._instance = super(
-                SegmentationModels, cls).__new__(
-                cls, *args, **kwargs)
+            cls._instance = super(SegmentationModels, cls).__new__(cls, *args, **kwargs)
             cls._instance.models = {}
         return cls._instance
 
@@ -97,12 +94,15 @@ class SegmentationModels:
         # for idx, img in enumerate(segmented_images):
         #     num_labels, labels = cv2.connectedComponents(img)
         #     segmented_images[idx] = labels
-        _images = np.array([cv2.resize(np.array(img), (512, 512))
-                            for img in images])
+        _images = np.array([cv2.resize(np.array(img), (512, 512)) for img in images])
         _images = np.expand_dims(_images, axis=-1)
         segmented_images = model.predict(_images)
-        segmented_images = np.array([cv2.resize(np.array(
-            img), (images[0].shape[1], images[0].shape[0])) for img in segmented_images])
+        segmented_images = np.array(
+            [
+                cv2.resize(np.array(img), (images[0].shape[1], images[0].shape[0]))
+                for img in segmented_images
+            ]
+        )
 
         # for img in segmented_images:
         #     cv2.imshow('Segmented Image', img)
@@ -141,8 +141,7 @@ class SegmentationModels:
 
         try:
             # Run segmentation with Cellpose
-            masks, _, _ = cellpose_inst.eval(
-                images, diameter=None, channels=[0, 0])
+            masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
             masks = np.array(masks)  # Ensure masks are a NumPy array
 
             # Label the segmented regions uniquely
@@ -158,12 +157,17 @@ class SegmentationModels:
             # Add outlines to the binary masks
             for i in range(len(masks)):
                 outlines = utils.masks_to_outlines(
-                    masks[i])  # Corrected from tasks[i] to masks[i]
+                    masks[i]
+                )  # Corrected from tasks[i] to masks[i]
                 bw_images[i][outlines] = 0  # Set outline pixels to black (0)
 
             # Optionally, pad the binary masks for visualization
-            binary_mask_display = np.pad(bw_images, pad_width=(
-                (0, 0), (5, 5), (5, 5)), mode='constant', constant_values=0)
+            binary_mask_display = np.pad(
+                bw_images,
+                pad_width=((0, 0), (5, 5), (5, 5)),
+                mode="constant",
+                constant_values=0,
+            )
 
         except Exception as e:
             print(f"Error during segmentation or mask processing: {e}")
@@ -182,34 +186,30 @@ class SegmentationModels:
         chans = [0, 0]
 
         # define parameters
-        params = {'channels': chans,  # always define this with the model
-                  'rescale': None,  # upscale or downscale your images, None = no rescaling
-                  'mask_threshold': -2,  # erode or dilate masks with higher or lower values between -5 and 5
-                  'flow_threshold': 0,
-                  # default is .4, but only needed if there are spurious masks to clean up; slows down output
-                  'transparency': True,  # transparency in flow output
-                  'omni': True,  # we can turn off Omnipose mask reconstruction, not advised
-                  'cluster': True,  # use DBSCAN clustering
-                  'resample': True,  # whether or not to run dynamics on rescaled grid or original grid
-                  'verbose': False,  # turn on if you want to see more output
-                  'tile': False,  # average the outputs from flipped (augmented) images; slower, usually not needed
-                  'niter': None,
-                  # default None lets Omnipose calculate # of Euler iterations (usually <20) but you can tune it for over/under segmentation
-                  'augment': False,  # Can optionally rotate the image and average network outputs, usually not needed
-                  # 'affinity_seg': True, # new feature, stay tuned...
-                  }
+        params = {
+            "channels": chans,  # always define this with the model
+            "rescale": None,  # upscale or downscale your images, None = no rescaling
+            "mask_threshold": -2,  # erode or dilate masks with higher or lower values between -5 and 5
+            "flow_threshold": 0,
+            # default is .4, but only needed if there are spurious masks to clean up; slows down output
+            "transparency": True,  # transparency in flow output
+            "omni": True,  # we can turn off Omnipose mask reconstruction, not advised
+            "cluster": True,  # use DBSCAN clustering
+            "resample": True,  # whether or not to run dynamics on rescaled grid or original grid
+            "verbose": False,  # turn on if you want to see more output
+            "tile": False,  # average the outputs from flipped (augmented) images; slower, usually not needed
+            "niter": None,
+            # default None lets Omnipose calculate # of Euler iterations (usually <20) but you can tune it for over/under segmentation
+            "augment": False,  # Can optionally rotate the image and average network outputs, usually not needed
+            # 'affinity_seg': True, # new feature, stay tuned...
+        }
 
         masks, flows, styles = model.eval(images, **params)
         # masks = np.array(masks)  # Ensure masks are a NumPy array
 
         return masks
 
-    def segment_images(
-            self,
-            images,
-            mode,
-            progress=None,
-            preprocess=True):
+    def segment_images(self, images, mode, progress=None, preprocess=True):
         print(f"Segmenting images using {mode} model")
 
         original_shape = images[0].shape
@@ -223,70 +223,95 @@ class SegmentationModels:
             SegmentationModels.CELLPOSE,
             SegmentationModels.CELLPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_FLUOR,
-            SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14
+            SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14,
         ]
 
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
                 self.models[self.CELLPOSE] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='deepbacs_cp3')
+                    gpu="PARTAKER_GPU" in os.environ
+                    and os.environ["PARTAKER_GPU"] == "1",
+                    model_type="deepbacs_cp3",
+                )
 
             segmented_images = self.segment_cellpose(
-                images, progress, self.models[mode])
+                images, progress, self.models[mode]
+            )
 
         elif mode == SegmentationModels.CELLPOSE_BACT_PHASE:
             if SegmentationModels.CELLPOSE_BACT_PHASE not in self.models:
                 self.models[self.CELLPOSE_BACT_PHASE] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_phase_cp3')
+                    gpu="PARTAKER_GPU" in os.environ
+                    and os.environ["PARTAKER_GPU"] == "1",
+                    model_type="bact_phase_cp3",
+                )
 
             segmented_images = self.segment_cellpose(
-                images, progress, self.models[mode])
+                images, progress, self.models[mode]
+            )
 
         elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
             if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
                 self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
+                    gpu="PARTAKER_GPU" in os.environ
+                    and os.environ["PARTAKER_GPU"] == "1",
+                    model_type="bact_fluor_cp3",
+                )
 
             segmented_images = self.segment_cellpose(
-                images, progress, self.models[mode])
+                images, progress, self.models[mode]
+            )
 
         elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
             if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
                 self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ and os.environ["PARTAKER_GPU"] == "1", model_type='bact_fluor_cp3')
+                    gpu="PARTAKER_GPU" in os.environ
+                    and os.environ["PARTAKER_GPU"] == "1",
+                    model_type="bact_fluor_cp3",
+                )
 
             segmented_images = self.segment_cellpose(
-                images, progress, self.models[mode])
+                images, progress, self.models[mode]
+            )
 
         elif mode == SegmentationModels.UNET:
             if mode not in self.models:
                 if "UNET_WEIGHTS" not in os.environ:
-                    raise ValueError(
-                        "UNET_WEIGHTS environment variable not set")
+                    raise ValueError("UNET_WEIGHTS environment variable not set")
 
                 target_size_seg = (512, 512)
                 self.models[mode] = unet_segmentation(
-                    input_size=target_size_seg + (1,), pretrained_weights=os.environ["UNET_WEIGHTS"])
+                    input_size=target_size_seg + (1,),
+                    pretrained_weights=os.environ["UNET_WEIGHTS"],
+                )
 
             segmented_images = self.segment_unet(images)
 
         elif mode == SegmentationModels.OMNIPOSE_BACT_PHASE:
             if mode not in self.models:
-                self.models[mode] = models.CellposeModel(gpu=use_gpu, model_type='bact_phase_omni')
+                self.models[mode] = models.CellposeModel(
+                    gpu=use_gpu, model_type="bact_phase_omni"
+                )
 
-            segmented_images = self.segment_omnipose(images, progress, self.models[mode])
+            segmented_images = self.segment_omnipose(
+                images, progress, self.models[mode]
+            )
         else:
             raise ValueError(f"Invalid segmentation mode: {mode}")
 
         resized_images = [
             cv2.resize(
                 segmented_image,
-                (original_shape[1],
-                 original_shape[0]),
-                interpolation=cv2.INTER_NEAREST) for segmented_image in segmented_images]
+                (original_shape[1], original_shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            for segmented_image in segmented_images
+        ]
 
         lbl_n = np.unique(resized_images[0]).shape[0]
-        print(f'[segmentation_models.py:segment_images] Segmentation has {lbl_n} labels')
+        print(
+            f"[segmentation_models.py:segment_images] Segmentation has {lbl_n} labels"
+        )
 
         return resized_images
 
@@ -311,9 +336,9 @@ class SegmentationModels:
         Returns:
             np.ndarray: Cleaned mask with artifacts removed
         """
-        from skimage.measure import label, regionprops
-        import numpy as np
         import cv2
+        import numpy as np
+        from skimage.measure import label, regionprops
 
         # First apply morphological opening to remove small artifacts
         # Create a structuring element appropriate for E. coli (rod-shaped bacteria)
@@ -321,12 +346,14 @@ class SegmentationModels:
         # bacteria
         kernel_size = 3  # Start with a small kernel
         kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)
+        )
 
         if np.max(mask) <= 1:
             # Binary mask
             opened_mask = cv2.morphologyEx(
-                mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
+                mask.astype(np.uint8), cv2.MORPH_OPEN, kernel
+            )
         else:
             # Labeled mask - convert to binary, open, then re-label
             binary_mask = (mask > 0).astype(np.uint8)
@@ -381,7 +408,8 @@ class SegmentationModels:
         # Create a circular/elliptical structuring element (good for bacterial
         # cells)
         kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)
+        )
 
         eroded_masks = []
         for mask in masks:
@@ -400,6 +428,7 @@ class SegmentationModels:
 
                 # Relabel the eroded binary mask
                 from skimage.measure import label
+
                 eroded_labeled = label(eroded_binary)
                 eroded_masks.append(eroded_labeled)
 
@@ -416,8 +445,7 @@ def preprocess_image(image):
     Returns:
         np.ndarray: Preprocessed image.
     """
-    normalized_frame = (image - np.min(image)) / \
-                       (np.max(image) - np.min(image))
+    normalized_frame = (image - np.min(image)) / (np.max(image) - np.min(image))
 
     denoised_frame = gaussian_filter(normalized_frame, sigma=1)
 

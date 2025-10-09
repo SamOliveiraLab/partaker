@@ -9,7 +9,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
-    QLabel)
+    QLabel,
+)
 
 from nd2_analyzer.data.appstate import ApplicationState
 from nd2_analyzer.data.image_data import ImageData
@@ -18,6 +19,7 @@ from pubsub import pub
 
 import cv2
 
+
 class PolygonROISelector(QDialog):
     roi_selected = Signal(object)
 
@@ -25,7 +27,7 @@ class PolygonROISelector(QDialog):
         super().__init__()
 
         t, p, c = ApplicationState.get_instance().view_index
-        curr_image = ImageData.get_instance().get(t, p, 0) # Always use 0
+        curr_image = ImageData.get_instance().get(t, p, 0)  # Always use 0
 
         # Convert numpy array to QImage/QPixmap
         if isinstance(curr_image, np.ndarray):
@@ -33,13 +35,14 @@ class PolygonROISelector(QDialog):
                 height, width = curr_image.shape
                 # Scale to 0-255 if not already
                 if curr_image.dtype != np.uint8:
-                    curr_image = ((curr_image -
-                                   np.min(curr_image)) /
-                                  (np.max(curr_image) -
-                                   np.min(curr_image)) *
-                                  255).astype(np.uint8)
-                qimg = QImage(curr_image.data, width, height,
-                              width, QImage.Format_Grayscale8)
+                    curr_image = (
+                        (curr_image - np.min(curr_image))
+                        / (np.max(curr_image) - np.min(curr_image))
+                        * 255
+                    ).astype(np.uint8)
+                qimg = QImage(
+                    curr_image.data, width, height, width, QImage.Format_Grayscale8
+                )
             else:  # RGB
                 height, width, channels = curr_image.shape
                 qimg = QImage(
@@ -47,23 +50,22 @@ class PolygonROISelector(QDialog):
                     width,
                     height,
                     width * channels,
-                    QImage.Format_RGB888)
+                    QImage.Format_RGB888,
+                )
             self.pixmap = QPixmap.fromImage(qimg)
         else:  # Assume it's a file path
             self.pixmap = QPixmap(curr_image)
 
         self.image_shape = (
-            curr_image.shape[0],
-            curr_image.shape[1]) if isinstance(
-            curr_image,
-            np.ndarray) else (
-            self.pixmap.height(),
-            self.pixmap.width())
+            (curr_image.shape[0], curr_image.shape[1])
+            if isinstance(curr_image, np.ndarray)
+            else (self.pixmap.height(), self.pixmap.width())
+        )
 
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Polygon ROI Selector')
+        self.setWindowTitle("Polygon ROI Selector")
         # self.resize(800, 800)
 
         # Main layout
@@ -71,7 +73,8 @@ class PolygonROISelector(QDialog):
 
         # Instructions label
         instructions = QLabel(
-            "Click to add points to the polygon. Double-click to complete.")
+            "Click to add points to the polygon. Double-click to complete."
+        )
         main_layout.addWidget(instructions)
 
         # Graphics view for the image and ROI drawing
@@ -135,7 +138,10 @@ class PolygonROISelector(QDialog):
         # scene_pos = self.mapTo(self.view, event.pos()
 
         # Validate coordinates
-        if not (0 <= scene_pos.x() < self.pixmap.width() and 0 <= scene_pos.y() < self.pixmap.height()):
+        if not (
+            0 <= scene_pos.x() < self.pixmap.width()
+            and 0 <= scene_pos.y() < self.pixmap.height()
+        ):
             return
 
         # Add point to the polygon
@@ -221,7 +227,7 @@ class PolygonROISelector(QDialog):
         # TODO: Directly send via pubsubs
         # eg. self.application_state.image_data.segmentation_cache.set_binary_mask(self.roi_mask)
         ApplicationState.get_instance()
-        pub.sendMessage('roi_selected', mask=self.mask)
+        pub.sendMessage("roi_selected", mask=self.mask)
 
         self.accept()  # This will close the dialog
 

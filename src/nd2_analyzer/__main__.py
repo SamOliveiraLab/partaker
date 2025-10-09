@@ -25,10 +25,9 @@ from nd2_analyzer.ui import App
 # splash.finish(window)
 # sys.exit(app.exec())
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setApplicationName('Partaker')
+    app.setApplicationName("Partaker")
 
     # # TODO: Splash screen setup
     # pixmap = QPixmap(":/splashscreen.png")

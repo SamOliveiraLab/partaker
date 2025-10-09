@@ -2,9 +2,20 @@ import cv2
 import numpy as np
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                               QSlider, QGroupBox, QRadioButton, QButtonGroup,
-                               QSizePolicy, QComboBox, QCheckBox)
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QGroupBox,
+    QRadioButton,
+    QButtonGroup,
+    QSizePolicy,
+    QComboBox,
+    QCheckBox,
+)
 from pubsub import pub
 from skimage import exposure
 
@@ -54,13 +65,15 @@ class ViewAreaWidget(QWidget):
         """
         if image.dtype == np.uint16:
             # Normalize 16-bit to full range
-            return exposure.rescale_intensity(image, out_range=(0, 65535)).astype(np.uint16)
+            return exposure.rescale_intensity(image, out_range=(0, 65535)).astype(
+                np.uint16
+            )
         elif image.dtype == np.uint8:
             # Already in proper range for 8-bit
             return image
         else:
             # Float or other types - normalize to 8-bit range
-            return exposure.rescale_intensity(image, out_range='uint8').astype(np.uint8)
+            return exposure.rescale_intensity(image, out_range="uint8").astype(np.uint8)
 
     def _prepare_image_for_display(self, image, normalize=True):
         """
@@ -134,7 +147,11 @@ class ViewAreaWidget(QWidget):
         if mode == "segmented":
             # Binary mask - convert to grayscale
             if len(img.shape) > 2:
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) if img.shape[2] == 3 else img[:, :, 0]
+                img = (
+                    cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    if img.shape[2] == 3
+                    else img[:, :, 0]
+                )
 
             # Ensure proper range
             if img.dtype != np.uint8:
@@ -166,8 +183,8 @@ class ViewAreaWidget(QWidget):
             image: Processed image array ready for display
         """
         normalize = self.normalize_checkbox.isChecked()
-        processed_img, width, height, bytes_per_line, qt_format = self._prepare_image_for_display(
-            image, normalize
+        processed_img, width, height, bytes_per_line, qt_format = (
+            self._prepare_image_for_display(image, normalize)
         )
 
         # Create QImage
@@ -175,9 +192,7 @@ class ViewAreaWidget(QWidget):
 
         # Scale and display
         pixmap = QPixmap.fromImage(q_image).scaled(
-            self.image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
+            self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
 
@@ -189,8 +204,12 @@ class ViewAreaWidget(QWidget):
     def on_image_ready(self, image, time, position, channel, mode):
         """Handle both raw and segmented image responses"""
         # Check if this is the image we're currently expecting
-        if (time != self.current_t or position != self.current_p or
-                channel != self.current_c or mode != self.current_mode):
+        if (
+            time != self.current_t
+            or position != self.current_p
+            or channel != self.current_c
+            or mode != self.current_mode
+        ):
             return  # Ignore outdated images
 
         # Process based on mode
@@ -204,19 +223,29 @@ class ViewAreaWidget(QWidget):
 
     def on_segmentation_cache_miss(self, time, position, channel, model):
         """Handle when cached segmentation is not available"""
-        if (time == self.current_t and position == self.current_p and
-                channel == self.current_c):
-            print(f"No cached segmentation found for T={time}, P={position}, C={channel}")
-            pub.sendMessage("segmented_image_request",
-                            time=time, position=position, channel=channel,
-                            mode=self.current_mode, model=self.current_model,
-                            use_cached=False)
+        if (
+            time == self.current_t
+            and position == self.current_p
+            and channel == self.current_c
+        ):
+            print(
+                f"No cached segmentation found for T={time}, P={position}, C={channel}"
+            )
+            pub.sendMessage(
+                "segmented_image_request",
+                time=time,
+                position=position,
+                channel=channel,
+                mode=self.current_mode,
+                model=self.current_model,
+                use_cached=False,
+            )
 
     def provide_current_param(self, topic=pub.AUTO_TOPIC, default=0):
         param_map = {
             "get_current_t": self.current_t,
             "get_current_p": self.current_p,
-            "get_current_c": self.current_c
+            "get_current_c": self.current_c,
         }
         topic_name = topic.getName()
         value = param_map.get(topic_name, default)
@@ -247,7 +276,8 @@ class ViewAreaWidget(QWidget):
 
         self.t_left_button = QPushButton("<")
         self.t_left_button.clicked.connect(
-            lambda: self.slider_t.setValue(self.slider_t.value() - 1))
+            lambda: self.slider_t.setValue(self.slider_t.value() - 1)
+        )
         t_layout.addWidget(self.t_left_button)
 
         self.slider_t = QSlider(Qt.Horizontal)
@@ -255,12 +285,14 @@ class ViewAreaWidget(QWidget):
         self.slider_t.setMaximum(0)
         self.slider_t.valueChanged.connect(self.on_slider_changed)
         self.slider_t.valueChanged.connect(
-            lambda value: self.t_label.setText(f"T: {value}"))
+            lambda value: self.t_label.setText(f"T: {value}")
+        )
         t_layout.addWidget(self.slider_t)
 
         self.t_right_button = QPushButton(">")
         self.t_right_button.clicked.connect(
-            lambda: self.slider_t.setValue(self.slider_t.value() + 1))
+            lambda: self.slider_t.setValue(self.slider_t.value() + 1)
+        )
         t_layout.addWidget(self.t_right_button)
 
         nd2_controls_layout.addLayout(t_layout)
@@ -272,7 +304,8 @@ class ViewAreaWidget(QWidget):
 
         self.p_left_button = QPushButton("<")
         self.p_left_button.clicked.connect(
-            lambda: self.slider_p.setValue(self.slider_p.value() - 1))
+            lambda: self.slider_p.setValue(self.slider_p.value() - 1)
+        )
         p_layout.addWidget(self.p_left_button)
 
         self.slider_p = QSlider(Qt.Horizontal)
@@ -280,12 +313,14 @@ class ViewAreaWidget(QWidget):
         self.slider_p.setMaximum(0)
         self.slider_p.valueChanged.connect(self.on_slider_changed)
         self.slider_p.valueChanged.connect(
-            lambda value: self.p_label.setText(f"P: {value}"))
+            lambda value: self.p_label.setText(f"P: {value}")
+        )
         p_layout.addWidget(self.slider_p)
 
         self.p_right_button = QPushButton(">")
         self.p_right_button.clicked.connect(
-            lambda: self.slider_p.setValue(self.slider_p.value() + 1))
+            lambda: self.slider_p.setValue(self.slider_p.value() + 1)
+        )
         p_layout.addWidget(self.p_right_button)
 
         nd2_controls_layout.addLayout(p_layout)
@@ -297,7 +332,8 @@ class ViewAreaWidget(QWidget):
 
         self.c_left_button = QPushButton("<")
         self.c_left_button.clicked.connect(
-            lambda: self.slider_c.setValue(self.slider_c.value() - 1))
+            lambda: self.slider_c.setValue(self.slider_c.value() - 1)
+        )
         c_layout.addWidget(self.c_left_button)
 
         self.slider_c = QSlider(Qt.Horizontal)
@@ -305,12 +341,14 @@ class ViewAreaWidget(QWidget):
         self.slider_c.setMaximum(0)
         self.slider_c.valueChanged.connect(self.on_slider_changed)
         self.slider_c.valueChanged.connect(
-            lambda value: self.c_label.setText(f"C: {value}"))
+            lambda value: self.c_label.setText(f"C: {value}")
+        )
         c_layout.addWidget(self.slider_c)
 
         self.c_right_button = QPushButton(">")
         self.c_right_button.clicked.connect(
-            lambda: self.slider_c.setValue(self.slider_c.value() + 1))
+            lambda: self.slider_c.setValue(self.slider_c.value() + 1)
+        )
         c_layout.addWidget(self.c_right_button)
         nd2_controls_layout.addLayout(c_layout)
 
@@ -354,13 +392,15 @@ class ViewAreaWidget(QWidget):
         model_layout = QVBoxLayout()
 
         self.model_dropdown = QComboBox()
-        self.model_dropdown.addItems([
-            SegmentationModels.OMNIPOSE_BACT_PHASE,
-            SegmentationModels.CELLPOSE_BACT_PHASE,
-            SegmentationModels.CELLPOSE_BACT_FLUOR,
-            SegmentationModels.CELLPOSE,
-            SegmentationModels.UNET
-        ])
+        self.model_dropdown.addItems(
+            [
+                SegmentationModels.OMNIPOSE_BACT_PHASE,
+                SegmentationModels.CELLPOSE_BACT_PHASE,
+                SegmentationModels.CELLPOSE_BACT_FLUOR,
+                SegmentationModels.CELLPOSE,
+                SegmentationModels.UNET,
+            ]
+        )
         self.model_dropdown.currentTextChanged.connect(self.on_model_changed)
         self.current_model = self.model_dropdown.currentText()
 
@@ -399,7 +439,9 @@ class ViewAreaWidget(QWidget):
                 model_key = (t, p, c, model)
 
                 if simple_key in indices:
-                    print(f"  ✓ Frame T={t}, P={p}, C={c} exists with simple key format")
+                    print(
+                        f"  ✓ Frame T={t}, P={p}, C={c} exists with simple key format"
+                    )
                     cache_exists = True
                 elif model_key in indices:
                     print(f"  ✓ Frame T={t}, P={p}, C={c} exists with model key format")
@@ -437,17 +479,24 @@ class ViewAreaWidget(QWidget):
             cache_exists = self.check_cache_status(t, p, c, self.current_model)
 
             from nd2_analyzer.analysis.metrics_service import MetricsService
-            metrics_service = MetricsService()
-            has_metrics = not metrics_service.query_optimized(time=t, position=p).is_empty()
 
-            print(f"Frame T={t}, P={p}, C={c}: Cache exists={cache_exists}, Metrics exist={has_metrics}")
+            metrics_service = MetricsService()
+            has_metrics = not metrics_service.query_optimized(
+                time=t, position=p
+            ).is_empty()
+
+            print(
+                f"Frame T={t}, P={p}, C={c}: Cache exists={cache_exists}, Metrics exist={has_metrics}"
+            )
 
             if cache_exists:
                 print(f"Using cached segmentation for T={t}, P={p}, C={c}")
                 self.on_slider_changed()
                 return
             elif has_metrics:
-                print(f"Using existing metrics for T={t}, P={p}, C={c} - but need to regenerate segmentation")
+                print(
+                    f"Using existing metrics for T={t}, P={p}, C={c} - but need to regenerate segmentation"
+                )
                 self.on_slider_changed()
                 return
 
@@ -469,10 +518,16 @@ class ViewAreaWidget(QWidget):
             self.on_image_ready(image, t, p, c, "normal")
         else:
             print(
-                f"DEBUG: Requesting segmented image for T={t}, P={p}, C={c} with mode={self.current_mode}, model={self.current_model}")
-            pub.sendMessage("segmented_image_request",
-                            time=t, position=p, channel=c,
-                            mode=self.current_mode, model=self.current_model)
+                f"DEBUG: Requesting segmented image for T={t}, P={p}, C={c} with mode={self.current_mode}, model={self.current_model}"
+            )
+            pub.sendMessage(
+                "segmented_image_request",
+                time=t,
+                position=p,
+                channel=c,
+                mode=self.current_mode,
+                model=self.current_model,
+            )
 
     @Slot(str)
     def on_model_changed(self, model_name):
@@ -521,8 +576,14 @@ class ViewAreaWidget(QWidget):
             nonlocal cell_mapping
             cell_mapping = mapping
 
-        pub.sendMessage("get_cell_mapping", time=t, position=p, channel=c,
-                        cell_id=cell_id, callback=receive_cell_mapping)
+        pub.sendMessage(
+            "get_cell_mapping",
+            time=t,
+            position=p,
+            channel=c,
+            cell_id=cell_id,
+            callback=receive_cell_mapping,
+        )
 
         if not cell_mapping or cell_id not in cell_mapping:
             print(f"Cell {cell_id} mapping not available")
@@ -541,14 +602,27 @@ class ViewAreaWidget(QWidget):
         y1, x1, y2, x2 = cell_info["bbox"]
 
         cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-        cv2.putText(highlighted_image, f"Cell {cell_id}", (x1, y1 - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.putText(
+            highlighted_image,
+            f"Cell {cell_id}",
+            (x1, y1 - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            1,
+        )
 
         if "metrics" in cell_info and "morphology_class" in cell_info["metrics"]:
             morph_class = cell_info["metrics"]["morphology_class"]
-            cv2.putText(highlighted_image, f"Class: {morph_class}", (x1, y2 + 15),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            cv2.putText(
+                highlighted_image,
+                f"Class: {morph_class}",
+                (x1, y2 + 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 0),
+                1,
+            )
 
         self._create_qimage_and_display(highlighted_image)
         self.highlighted_image = highlighted_image
-

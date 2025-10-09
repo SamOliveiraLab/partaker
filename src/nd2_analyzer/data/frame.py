@@ -3,6 +3,7 @@ from typing import Tuple, Optional
 
 import numpy as np
 
+
 @dataclass
 class TLFrame:
     index: Tuple[int, int]  # Time, Position

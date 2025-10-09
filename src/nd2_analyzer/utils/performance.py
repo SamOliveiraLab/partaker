@@ -4,7 +4,7 @@ import time
 from typing import Callable
 
 # Performance logger setup
-perf_logger = logging.getLogger('performance')
+perf_logger = logging.getLogger("performance")
 perf_logger.setLevel(logging.INFO)
 
 

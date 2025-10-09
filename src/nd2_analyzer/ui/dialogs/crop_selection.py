@@ -2,8 +2,17 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal, QRectF, QPointF
 from PySide6.QtGui import QPixmap, QPen, QImage, QColor, QCursor
 from PySide6.QtWidgets import (
-    QDialog, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox, QGraphicsRectItem)
+    QDialog,
+    QGraphicsView,
+    QGraphicsScene,
+    QGraphicsPixmapItem,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QSpinBox,
+    QGraphicsRectItem,
+)
 
 from nd2_analyzer.data.appstate import ApplicationState
 from nd2_analyzer.data.image_data import ImageData
@@ -15,7 +24,7 @@ class CropSelector(QDialog):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Crop Selector')
+        self.setWindowTitle("Crop Selector")
         self.dragging = False
         self.resizing = False
         self.resize_mode = None
@@ -32,19 +41,32 @@ class CropSelector(QDialog):
             if curr_image.ndim == 2:  # Grayscale
                 height, width = curr_image.shape
                 if curr_image.dtype != np.uint8:
-                    curr_image = ((curr_image - np.min(curr_image)) /
-                                  (np.max(curr_image) - np.min(curr_image)) * 255).astype(np.uint8)
-                qimg = QImage(curr_image.data, width, height, width, QImage.Format_Grayscale8)
+                    curr_image = (
+                        (curr_image - np.min(curr_image))
+                        / (np.max(curr_image) - np.min(curr_image))
+                        * 255
+                    ).astype(np.uint8)
+                qimg = QImage(
+                    curr_image.data, width, height, width, QImage.Format_Grayscale8
+                )
             else:  # RGB
                 height, width, channels = curr_image.shape
-                qimg = QImage(curr_image.data, width, height,
-                              width * channels, QImage.Format_RGB888)
+                qimg = QImage(
+                    curr_image.data,
+                    width,
+                    height,
+                    width * channels,
+                    QImage.Format_RGB888,
+                )
             self.pixmap = QPixmap.fromImage(qimg)
         else:  # Assume it's a file path
             self.pixmap = QPixmap(curr_image)
 
-        self.image_shape = (curr_image.shape[0], curr_image.shape[1]) if isinstance(
-            curr_image, np.ndarray) else (self.pixmap.height(), self.pixmap.width())
+        self.image_shape = (
+            (curr_image.shape[0], curr_image.shape[1])
+            if isinstance(curr_image, np.ndarray)
+            else (self.pixmap.height(), self.pixmap.width())
+        )
 
         self.initUI()
 
@@ -159,8 +181,12 @@ class CropSelector(QDialog):
         h = max(1, min(int(scene_rect.height()), self.image_shape[0] - y))
 
         # Update rect if needed to stay within bounds
-        if (x != scene_rect.x() or y != scene_rect.y() or
-                w != scene_rect.width() or h != scene_rect.height()):
+        if (
+            x != scene_rect.x()
+            or y != scene_rect.y()
+            or w != scene_rect.width()
+            or h != scene_rect.height()
+        ):
             self.rect_item.setRect(QRectF(x, y, w, h))
 
         self.x_spin.blockSignals(True)
@@ -194,28 +220,40 @@ class CropSelector(QDialog):
         threshold = self.handle_size
 
         # Check for corner handles first (they take precedence)
-        if abs(pos.x() - scene_rect.left()) < threshold and abs(pos.y() - scene_rect.top()) < threshold:
-            return 'topleft'
-        elif abs(pos.x() - scene_rect.right()) < threshold and abs(pos.y() - scene_rect.top()) < threshold:
-            return 'topright'
-        elif abs(pos.x() - scene_rect.left()) < threshold and abs(pos.y() - scene_rect.bottom()) < threshold:
-            return 'bottomleft'
-        elif abs(pos.x() - scene_rect.right()) < threshold and abs(pos.y() - scene_rect.bottom()) < threshold:
-            return 'bottomright'
+        if (
+            abs(pos.x() - scene_rect.left()) < threshold
+            and abs(pos.y() - scene_rect.top()) < threshold
+        ):
+            return "topleft"
+        elif (
+            abs(pos.x() - scene_rect.right()) < threshold
+            and abs(pos.y() - scene_rect.top()) < threshold
+        ):
+            return "topright"
+        elif (
+            abs(pos.x() - scene_rect.left()) < threshold
+            and abs(pos.y() - scene_rect.bottom()) < threshold
+        ):
+            return "bottomleft"
+        elif (
+            abs(pos.x() - scene_rect.right()) < threshold
+            and abs(pos.y() - scene_rect.bottom()) < threshold
+        ):
+            return "bottomright"
 
         # Then check for edge handles
         elif abs(pos.x() - scene_rect.left()) < threshold:
-            return 'left'
+            return "left"
         elif abs(pos.x() - scene_rect.right()) < threshold:
-            return 'right'
+            return "right"
         elif abs(pos.y() - scene_rect.top()) < threshold:
-            return 'top'
+            return "top"
         elif abs(pos.y() - scene_rect.bottom()) < threshold:
-            return 'bottom'
+            return "bottom"
 
         # Finally, check if inside the rectangle for moving
         elif scene_rect.contains(pos):
-            return 'move'
+            return "move"
 
         return None
 
@@ -224,15 +262,15 @@ class CropSelector(QDialog):
         pos = self.get_cursor_position(event)
         mode = self.get_resize_mode(pos)
 
-        if mode == 'topleft' or mode == 'bottomright':
+        if mode == "topleft" or mode == "bottomright":
             self.view.setCursor(Qt.SizeFDiagCursor)
-        elif mode == 'topright' or mode == 'bottomleft':
+        elif mode == "topright" or mode == "bottomleft":
             self.view.setCursor(Qt.SizeBDiagCursor)
-        elif mode == 'left' or mode == 'right':
+        elif mode == "left" or mode == "right":
             self.view.setCursor(Qt.SizeHorCursor)
-        elif mode == 'top' or mode == 'bottom':
+        elif mode == "top" or mode == "bottom":
             self.view.setCursor(Qt.SizeVerCursor)
-        elif mode == 'move':
+        elif mode == "move":
             self.view.setCursor(Qt.SizeAllCursor)
         else:
             self.view.setCursor(Qt.ArrowCursor)
@@ -260,7 +298,7 @@ class CropSelector(QDialog):
 
         new_rect = QRectF(self.start_rect)
 
-        if self.resize_mode == 'move':
+        if self.resize_mode == "move":
             # Move the entire rectangle
             new_x = self.start_rect.x() + dx
             new_y = self.start_rect.y() + dy
@@ -273,14 +311,22 @@ class CropSelector(QDialog):
 
         else:
             # Resize the rectangle
-            if 'left' in self.resize_mode:
-                new_rect.setLeft(min(self.start_rect.right() - 1, self.start_rect.left() + dx))
-            if 'right' in self.resize_mode:
-                new_rect.setRight(max(self.start_rect.left() + 1, self.start_rect.right() + dx))
-            if 'top' in self.resize_mode:
-                new_rect.setTop(min(self.start_rect.bottom() - 1, self.start_rect.top() + dy))
-            if 'bottom' in self.resize_mode:
-                new_rect.setBottom(max(self.start_rect.top() + 1, self.start_rect.bottom() + dy))
+            if "left" in self.resize_mode:
+                new_rect.setLeft(
+                    min(self.start_rect.right() - 1, self.start_rect.left() + dx)
+                )
+            if "right" in self.resize_mode:
+                new_rect.setRight(
+                    max(self.start_rect.left() + 1, self.start_rect.right() + dx)
+                )
+            if "top" in self.resize_mode:
+                new_rect.setTop(
+                    min(self.start_rect.bottom() - 1, self.start_rect.top() + dy)
+                )
+            if "bottom" in self.resize_mode:
+                new_rect.setBottom(
+                    max(self.start_rect.top() + 1, self.start_rect.bottom() + dy)
+                )
 
         # Ensure rectangle stays within image bounds
         if new_rect.left() < 0:
@@ -307,14 +353,14 @@ class CropSelector(QDialog):
             int(rect.x()),
             int(rect.y()),
             int(rect.width()),
-            int(rect.height())
+            int(rect.height()),
         )
 
         # Emit signal with crop coordinates
         self.crop_selected.emit(crop_coords)
 
         # Send via pubsub
-        pub.sendMessage('crop_selected', coords=crop_coords)
+        pub.sendMessage("crop_selected", coords=crop_coords)
 
         self.accept()
 

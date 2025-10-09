@@ -32,21 +32,19 @@ Returns the Levels, RPU and Error across all the experiments
 
 
 def get_fluorescence_all_experiments(
-        data,
-        dimensions,
-        exp_channel: int = None,
-        rpu: RPUParams = default_rpu):
-    num_exps = dimensions['P']
+    data, dimensions, exp_channel: int = None, rpu: RPUParams = default_rpu
+):
+    num_exps = dimensions["P"]
 
     levels = []
     RPUs = []
     error = []
 
-    for t in range(dimensions['T']):
+    for t in range(dimensions["T"]):
         exp_at_time_levels = []
         exp_at_time_RPUs = []
 
-        for p in range(dimensions['P']):
+        for p in range(dimensions["P"]):
             if not exp_channel:
                 fluo = data[t, p, :, :].mean()
             else:
@@ -61,8 +59,7 @@ def get_fluorescence_all_experiments(
             # yfp = yfp[top:bottom, left:right].mean()
             #########################
             exp_at_time_levels.append(fluo)
-            exp_at_time_RPUs.append(
-                (fluo - rpu.FL_BLANK) / (rpu.RPU - rpu.FL_BLANK))
+            exp_at_time_RPUs.append((fluo - rpu.FL_BLANK) / (rpu.RPU - rpu.FL_BLANK))
 
         levels.append(np.array(exp_at_time_levels).mean())
         RPUs.append(np.asarray(exp_at_time_RPUs).mean())
@@ -77,17 +74,13 @@ Returns the Levels, RPU and Error across all the experiments
 
 
 def get_fluorescence_single_experiment(
-        data,
-        dimensions,
-        experiment,
-        exp_channel: int = None,
-        rpu: RPUParams = default_rpu):
+    data, dimensions, experiment, exp_channel: int = None, rpu: RPUParams = default_rpu
+):
     levels = []
     RPUs = []
     timestamp = []
 
-    for t in tqdm(range(dimensions['T'])):
-
+    for t in tqdm(range(dimensions["T"])):
         p = experiment
 
         if not exp_channel:
