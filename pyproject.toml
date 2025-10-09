@@ -29,6 +29,8 @@ dependencies = [
     "av (>=15.0.0,<16.0.0)",
     "imageio-ffmpeg (>=0.6.0,<0.7.0)",
     "numba (>=0.61.2,<0.62.0)",
+    "seaborn>=0.13.2",
+    "pyarrow>=21.0.0",
 ]
 
 [project.gui-scripts]
