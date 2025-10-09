@@ -379,9 +379,7 @@ class App(QMainWindow):
                 metrics_loaded = metrics_service.load_optimized(folder_path)
 
                 # Load experiment
-                if self.experiment is None:
-                    self.experiment = Experiment()
-                self.experiment.load(folder_path)
+                self.experiment = Experiment.load(folder_path)
 
                 # Update UI based on loaded image data
                 if hasattr(self, "viewArea"):

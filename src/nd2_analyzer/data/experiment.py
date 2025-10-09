@@ -106,7 +106,7 @@ class Experiment:
         }
         import os
 
-        file_path = os.path.join(folder_path, "metrics_data.parquet")
+        file_path = os.path.join(folder_path, "experiment.json")
         with open(file_path, "w") as f:
             json.dump(config, f, indent=4)
 
@@ -123,7 +123,7 @@ class Experiment:
         """
         import os
 
-        file_path = os.path.join(folder_path, "metrics_data.parquet")
+        file_path = os.path.join(folder_path, "experiment.json")
         with open(file_path, "r") as f:
             config = json.load(f)
 
