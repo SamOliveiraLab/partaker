@@ -10,31 +10,24 @@ from skimage.restoration import richardson_lucy
 
 from .unet import unet_segmentation
 
-# Omnipose imports
-# Import dependencies
-
-# use_gpu = utils.use_gpu()
 use_gpu = True
 
 class SegmentationModels:
-    CELLPOSE = "cellpose"
-    UNET = "unet"
-    CELLPOSE_FT_0 = "cellpose_finetuned"
+
     CELLPOSE_BACT_PHASE = "bact_phase_cp3"
     CELLPOSE_BACT_FLUOR = "bact_fluor_cp3"
-    CELLPOSE_BACT_HHLN_MAR_14 = "CP_20250314_100004_bact_phase_hhln"
     OMNIPOSE_BACT_PHASE = "omnipose_bact_phase"
-    OMNIPOSE_BACT_FLUO = "omnipose_bact_fluo"
+    OMNIPOSE_BACT_FLUOR = "omnipose_bact_fluo"
+    UNET = "unet"
+    CELLPOSE = "cellpose_deepbacs"
 
     available_models = [
-        CELLPOSE,
-        UNET,
-        CELLPOSE_FT_0,
+        OMNIPOSE_BACT_PHASE,
+        OMNIPOSE_BACT_FLUOR,
         CELLPOSE_BACT_PHASE,
         CELLPOSE_BACT_FLUOR,
-        CELLPOSE_BACT_HHLN_MAR_14,
-        OMNIPOSE_BACT_PHASE,
-        OMNIPOSE_BACT_FLUO
+        UNET,
+        CELLPOSE,
     ]
 
     _instance = None
@@ -229,14 +222,6 @@ class SegmentationModels:
         if preprocess:
             images = [preprocess_image(img) for img in images]
 
-        # Check if this is a Cellpose-based model
-        is_cellpose_model = mode in [
-            SegmentationModels.CELLPOSE,
-            SegmentationModels.CELLPOSE_BACT_PHASE,
-            SegmentationModels.CELLPOSE_BACT_FLUOR,
-            SegmentationModels.CELLPOSE_BACT_HHLN_MAR_14,
-        ]
-
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
                 self.models[self.CELLPOSE] = models.CellposeModel(
@@ -255,18 +240,6 @@ class SegmentationModels:
                     gpu="PARTAKER_GPU" in os.environ
                     and os.environ["PARTAKER_GPU"] == "1",
                     model_type="bact_phase_cp3",
-                )
-
-            segmented_images = self.segment_cellpose(
-                images, progress, self.models[mode]
-            )
-
-        elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
-            if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
-                self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ
-                    and os.environ["PARTAKER_GPU"] == "1",
-                    model_type="bact_fluor_cp3",
                 )
 
             segmented_images = self.segment_cellpose(
@@ -308,7 +281,7 @@ class SegmentationModels:
                 images, progress, self.models[mode]
             )
 
-        elif mode == SegmentationModels.OMNIPOSE_BACT_FLUO:
+        elif mode == SegmentationModels.OMNIPOSE_BACT_FLUOR:
             if mode not in self.models:
                 self.models[mode] = models.CellposeModel(
                     gpu=use_gpu, model_type="bact_fluor_omni"

@@ -63,7 +63,7 @@ class PopulationWidget(QWidget):
         layout.addLayout(mcherry_ch_layout)
 
         yfp_ch_layout = QHBoxLayout()
-        yfp_ch_layout.addWidget(QLabel("mCherry Channel:"))
+        yfp_ch_layout.addWidget(QLabel("YFP Channel:"))
         self.yfp_channel_combo = QComboBox()
         yfp_ch_layout.addWidget(self.yfp_channel_combo)
         layout.addLayout(yfp_ch_layout)
@@ -253,7 +253,7 @@ class PopulationWidget(QWidget):
 
         # Perform data processing
         df = filter_data(df, analysis_cgf)
-        df = calculate_population_statistics(df)
+        df = calculate_population_statistics(df, analysis_cgf)
 
         component_intervals = {
             'aTc': [(0, 19.25)],
@@ -275,7 +275,7 @@ class PopulationWidget(QWidget):
 
         # Plot graph
         fig = self.population_figure
-        axs = fig.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]}, figsize=(8, 10))
+        axs = fig.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]})
 
         # For channel 0 (mCherry)
         ch0 = mcherry_subdf
@@ -316,8 +316,8 @@ class PopulationWidget(QWidget):
 
         axs[-1].set_xlabel('Time (h)')
 
-        plt.savefig('1_9_iptg_on_p_all.pdf')
-        plt.show()
+        # plt.savefig('1_9_iptg_on_p_all.pdf')
+        # plt.show()
 
     # def calculate_rpu_values(self):
     #     """

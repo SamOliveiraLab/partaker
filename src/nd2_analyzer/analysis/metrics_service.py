@@ -56,7 +56,10 @@ class MetricsService:
             return
 
         # labeled_frame = segmentation_cache[time, position, 0] # TODO: ensure segmentationservice always returns labeled
-        labeled_frame = label(image)
+        labeled_frame = image
+
+        print("Number of cells before labeling:", np.unique(labeled_frame).shape)
+        print("Number of cells after labeling:", np.unique(label(labeled_frame)).shape)
 
         chan_n = ImageData.get_instance().channel_n
         mcherry_frame = yfp_frame = None
@@ -177,7 +180,7 @@ class MetricsService:
                 # If only mcherry has fluo
                 if back_fluo_mcherry != -1 and back_fluo_yfp == -1:
                     mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
-                    fluorescence_channel = 0
+                    fluorescence_channel = 1
                     fluorescence_level = mcherry_fluo
 
                 # If both have fluorescence, compare them
@@ -189,10 +192,10 @@ class MetricsService:
                         if (mcherry_fluo / back_fluo_mcherry) > (
                             yfp_fluo / back_fluo_yfp
                         ):
-                            fluorescence_channel = 0
+                            fluorescence_channel = 1
                             fluorescence_level = mcherry_fluo
                         else:
-                            fluorescence_channel = 1
+                            fluorescence_channel = 2
                             fluorescence_level = yfp_fluo
 
             row_data = {
