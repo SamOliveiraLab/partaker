@@ -24,6 +24,7 @@ class SegmentationService:
 
         pub.subscribe(self.handle_image_request, "segmented_image_request")
         pub.subscribe(self.on_roi_selected, "roi_selected")
+        pub.subscribe(self.on_reset_roi, "roi_reset")
 
         # Initialize default parameters
         self.overlay_color = (0, 255, 0)  # Green for outlines
@@ -34,6 +35,9 @@ class SegmentationService:
         Saves the ROI mask to the service
         """
         self.roi_mask = mask
+
+    def on_reset_roi(self) -> None:
+        self.roi_mask = None
 
     def handle_image_request(self, time, position, channel, mode, model=None):
         """Handle image requests requiring segmentation"""

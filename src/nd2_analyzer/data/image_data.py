@@ -45,6 +45,7 @@ class ImageData:
         )
 
         pub.subscribe(self.on_crop_selected, "crop_selected")
+        pub.subscribe(self.on_crop_reset, "crop_reset")
 
     @classmethod
     def get_instance(cls) -> Optional["ImageData"]:
@@ -70,6 +71,9 @@ class ImageData:
     def on_crop_selected(self, coords: list):
         self.crop_coordinates = coords
         pub.sendMessage("image_data_loaded", image_data=self)
+
+    def on_crop_reset(self):
+        self.crop_coordinates = None
 
     def _cleanup(self):
         pass
