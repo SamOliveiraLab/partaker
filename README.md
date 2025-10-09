@@ -20,3 +20,7 @@ Which will download and install dependencies and run the main GUI. If there are 
 ## Documentation
 
 You can check the tutorial in the project's github pages
+
+## Contributing
+
+Feel free to contribute to the project. Talk to the maintainers. Try to use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary)
