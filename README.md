@@ -1,11 +1,12 @@
-# ND2 analysis tool
+# Partaker Tool
 
-Analyze your time lapse data straight from the microscope!
+## Installing
 
-## Instructions
+First, if you do not have uv installed, go to the [uv official installation page](https://docs.astral.sh/uv/getting-started/installation/)
 
-- Install requirements.txt (preferrably within a virtual environment)
-- Execute main.py
+Then simply run
+```
+uv run gui
+```
 
-- Using cellpose 3.0.11 for now as it is [compatible with MPS](https://github.com/MouseLand/cellpose/issues/1063)
-`pip install git+https://github.com/mouseland/cellpose.git@v3.0.11`
+Which will download and install dependencies and run the main GUI.
