@@ -42,3 +42,5 @@ Set your `launch.json` to be something like this:
 Quite straightforward as well. In project, select a **Python Interpreter**, and use the `uv` configuation and the venv you created for this project:
 
 ![uv in PyCharm](img/pycharm_uv.png)
+
+.
