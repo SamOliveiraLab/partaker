@@ -6,8 +6,8 @@ Partaker is a tool to analyze bacterial populations in microfluidic environments
 
 Currently a WIP, we are creating a series of tutorials on how to use the functionality of this tool:
 
-- [Tool basics, loading an experiment, navigating, segmenting images]()
-- [Population Fluorescence dynamics analysis]()
+- [Tool basics, loading an experiment, navigating, segmenting images](tutorial_0.md)
+- [Population Fluorescence dynamics analysis](tutorial_1.md)
 
 ## Installation
 
@@ -41,4 +41,4 @@ Set your `launch.json` to be something like this:
 
 Quite straightforward as well. In project, select a **Python Interpreter**, and use the `uv` configuation and the venv you created for this project:
 
-![uv in PyCharm]()
+![uv in PyCharm](img/pycharm_uv.png)
