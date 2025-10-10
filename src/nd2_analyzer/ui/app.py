@@ -238,6 +238,10 @@ class App(QMainWindow):
         crop_action.triggered.connect(self.open_crop_selector)
         image_menu.addAction(crop_action)
 
+        reset_crop_action = QAction("Reset Crop", self)
+        reset_crop_action.triggered.connect(self.on_reset_crop)
+        image_menu.addAction(reset_crop_action)
+
         registration_action = QAction("Registration", self)
         registration_action.triggered.connect(self.on_registration_pressed)
         image_menu.addAction(registration_action)
@@ -246,6 +250,10 @@ class App(QMainWindow):
         roi_action.setShortcut("Ctrl+R")
         roi_action.triggered.connect(self.open_roi_selector)
         image_menu.addAction(roi_action)
+
+        reset_roi_action = QAction("Reset ROI", self)
+        reset_roi_action.triggered.connect(self.on_reset_roi)
+        image_menu.addAction(reset_roi_action)
 
         # --- Test menu
         test_menu = menu_bar.addMenu("Test")
@@ -262,6 +270,12 @@ class App(QMainWindow):
     def on_registration_pressed(self):
         # Get current P from ViewArea
         ImageData.get_instance().do_registration_p(self.viewArea.current_p)
+
+    def on_reset_crop(self):
+        pub.sendMessage("crop_reset")
+
+    def on_reset_roi(self):
+        pub.sendMessage("roi_reset")
 
     def hhln_test(self):
         ImageData.load_nd2(
