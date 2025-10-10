@@ -225,32 +225,6 @@ class MetricsService:
 
         return batch_data
 
-    @timing_decorator("batch_update_fluorescence")
-    def _batch_update_fluorescence(self, updates, fluo_column):
-        """Update fluorescence values using Polars joins."""
-        if not updates:
-            return
-
-        update_df = pl.DataFrame(updates)
-
-        self.df = (
-            self.df.join(
-                update_df,
-                on=["time", "position", "cell_id"],
-                how="left",
-                suffix="_update",
-            )
-            .with_columns(
-                [
-                    pl.when(pl.col(f"{fluo_column}_update").is_not_null())
-                    .then(pl.col(f"{fluo_column}_update"))
-                    .otherwise(pl.col(fluo_column))
-                    .alias(fluo_column)
-                ]
-            )
-            .drop(f"{fluo_column}_update")
-        )
-
     @timing_decorator("query_optimized")
     def query_optimized(
         self,
@@ -282,6 +256,32 @@ class MetricsService:
             return self.df.filter(combined_condition)
 
         return self.df
+
+    @timing_decorator("batch_update_fluorescence")
+    def _batch_update_fluorescence(self, updates, fluo_column):
+        """Update fluorescence values using Polars joins."""
+        if not updates:
+            return
+
+        update_df = pl.DataFrame(updates)
+
+        self.df = (
+            self.df.join(
+                update_df,
+                on=["time", "position", "cell_id"],
+                how="left",
+                suffix="_update",
+            )
+            .with_columns(
+                [
+                    pl.when(pl.col(f"{fluo_column}_update").is_not_null())
+                    .then(pl.col(f"{fluo_column}_update"))
+                    .otherwise(pl.col(fluo_column))
+                    .alias(fluo_column)
+                ]
+            )
+            .drop(f"{fluo_column}_update")
+        )
 
     def get_cell_timeseries(self, position: int, cell_id: int) -> pl.DataFrame:
         """Get time series data for a specific cell efficiently."""

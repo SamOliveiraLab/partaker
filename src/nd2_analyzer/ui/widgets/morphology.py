@@ -19,7 +19,6 @@ from sklearn.preprocessing import StandardScaler
 
 from nd2_analyzer.analysis.metrics_service import MetricsService
 
-
 class MorphologyWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -219,7 +218,7 @@ class MorphologyWidget(QWidget):
             print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
 
             # Request cell metrics from the service for current frame
-            polars_df = self.metrics_service.query(time=t, position=p, channel=c)
+            polars_df = self.metrics_service.query_optimized(time=t, position=p)
 
             if polars_df.is_empty():
                 print("No metrics found in polars dataframe")
@@ -723,7 +722,7 @@ class MorphologyWidget(QWidget):
         c = pub.sendMessage("get_current_c", default=0)
 
         # Query metrics for all timepoints for this position and channel
-        df = self.metrics_service.query(position=p, channel=c)
+        df = self.metrics_service.query_optimized(position=p)
 
         if df.is_empty():
             QMessageBox.warning(self, "No Data", "No metrics available.")
