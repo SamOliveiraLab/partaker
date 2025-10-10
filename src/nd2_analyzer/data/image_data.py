@@ -74,6 +74,7 @@ class ImageData:
 
     def on_crop_reset(self):
         self.crop_coordinates = None
+        pub.sendMessage("image_data_loaded", image_data=self)
 
     def _cleanup(self):
         pass

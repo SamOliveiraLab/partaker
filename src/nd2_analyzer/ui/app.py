@@ -31,7 +31,6 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.experiment = None
         self.appstate = ApplicationState.create_instance()
 
         self.setWindowTitle("Partaker 3 - GUI")
@@ -79,7 +78,6 @@ class App(QMainWindow):
 
     def on_exp_loaded(self, experiment: Experiment):
         ImageData.load_nd2(experiment.nd2_files)
-        self.experiment = experiment
 
     def on_image_request(self, time, position, channel):
         """Handle requests for raw image data"""
@@ -210,10 +208,10 @@ class App(QMainWindow):
         file_menu = menu_bar.addMenu("File")
 
         # New Experiment
-        new_experiment_action = QAction("Experiment", self)
-        new_experiment_action.setShortcut("Ctrl+E")
-        new_experiment_action.triggered.connect(self.show_new_experiment_dialog)
-        file_menu.addAction(new_experiment_action)
+        experiment_action = QAction("Experiment", self)
+        experiment_action.setShortcut("Ctrl+E")
+        experiment_action.triggered.connect(self.show_experiment_dialog)
+        file_menu.addAction(experiment_action)
 
         save_action = QAction("Save", self)
         save_action.setShortcut("Ctrl+S")
@@ -282,7 +280,7 @@ class App(QMainWindow):
             "/Users/hiram/Documents/EVERYTHING/20-29 Research/22 OliveiraLab/22.12 ND2 analyzer/nd2-analyzer/final_data/rpu_nd2/3-RPU_mCherry_M9Plain_10h002.nd2"
         )
 
-    def show_new_experiment_dialog(self):
+    def show_experiment_dialog(self):
         experiment = ExperimentDialog()
         experiment.exec_()
 
@@ -330,40 +328,17 @@ class App(QMainWindow):
             metrics_service = MetricsService()
             try:
                 print(f"DEBUG: Saving metrics to {folder_path}")
-                metrics_saved = metrics_service.save_optimized(folder_path)
-                print(f"DEBUG: Metrics saved: {metrics_saved}")
+                metrics_service.save_optimized(folder_path)
             except Exception as e:
                 print(f"ERROR: Failed to save metrics: {str(e)}")
                 import traceback
 
                 traceback.print_exc()
 
-            # Save population
-            try:
-                population_saved = self.populationTab.save_population_data(folder_path)
-                print(f"DEBUG: Population data saved: {population_saved}")
-            except Exception as e:
-                print(f"ERROR: Failed to save population: {str(e)}")
-                import traceback
-
-                traceback.print_exc()
-
-            # Save tracking data
-            try:
-                tracking_saved = self.trackingTab.tracking_widget.save_tracking_data(
-                    folder_path
-                )
-                print(f"DEBUG: Tracking data saved: {tracking_saved}")
-            except Exception as e:
-                print(f"ERROR: Failed to save tracking: {str(e)}")
-                import traceback
-
-                traceback.print_exc()
-
             # Save the experiment
             try:
-                if self.experiment is not None:
-                    self.experiment.save(folder_path)
+                if self.appstate.experiment is not None:
+                    self.appstate.experiment.save(folder_path)
             except Exception as e:
                 print(f"ERROR: Failed to save experiment: {str(e)}")
                 import traceback
@@ -385,42 +360,17 @@ class App(QMainWindow):
             print(f"Project loaded from folder: {folder_path}")
 
             try:
-                # Load image data
-                ImageData.load_from_disk(folder_path)
-
                 # Load metrics data
                 metrics_service = MetricsService()
                 metrics_loaded = metrics_service.load_optimized(folder_path)
 
-                # Load experiment
-                self.experiment = Experiment.load(folder_path)
-
-                # Update UI based on loaded image data
-                if hasattr(self, "viewArea"):
-                    pub.sendMessage("image_data_loaded", image_data=None)
-
-                population_loaded = False
-                if hasattr(self, "populationTab"):
-                    population_loaded = self.populationTab.load_population_data(
-                        folder_path
-                    )
-                    print(f"Population data loaded: {population_loaded}")
-
-                # Load tracking data if available
-                tracking_loaded = False
-                if hasattr(self, "tracking_manager") and hasattr(
-                    self.trackingTab, "tracking_widget"
-                ):
-                    tracking_loaded = (
-                        self.trackingTab.tracking_widget.load_tracking_data(folder_path)
-                    )
+                self.appstate.experiment = Experiment.load(folder_path)
+                pub.sendMessage("image_data_loaded", image_data=ImageData.load_from_disk(folder_path))
 
                 # Show success message
                 message = f"Project loaded from {folder_path}"
                 if metrics_loaded:
                     message += "\nMetrics data loaded successfully"
-                if tracking_loaded:
-                    message += "\nTracking data loaded successfully"
 
                 QMessageBox.information(self, "Project Loaded", message)
 

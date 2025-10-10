@@ -1,4 +1,5 @@
 import logging
+import os
 from collections import defaultdict
 from typing import Optional
 
@@ -57,9 +58,6 @@ class MetricsService:
 
         # labeled_frame = segmentation_cache[time, position, 0] # TODO: ensure segmentationservice always returns labeled
         labeled_frame = image
-
-        print("Number of cells before labeling:", np.unique(labeled_frame).shape)
-        print("Number of cells after labeling:", np.unique(label(labeled_frame)).shape)
 
         chan_n = ImageData.get_instance().channel_n
         mcherry_frame = yfp_frame = None
@@ -310,16 +308,12 @@ class MetricsService:
     def save_optimized(self, folder_path: str):
         """Save data in efficient Parquet format."""
         if not self.df.is_empty():
-            import os
-
             parquet_path = os.path.join(folder_path, "metrics_data.parquet")
             self.df.write_parquet(parquet_path)
             logger.info(f"Saved {self.df.height} rows to {parquet_path}")
 
     def load_optimized(self, folder_path: str):
         """Load data from Parquet format."""
-        import os
-
         parquet_path = os.path.join(folder_path, "metrics_data.parquet")
         if os.path.exists(parquet_path):
             self.df = pl.read_parquet(parquet_path)
