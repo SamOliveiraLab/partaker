@@ -286,6 +286,7 @@ class PopulationWidget(QWidget):
                             color='red', alpha=0.3)
         axs[0].set_ylabel('mCherry')
         axs[0].set_xlabel('')
+        axs[0].set_ylim(bottom=0)
         axs[0].set_xticks(range(0, int(max(ch0['time_hours'])) + 1, 10))
         axs[0].legend().set_visible(False)  # Hide legend
 
@@ -298,6 +299,7 @@ class PopulationWidget(QWidget):
                             color='goldenrod', alpha=0.3)
         axs[1].set_ylabel('YFP')
         axs[1].set_xlabel('')
+        axs[1].set_ylim(bottom=0)
         axs[1].set_xticks(range(0, int(max(ch1['time_hours'])) + 1, 10))
         axs[1].legend().set_visible(False)  # Hide legend
 

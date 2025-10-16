@@ -21,10 +21,13 @@ class SegmentationService:
         self.models = models
         self.get_raw_image = data_getter
         self.roi_mask: Optional[np.ndarray] = None
+        self.crop_coordinates = None
 
         pub.subscribe(self.handle_image_request, "segmented_image_request")
         pub.subscribe(self.on_roi_selected, "roi_selected")
         pub.subscribe(self.on_reset_roi, "roi_reset")
+        pub.subscribe(self.on_crop_selected, "crop_selected")
+        pub.subscribe(self.on_crop_reset, "crop_reset")
 
         # Initialize default parameters
         self.overlay_color = (0, 255, 0)  # Green for outlines
@@ -39,6 +42,12 @@ class SegmentationService:
     def on_reset_roi(self) -> None:
         self.roi_mask = None
 
+    def on_crop_selected(self, coords: list):
+        self.crop_coordinates = coords
+
+    def on_crop_reset(self):
+        self.crop_coordinates = None
+
     def handle_image_request(self, time, position, channel, mode, model=None):
         """Handle image requests requiring segmentation"""
         if mode == "normal":
@@ -52,6 +61,11 @@ class SegmentationService:
         # Request cached, which will segment if not present
         cache_key = (time, position, channel, model)
         segmented = self.cache.with_model(model)[cache_key]
+
+        # Crop/Scale if we have it
+        if self.crop_coordinates is not None:
+            x, y, width, height = self.crop_coordinates
+            segmented = segmented[y: y + height, x: x + width]
 
         if self.roi_mask is not None:
             segmented = self._apply_roi_mask(segmented)
@@ -97,7 +111,13 @@ class SegmentationService:
         # Find regions that overlap with the mask boundary
         from scipy.ndimage import binary_dilation
 
-        mask_boundary = binary_dilation(self.roi_mask) & ~self.roi_mask
+        # Crop roi_mask
+        crop_roi_mask = self.roi_mask
+        if self.crop_coordinates is not None:
+            x, y, width, height = self.crop_coordinates
+            crop_roi_mask = crop_roi_mask[y: y + height, x: x + width]
+
+        mask_boundary = binary_dilation(crop_roi_mask) & ~crop_roi_mask
 
         # Get labels of regions touching the boundary
         boundary_labels = set(np.unique(labeled_frame * mask_boundary))
@@ -109,7 +129,7 @@ class SegmentationService:
         for label_id in np.unique(labeled_frame):
             if label_id > 0:  # Skip background
                 if label_id not in boundary_labels and np.any(
-                    (labeled_frame == label_id) & self.roi_mask
+                    (labeled_frame == label_id) & crop_roi_mask
                 ):
                     result[labeled_frame == label_id] = (
                         255 if np.max(segmented) <= 255 else label_id
