@@ -279,7 +279,7 @@ class MorphologyWidget(QWidget):
             self.populate_metrics_table()
             self.update_annotation_scatter()
 
-            # NEW: Send message to ViewAreaWidget to draw bounding boxes
+            # Send message to App to draw ALL cells with morphology colors
             pub.sendMessage(
                 "draw_cell_bounding_boxes",
                 time=t,

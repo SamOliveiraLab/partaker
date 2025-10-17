@@ -595,27 +595,31 @@ class ViewAreaWidget(QWidget):
 
         y1, x1, y2, x2 = cell_info["bbox"]
 
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        # Draw WHITE thick bounding box to highlight the selected cell
+        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (255, 255, 255), 3)
+
+        # Add white text label with cell ID
         cv2.putText(
             highlighted_image,
             f"Cell {cell_id}",
-            (x1, y1 - 5),
+            (x1, y1 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            1,
+            0.6,
+            (255, 255, 255),
+            2,
         )
 
         if "metrics" in cell_info and "morphology_class" in cell_info["metrics"]:
             morph_class = cell_info["metrics"]["morphology_class"]
+            # Add white text for morphology class
             cv2.putText(
                 highlighted_image,
                 f"Class: {morph_class}",
-                (x1, y2 + 15),
+                (x1, y2 + 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 0),
-                1,
+                0.6,
+                (255, 255, 255),
+                2,
             )
 
         self._create_qimage_and_display(highlighted_image)

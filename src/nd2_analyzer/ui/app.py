@@ -63,7 +63,8 @@ class App(QMainWindow):
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
         pub.subscribe(self.on_draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
-        pub.subscribe(self.highlight_cell, "highlight_cell_requested")
+        # Note: highlight_cell is handled by ViewAreaWidget, not here
+        # pub.subscribe(self.highlight_cell, "highlight_cell_requested")
 
         pub.subscribe(self.provide_image_data, "get_image_data")
 
