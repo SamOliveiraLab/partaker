@@ -563,6 +563,11 @@ class ViewAreaWidget(QWidget):
         """Highlight a specific cell in the current image view"""
         print(f"ViewAreaWidget: Highlighting cell {cell_id}")
 
+        # Automatically switch to labeled segmentation mode for highlighting
+        if not self.radio_labeled_segmentation.isChecked():
+            self.radio_labeled_segmentation.setChecked(True)
+            self.on_display_mode_changed(self.radio_labeled_segmentation)
+
         t, p, c = self.current_t, self.current_p, self.current_c
         cell_mapping = None
 
@@ -583,12 +588,39 @@ class ViewAreaWidget(QWidget):
             print(f"Cell {cell_id} mapping not available")
             return
 
-        if not hasattr(self, "current_image_data") or self.current_image_data is None:
-            print("No current image available to highlight cell")
+        # Request fresh labeled segmentation image to avoid stacking highlights
+        fresh_image = None
+
+        def receive_fresh_image(image, time, position, channel, mode):
+            nonlocal fresh_image
+            if time == t and position == p and channel == c and mode == "labeled":
+                fresh_image = image
+
+        # Temporarily subscribe to get the fresh image
+        pub.subscribe(receive_fresh_image, "image_ready")
+
+        # Request the fresh labeled segmentation
+        pub.sendMessage(
+            "segmented_image_request",
+            time=t,
+            position=p,
+            channel=c,
+            mode="labeled",
+            model=self.current_model,
+        )
+
+        # Unsubscribe after getting the image
+        pub.unsubscribe(receive_fresh_image, "image_ready")
+
+        if fresh_image is None:
+            print("Could not get fresh labeled segmentation image")
             return
 
+        # Convert to display format and use as base for highlighting
+        fresh_image = self._convert_segmentation_to_display(fresh_image, "labeled")
+
         cell_info = cell_mapping[cell_id]
-        highlighted_image = self.current_image_data.copy()
+        highlighted_image = fresh_image.copy()
 
         if len(highlighted_image.shape) == 2:
             highlighted_image = cv2.cvtColor(highlighted_image, cv2.COLOR_GRAY2BGR)
