@@ -52,7 +52,7 @@ class App(QMainWindow):
         self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
-        # self.tab_widget.addTab(self.trackingTab, "Tracking - Lineage Tree")
+        self.tab_widget.addTab(self.trackingTab, "Tracking")
         self.layout.addWidget(self.tab_widget)
 
         self.initMenuBar()
