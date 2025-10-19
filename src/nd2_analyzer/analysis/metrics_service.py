@@ -231,10 +231,26 @@ class MetricsService:
         time: Optional[int] = None,
         position: Optional[int] = None,
         cell_id: Optional[int] = None,
+        exclude_focus_loss: bool = True,
     ) -> pl.DataFrame:
         """
         Queries metrics for a given time/position/cell_id.
-        Supposedly uses fast operations from polars
+
+        Parameters:
+        -----------
+        time : int, optional
+            Time point to filter
+        position : int, optional
+            Position to filter
+        cell_id : int, optional
+            Cell ID to filter
+        exclude_focus_loss : bool, default True
+            If True, excludes frames marked as focus loss in experiment settings
+
+        Returns:
+        --------
+        pl.DataFrame
+            Filtered metrics data
         """
         if self.df.is_empty():
             return pl.DataFrame()
@@ -247,6 +263,27 @@ class MetricsService:
             conditions.append(pl.col("position") == position)
         if cell_id is not None:
             conditions.append(pl.col("cell_id") == cell_id)
+
+        # Add focus loss filtering
+        if exclude_focus_loss:
+            from nd2_analyzer.data.appstate import ApplicationState
+            appstate = ApplicationState.get_instance()
+
+            if appstate and appstate.experiment and appstate.experiment.focus_loss_intervals:
+                # Get time values from dataframe
+                time_col = self.df.select("time").to_series()
+                time_interval_hours = appstate.experiment.time_interval_hours
+
+                # Build condition to exclude focus loss frames
+                focus_loss_mask = pl.lit(False)  # Start with all False
+                for start_h, end_h in appstate.experiment.focus_loss_intervals:
+                    # Check if time is in this focus loss interval
+                    time_hours = time_col * time_interval_hours
+                    in_interval = (time_hours >= start_h) & (time_hours < end_h)
+                    focus_loss_mask = focus_loss_mask | in_interval
+
+                # Exclude frames that are in focus loss
+                conditions.append(~focus_loss_mask)
 
         if conditions:
             # Combine conditions with logical AND
