@@ -346,6 +346,20 @@ class App(QMainWindow):
 
                 traceback.print_exc()
 
+            # Save tracking data
+            try:
+                print(f"DEBUG: Saving tracking data to {folder_path}")
+                tracking_saved = self.trackingTab.tracking_widget.save_tracking_data(folder_path)
+                if tracking_saved:
+                    print(f"DEBUG: Tracking data saved successfully")
+                else:
+                    print(f"DEBUG: No tracking data to save")
+            except Exception as e:
+                print(f"ERROR: Failed to save tracking data: {str(e)}")
+                import traceback
+
+                traceback.print_exc()
+
             # Show success message
             QMessageBox.information(
                 self, "Save Complete", f"Project saved to {folder_path}"
@@ -368,10 +382,26 @@ class App(QMainWindow):
                 self.appstate.experiment = Experiment.load(folder_path)
                 pub.sendMessage("image_data_loaded", image_data=ImageData.load_from_disk(folder_path))
 
+                # Load tracking data
+                tracking_loaded = False
+                try:
+                    print(f"DEBUG: Loading tracking data from {folder_path}")
+                    tracking_loaded = self.trackingTab.tracking_widget.load_tracking_data(folder_path)
+                    if tracking_loaded:
+                        print(f"DEBUG: Tracking data loaded successfully")
+                    else:
+                        print(f"DEBUG: No tracking data found")
+                except Exception as e:
+                    print(f"ERROR: Failed to load tracking data: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+
                 # Show success message
                 message = f"Project loaded from {folder_path}"
                 if metrics_loaded:
                     message += "\nMetrics data loaded successfully"
+                if tracking_loaded:
+                    message += "\nTracking data loaded successfully"
 
                 QMessageBox.information(self, "Project Loaded", message)
 
