@@ -636,9 +636,24 @@ class MotilityDialog(QDialog):
                 f"Collected {len(all_cell_positions)} cell positions for visualization"
             )
 
+            # Filter tracks by focus loss intervals
+            from nd2_analyzer.data.appstate import ApplicationState
+            appstate = ApplicationState.get_instance()
+
+            if appstate and appstate.experiment and self.focus_loss_intervals:
+                filtered_tracks = []
+                for track in self.tracked_cells:
+                    filtered = appstate.experiment.filter_track_frames(track)
+                    if filtered and len(filtered["x"]) >= 2:  # Keep tracks with at least 2 points
+                        filtered_tracks.append(filtered)
+                print(f"Focus loss filtering: {len(self.tracked_cells)} → {len(filtered_tracks)} tracks")
+                tracks_for_analysis = filtered_tracks
+            else:
+                tracks_for_analysis = self.tracked_cells
+
             # Calculate motility metrics
             self.motility_metrics = enhanced_motility_index(
-                self.tracked_cells, chamber_dimensions
+                tracks_for_analysis, chamber_dimensions
             )
 
             # Create visualizations

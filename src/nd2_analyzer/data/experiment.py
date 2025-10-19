@@ -222,3 +222,45 @@ class Experiment:
             component_intervals=config.get("component_intervals"),
             focus_loss_intervals=config.get("focus_loss_intervals", []),
         )
+
+    def filter_track_frames(self, track):
+        """
+        Remove frames from track that fall within focus loss intervals.
+
+        Parameters:
+        -----------
+        track : dict
+            Track with 'x', 'y', 't' keys
+
+        Returns:
+        --------
+        dict or None
+            Filtered track, or None if all frames excluded
+        """
+        import numpy as np
+
+        if not self.focus_loss_intervals:
+            return track
+
+        x = np.array(track["x"])
+        y = np.array(track["y"])
+        t = np.array(track.get("t", range(len(x))))
+
+        # Find valid (in-focus) indices
+        valid = []
+        for i, frame in enumerate(t):
+            time_h = frame * self.time_interval_hours
+            if all(not (start <= time_h < end) for start, end in self.focus_loss_intervals):
+                valid.append(i)
+
+        if not valid:
+            return None
+
+        return {
+            "ID": track["ID"],
+            "x": x[valid].tolist(),
+            "y": y[valid].tolist(),
+            "t": t[valid].tolist(),
+            "parent": track.get("parent"),
+            "children": track.get("children", [])
+        }
