@@ -38,6 +38,7 @@ class ViewAreaWidget(QWidget):
         self.current_c = 0
         self.current_mode = "normal"  # normal, segmented, or labeled
         self.current_model = None
+        self.valid_time_frames = None  # List of valid frame indices (excluding focus loss)
 
         # Set up the UI
         self.init_ui()
@@ -50,6 +51,98 @@ class ViewAreaWidget(QWidget):
         pub.subscribe(self.provide_current_param, "get_current_p")
         pub.subscribe(self.provide_current_param, "get_current_c")
         pub.subscribe(self.on_segmentation_cache_miss, "segmentation_cache_miss")
+        pub.subscribe(self.on_experiment_loaded, "experiment_loaded")
+
+    # FOCUS LOSS HANDLING
+
+    def on_experiment_loaded(self, experiment):
+        """Handle experiment loading and update valid frames based on focus loss intervals"""
+        self._update_valid_frames(experiment)
+
+    def _update_valid_frames(self, experiment):
+        """Calculate which frames are valid (not in focus loss intervals)"""
+        from nd2_analyzer.data.appstate import ApplicationState
+
+        if experiment is None or not hasattr(experiment, 'focus_loss_intervals'):
+            self.valid_time_frames = None
+            return
+
+        # Get total number of frames from image data
+        image_data = ImageData.get_instance()
+        if not image_data or not hasattr(image_data, 'data'):
+            self.valid_time_frames = None
+            return
+
+        total_frames = image_data.data.shape[0]
+
+        # If no focus loss intervals, all frames are valid
+        if not experiment.focus_loss_intervals:
+            self.valid_time_frames = None
+            return
+
+        # Convert focus loss intervals (in hours) to frame indices
+        time_interval_hours = experiment.time_interval_hours
+        focus_loss_frames = []
+
+        print(f"Time interval per frame: {time_interval_hours:.4f} hours")
+        print(f"Total frames in dataset: {total_frames}")
+
+        for start_hours, end_hours in experiment.focus_loss_intervals:
+            start_frame_calc = start_hours / time_interval_hours
+            end_frame_calc = end_hours / time_interval_hours
+
+            start_frame = int(start_frame_calc)
+            end_frame = int(end_frame_calc)
+
+            print(f"  Raw calculation: {start_hours:.2f}h/{time_interval_hours:.4f} = {start_frame_calc:.2f} → frame {start_frame}")
+            print(f"  Raw calculation: {end_hours:.2f}h/{time_interval_hours:.4f} = {end_frame_calc:.2f} → frame {end_frame}")
+
+            # Clamp to actual data range
+            start_frame_clamped = max(0, min(start_frame, total_frames - 1))
+            end_frame_clamped = max(0, min(end_frame, total_frames - 1))
+
+            if start_frame_clamped <= end_frame_clamped:
+                focus_loss_frames.extend(range(start_frame_clamped, end_frame_clamped + 1))
+                print(f"  Focus loss interval: {start_hours:.2f}h - {end_hours:.2f}h → frames {start_frame_clamped}-{end_frame_clamped}")
+            else:
+                print(f"  WARNING: Invalid interval after clamping: {start_frame_clamped}-{end_frame_clamped}")
+
+        # Create list of valid frames (excluding focus loss)
+        focus_loss_set = set(focus_loss_frames)
+        self.valid_time_frames = [f for f in range(total_frames) if f not in focus_loss_set]
+
+        excluded_count = len(focus_loss_set)
+        valid_count = len(self.valid_time_frames)
+
+        print(f"Focus loss filtering: {excluded_count} frames excluded, {valid_count} valid frames remaining (out of {total_frames} total)")
+
+        if valid_count == 0:
+            print("WARNING: All frames are marked as focus loss! Reverting to showing all frames.")
+            self.valid_time_frames = None
+
+    def _map_slider_to_frame(self, slider_value):
+        """Convert slider position to actual frame index (skipping focus loss frames)"""
+        if self.valid_time_frames is None:
+            return slider_value
+
+        if slider_value >= len(self.valid_time_frames):
+            return self.valid_time_frames[-1] if self.valid_time_frames else 0
+
+        return self.valid_time_frames[slider_value]
+
+    def _map_frame_to_slider(self, frame_index):
+        """Convert frame index to slider position (accounting for focus loss frames)"""
+        if self.valid_time_frames is None:
+            return frame_index
+
+        try:
+            return self.valid_time_frames.index(frame_index)
+        except ValueError:
+            # Frame is in focus loss interval, return nearest valid frame
+            for i, valid_frame in enumerate(self.valid_time_frames):
+                if valid_frame > frame_index:
+                    return max(0, i - 1)
+            return len(self.valid_time_frames) - 1
 
     # CENTRALIZED IMAGE PROCESSING FUNCTIONS
 
@@ -284,9 +377,7 @@ class ViewAreaWidget(QWidget):
         self.slider_t.setMinimum(0)
         self.slider_t.setMaximum(0)
         self.slider_t.valueChanged.connect(self.on_slider_changed)
-        self.slider_t.valueChanged.connect(
-            lambda value: self.t_label.setText(f"T: {value}")
-        )
+        # Note: t_label is updated in on_slider_changed to show actual frame number
         t_layout.addWidget(self.slider_t)
 
         self.t_right_button = QPushButton(">")
@@ -499,10 +590,17 @@ class ViewAreaWidget(QWidget):
     @Slot()
     def on_slider_changed(self):
         """Handle slider value changes and request appropriate image"""
-        self.current_t = self.slider_t.value()
+        # Map slider value to actual frame index (skipping focus loss frames)
+        slider_t_value = self.slider_t.value()
+        actual_t = self._map_slider_to_frame(slider_t_value)
+
+        self.current_t = actual_t
         self.current_p = self.slider_p.value()
         self.current_c = self.slider_c.value()
         t, p, c = self.current_t, self.current_p, self.current_c
+
+        # Update label to show actual frame number
+        self.t_label.setText(f"T: {t}")
 
         print(f"DEBUG: Sliders changed to T={t}, P={p}, C={c}")
         pub.sendMessage("view_index_changed", index=(t, p, c))
@@ -533,6 +631,8 @@ class ViewAreaWidget(QWidget):
 
     def on_image_data_loaded(self, image_data):
         """Handle new image_data loading. Updates slider ranges based on image_data dimensions."""
+        from nd2_analyzer.data.appstate import ApplicationState
+
         _shape = image_data.data.shape
         t_max = _shape[0] - 1
         p_max = _shape[1] - 1
@@ -549,7 +649,18 @@ class ViewAreaWidget(QWidget):
             c_max = 0
             self.has_channels = False
 
-        self.slider_t.setMaximum(max(0, t_max))
+        # Update valid frames based on focus loss intervals
+        appstate = ApplicationState.get_instance()
+        if appstate and appstate.experiment:
+            self._update_valid_frames(appstate.experiment)
+
+        # Set slider maximum based on valid frames (if focus loss filtering is active)
+        if self.valid_time_frames is not None:
+            slider_t_max = len(self.valid_time_frames) - 1
+        else:
+            slider_t_max = t_max
+
+        self.slider_t.setMaximum(max(0, slider_t_max))
         self.slider_p.setMaximum(max(0, p_max))
         self.slider_c.setMaximum(max(0, c_max))
 

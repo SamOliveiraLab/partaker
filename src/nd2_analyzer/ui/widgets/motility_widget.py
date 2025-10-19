@@ -56,10 +56,24 @@ class MotilityDialog(QDialog):
 
         # ADD THIS LINE - Import and initialize MetricsService
         from nd2_analyzer.analysis.metrics_service import MetricsService
+        from nd2_analyzer.data.appstate import ApplicationState
 
         self.metrics_service = MetricsService()
 
         self.calibration = 0.07
+
+        # Get time interval from experiment settings
+        appstate = ApplicationState.get_instance()
+        if appstate and appstate.experiment:
+            self.hours_per_frame = appstate.experiment.time_interval_hours
+            self.focus_loss_intervals = appstate.experiment.focus_loss_intervals
+        else:
+            # Fallback to default if no experiment loaded
+            self.hours_per_frame = 0.05  # Default: 3 minutes per frame
+            self.focus_loss_intervals = []
+            print("WARNING: No experiment loaded. Using default hours_per_frame = 0.05")
+
+        print(f"MotilityDialog initialized with hours_per_frame = {self.hours_per_frame:.4f}")
 
         # Set dialog properties
         self.setWindowTitle("Cell Motility Analysis")
@@ -1079,9 +1093,8 @@ class MotilityDialog(QDialog):
         # Default calibration if not set (µm/pixel)
         calibration = self.calibration
 
-        # Assume frames are 60 minutes apart (1 hour)
-        # You can adjust this value based on your actual time between frames
-        hours_per_frame = 1
+        # Use actual time interval from experiment settings
+        hours_per_frame = self.hours_per_frame
 
         # Add a text box with summary statistics
         if selected_ids:
@@ -1177,7 +1190,7 @@ class MotilityDialog(QDialog):
         self.velocity_fig.tight_layout()
         self.velocity_canvas.draw()
 
-    def add_summary_stats_box(self, selected_ids, hours_per_frame=1):
+    def add_summary_stats_box(self, selected_ids, hours_per_frame):
         calibration = self.calibration
 
         """Add a box with summary statistics for selected tracks"""
@@ -1250,7 +1263,7 @@ class MotilityDialog(QDialog):
                 fontsize=9,
             )
 
-    def add_population_average(self, hours_per_frame=1):
+    def add_population_average(self, hours_per_frame):
         """Add population average velocity to the plot"""
         # Use self.calibration instead of default
         calibration = self.calibration
@@ -1358,9 +1371,9 @@ class MotilityDialog(QDialog):
         self.motility_ax.clear()
         self.velocity_comp_ax.clear()
 
-        # Use calibration
+        # Use calibration and actual time interval
         calibration = self.calibration
-        hours_per_frame = 1  # Assume 1 hour between frames
+        hours_per_frame = self.hours_per_frame
 
         # Define sliding window size for motility calculation
         window_size = 5

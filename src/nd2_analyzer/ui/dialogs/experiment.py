@@ -107,12 +107,14 @@ class ExperimentDialog(QDialog):
         self.time_step_spinbox.setValue(60.0)
         self.time_step_spinbox.setSuffix(" seconds")
         self.time_step_spinbox.setDecimals(3)
+        self.time_step_spinbox.valueChanged.connect(self._update_focus_conversion_helper)
         details_layout.addRow("PHC Time Interval:", self.time_step_spinbox)
 
         self.fluorescence_factor_spinbox = QDoubleSpinBox()
         self.fluorescence_factor_spinbox.setRange(0.1, 100.0)
         self.fluorescence_factor_spinbox.setValue(3.0)
         self.fluorescence_factor_spinbox.setDecimals(1)
+        self.fluorescence_factor_spinbox.valueChanged.connect(self._update_focus_conversion_helper)
         details_layout.addRow("Fluorescence Factor:", self.fluorescence_factor_spinbox)
 
         details_group.setLayout(details_layout)
@@ -290,6 +292,15 @@ class ExperimentDialog(QDialog):
         focus_help.setStyleSheet("color: gray; font-size: 9pt;")
         focus_layout.addWidget(focus_help)
 
+        # Add conversion helper (will be updated dynamically)
+        self.focus_conversion_help = QLabel()
+        self.focus_conversion_help.setStyleSheet("color: #2196F3; font-size: 8pt; font-style: italic;")
+        self.focus_conversion_help.setWordWrap(True)
+        focus_layout.addWidget(self.focus_conversion_help)
+
+        # Update conversion helper initially
+        self._update_focus_conversion_helper()
+
         # Focus loss input
         focus_input_layout = QHBoxLayout()
 
@@ -463,6 +474,21 @@ class ExperimentDialog(QDialog):
         self.focus_loss_list_widget.clear()
         for start, end in self.focus_loss_intervals:
             self.focus_loss_list_widget.addItem(f"Lost focus: {start:.2f}h - {end:.2f}h")
+
+    def _update_focus_conversion_helper(self):
+        """Update the focus loss conversion helper text based on current time settings"""
+        # Calculate time interval per frame in hours
+        phc_interval = self.time_step_spinbox.value()  # in seconds
+        fluorescence_factor = self.fluorescence_factor_spinbox.value()
+        time_interval_hours = (phc_interval * fluorescence_factor) / 3600
+
+        # Create helper text with actual calculated value
+        helper_text = (
+            f"To convert frames to hours, multiply frame number by {time_interval_hours:.4f}\n"
+            f"Example: Frame 10 = 10 × {time_interval_hours:.4f} = {10 * time_interval_hours:.2f} hours"
+        )
+
+        self.focus_conversion_help.setText(helper_text)
 
     def load_experiment_data(self):
         """Load data from existing experiment into the form"""
