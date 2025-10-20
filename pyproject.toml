@@ -31,6 +31,7 @@ dependencies = [
     "numba (>=0.61.2,<0.62.0)",
     "seaborn>=0.13.2",
     "pyarrow>=21.0.0",
+    "btrack (>=0.6.5,<0.7.0)",
 ]
 
 [project.gui-scripts]
