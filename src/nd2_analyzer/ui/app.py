@@ -33,7 +33,7 @@ class App(QMainWindow):
 
         self.appstate = ApplicationState.create_instance()
 
-        self.setWindowTitle("Partaker 2si - GUI")
+        self.setWindowTitle("Partaker 2 - GUI")
         self.setGeometry(100, 100, 1000, 800)
 
         self.central_widget = QWidget()
