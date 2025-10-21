@@ -1,6 +1,7 @@
 # tracking_widget.py
 import os
 import pickle
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,10 +14,14 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QMessageBox,
     QProgressBar,
+    QFileDialog,
+    QApplication,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from pubsub import pub
 from skimage.measure import label
+import imageio
+import matplotlib.cm as cm
 
 from nd2_analyzer.analysis.metrics_service import MetricsService
 
@@ -65,6 +70,32 @@ class TrackingWidget(QWidget):
         self.motility_button.clicked.connect(self.analyze_motility)
         self.motility_button.setEnabled(False)
         buttons_layout.addWidget(self.motility_button)
+
+        # Export tracking video button
+        self.export_video_button = QPushButton("🎬 Export Tracking Video")
+        self.export_video_button.clicked.connect(self.export_tracking_video)
+        self.export_video_button.setEnabled(False)
+        self.export_video_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B35;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #E55A2B;
+            }
+            QPushButton:pressed {
+                background-color: #CC4B21;
+            }
+            QPushButton:disabled {
+                background-color: #CCCCCC;
+                color: #666666;
+            }
+        """)
+        buttons_layout.addWidget(self.export_video_button)
 
         layout.addLayout(buttons_layout)
 
@@ -139,6 +170,7 @@ class TrackingWidget(QWidget):
             # Enable UI elements
             self.lineage_button.setEnabled(True)
             self.motility_button.setEnabled(True)
+            self.export_video_button.setEnabled(True)
 
             # Visualize existing tracks
             print("Visualizing existing tracked cells")
@@ -289,6 +321,7 @@ class TrackingWidget(QWidget):
             # Update UI
             self.lineage_button.setEnabled(True)
             self.motility_button.setEnabled(True)
+            self.export_video_button.setEnabled(True)
 
             # Notify other components about tracking data
             pub.sendMessage(
@@ -498,3 +531,128 @@ class TrackingWidget(QWidget):
             lineage_tracks=self.lineage_tracks,
             image_data=self.image_data,
         )
+
+    def export_tracking_video(self):
+        """Export tracking visualization as video"""
+        if not self.tracked_cells or not self.lineage_tracks:
+            QMessageBox.warning(self, "Error", "No tracking data available to export.")
+            return
+
+        # Get save path from user
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        default_name = f"tracking_animation_{timestamp}"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Tracking Video", default_name,
+            "MP4 Video (*.mp4);;Animated GIF (*.gif)")
+
+        if not file_path:
+            return
+
+        try:
+            # Get all unique time points from tracks
+            all_time_points = set()
+            for track in self.lineage_tracks:
+                if 't' in track:
+                    all_time_points.update(track['t'])
+                else:
+                    all_time_points.update(range(len(track.get('x', []))))
+
+            if not all_time_points:
+                QMessageBox.warning(self, "Error", "No time data found in tracks.")
+                return
+
+            time_points = sorted(all_time_points)
+
+            # Create progress dialog
+            progress = QProgressDialog(
+                "Generating video frames...", "Cancel", 0, len(time_points), self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+
+            # Generate frames
+            frames = []
+            cmap = cm.get_cmap("tab20", min(20, len(self.tracked_cells)))
+
+            for frame_idx, t in enumerate(time_points):
+                if progress.wasCanceled():
+                    return
+
+                progress.setValue(frame_idx)
+                QApplication.processEvents()
+
+                # Create figure for this frame
+                fig = plt.figure(figsize=(10, 8), dpi=100)
+                ax = fig.add_subplot(111)
+
+                # Plot tracks up to current time point
+                for i, track in enumerate(self.tracked_cells):
+                    track_times = track.get('t', list(range(len(track.get('x', [])))))
+
+                    # Get indices up to current time
+                    indices = [idx for idx, tt in enumerate(track_times) if tt <= t]
+
+                    if indices:
+                        color = cmap(i % 20)
+                        x_vals = [track['x'][idx] for idx in indices]
+                        y_vals = [track['y'][idx] for idx in indices]
+
+                        # Plot track path
+                        ax.plot(x_vals, y_vals, '-', color=color, linewidth=1, alpha=0.7)
+
+                        # Plot current position (last point up to time t)
+                        ax.plot(x_vals[-1], y_vals[-1], 'o', color=color,
+                               markersize=8, alpha=0.9)
+
+                        # Mark start point
+                        if len(indices) == len(track_times):  # Full track shown
+                            ax.plot(x_vals[0], y_vals[0], 's', color=color,
+                                   markersize=5, alpha=0.5)
+
+                # Add time annotation
+                ax.text(0.02, 0.98, f'Time: {t}', transform=ax.transAxes,
+                       fontsize=14, fontweight='bold', color='black',
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                       verticalalignment='top')
+
+                ax.set_title(f"Cell Tracking - Frame {t}")
+                ax.set_xlabel("X Position (pixels)")
+                ax.set_ylabel("Y Position (pixels)")
+                ax.grid(True, alpha=0.3)
+
+                # Render to image
+                fig.canvas.draw()
+                width, height = fig.get_size_inches() * fig.dpi
+                width, height = int(width), int(height)
+
+                buf = fig.canvas.buffer_rgba()
+                img_array = np.asarray(buf).reshape((height, width, 4))
+                img_array = img_array[:, :, :3]  # Convert RGBA to RGB
+
+                frames.append(img_array)
+                plt.close(fig)
+
+            progress.setValue(len(time_points))
+
+            # Save video
+            progress.setLabelText("Saving video file...")
+            QApplication.processEvents()
+
+            fps = 5  # 5 frames per second
+
+            if file_path.lower().endswith('.gif'):
+                imageio.mimsave(file_path, frames, fps=fps)
+            else:
+                if not file_path.lower().endswith('.mp4'):
+                    file_path += '.mp4'
+                imageio.mimsave(file_path, frames, fps=fps, codec='libx264')
+
+            progress.close()
+            QMessageBox.information(self, "Export Complete",
+                                   f"Tracking video exported to:\n{file_path}")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Export Error",
+                               f"Failed to export video: {str(e)}")

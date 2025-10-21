@@ -1574,6 +1574,10 @@ class MotilityDialog(QDialog):
         self.density_layout = QVBoxLayout(self.density_tab)
         self.tab_widget.addTab(self.density_tab, "Density Regions (Forecast Data)")
 
+        # Import and add animation button
+        from ui.widgets.density_animation import add_animation_button_to_motility_widget
+        add_animation_button_to_motility_widget(self)
+
         # Create matplotlib figure
 
         density_fig = plt.figure(figsize=(12, 8))
