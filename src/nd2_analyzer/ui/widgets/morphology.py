@@ -717,13 +717,15 @@ class MorphologyWidget(QWidget):
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
 
-        # Get current position and channel
-        p = pub.sendMessage("get_current_p", default=0)
-        c = pub.sendMessage("get_current_c", default=0)
-
-        # Get experiment config for time interval if available
+        # Get current position using ApplicationState
         from nd2_analyzer.data.appstate import ApplicationState
         appstate = ApplicationState.get_instance()
+
+        # Get position from current view
+        p = None
+        if appstate and appstate.view_index:
+            _, p, _ = appstate.view_index
+
         time_label = "Frame"
         time_unit = "frame"
 
@@ -733,7 +735,7 @@ class MorphologyWidget(QWidget):
             time_label = f"Time (minutes, {interval_minutes:.2f} min/frame)"
             time_unit = "minutes"
 
-        # Query metrics for all timepoints for this position and channel
+        # Query metrics for all timepoints for this position
         df = self.metrics_service.query_optimized(position=p)
 
         if df.is_empty():
