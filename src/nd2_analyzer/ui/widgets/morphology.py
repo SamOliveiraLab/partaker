@@ -721,6 +721,18 @@ class MorphologyWidget(QWidget):
         p = pub.sendMessage("get_current_p", default=0)
         c = pub.sendMessage("get_current_c", default=0)
 
+        # Get experiment config for time interval if available
+        from nd2_analyzer.data.appstate import ApplicationState
+        appstate = ApplicationState.get_instance()
+        time_label = "Frame"
+        time_unit = "frame"
+
+        if appstate and appstate.experiment and hasattr(appstate.experiment, 'phc_interval'):
+            # Convert interval from seconds to minutes
+            interval_minutes = appstate.experiment.phc_interval / 60.0
+            time_label = f"Time (minutes, {interval_minutes:.2f} min/frame)"
+            time_unit = "minutes"
+
         # Query metrics for all timepoints for this position and channel
         df = self.metrics_service.query_optimized(position=p)
 
@@ -763,25 +775,40 @@ class MorphologyWidget(QWidget):
         # Plot fractions
         for morph, fractions in morphology_fractions.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax1.plot(times, fractions, "o-", label=morph, color=color)
+            ax1.plot(times, fractions, "o-", label=morph, color=color, linewidth=2, markersize=6)
 
-        ax1.set_title("Morphology Fractions Over Time")
-        ax1.set_ylabel("Fraction (%)")
-        ax1.legend()
+        # Add context to title
+        ax1.set_title(f"Morphology Fractions Over Time - Position {p}", fontweight='bold', fontsize=12)
+        ax1.set_ylabel("Fraction (%)", fontsize=10)
+        ax1.set_xlabel(time_label, fontsize=10)
+        ax1.legend(loc='best', fontsize=9)
+        ax1.grid(True, alpha=0.3)
+
+        # Add frame range info as text
+        if time_unit == "minutes":
+            duration_mins = len(times) * interval_minutes
+            info_text = f"Frames: {min(times)}-{max(times)} ({len(times)} frames)\nDuration: {duration_mins:.1f} minutes\nTotal cells: {sum(total_cells)}"
+        else:
+            info_text = f"Frames: {min(times)}-{max(times)} ({len(times)} frames)\nTotal cells: {sum(total_cells)}"
+
+        ax1.text(0.02, 0.98, info_text,
+                transform=ax1.transAxes, fontsize=8, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
         # Plot counts
         for morph, counts in morphology_counts.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax2.plot(times, counts, "o-", label=morph, color=color)
+            ax2.plot(times, counts, "o-", label=morph, color=color, linewidth=2, markersize=6)
 
         # Add total cells line on secondary y-axis
         ax3 = ax2.twinx()
-        ax3.plot(times, total_cells, "k--", label="Total Cells")
+        ax3.plot(times, total_cells, "k--", label="Total Cells", linewidth=2)
 
-        ax2.set_title("Cell Counts By Morphology Over Time")
-        ax2.set_xlabel("Time (mins)")
-        ax2.set_ylabel("Count by Class")
-        ax3.set_ylabel("Total Cell Count")
+        ax2.set_title(f"Cell Counts By Morphology Over Time - Position {p}", fontweight='bold', fontsize=12)
+        ax2.set_xlabel(time_label, fontsize=10)
+        ax2.set_ylabel("Count by Class", fontsize=10)
+        ax3.set_ylabel("Total Cell Count", fontsize=10)
+        ax2.grid(True, alpha=0.3)
 
         # Legend for second plot
         lines1, labels1 = ax2.get_legend_handles_labels()
