@@ -1,5 +1,8 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+from PIL import Image
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget,
@@ -162,6 +165,14 @@ class MorphologyWidget(QWidget):
         )
         self.export_button.clicked.connect(self.export_metrics_to_csv)
         self.button_layout.addWidget(self.export_button)
+
+        # Export to GIF button
+        self.export_gif_button = QPushButton("Export to GIF")
+        self.export_gif_button.setStyleSheet(
+            "background-color: white; color: black; font-size: 14px;"
+        )
+        self.export_gif_button.clicked.connect(self.create_gif_animations)
+        self.button_layout.addWidget(self.export_gif_button)
 
         # Save GIF button (initially hidden, will appear after cell selection)
         self.save_gif_button = None
@@ -685,6 +696,163 @@ class MorphologyWidget(QWidget):
                 QMessageBox.warning(self, "Cancelled", "Export cancelled.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+
+    def create_gif_animations(self):
+        """Create GIF animations for original and segmented images across all time points."""
+        try:
+            from nd2_analyzer.data.appstate import ApplicationState
+
+            # Get application state
+            appstate = ApplicationState.get_instance()
+            if not appstate or not appstate.image_data:
+                QMessageBox.warning(self, "Error", "No image data available.")
+                return
+
+            # Get current position and channel
+            p, c = 0, 0
+            if appstate.view_index:
+                _, p, c = appstate.view_index
+
+            image_data = appstate.image_data
+
+            # Get total number of time points
+            total_time_points = image_data.data.shape[0]
+
+            # Check which frames have been segmented
+            segmented_frames_set = set()
+            if hasattr(image_data.segmentation_cache, 'mmap_arrays_idx') and image_data.segmentation_cache.mmap_arrays_idx:
+                model_name = list(image_data.segmentation_cache.mmap_arrays_idx.keys())[0]
+                _, segmented_indices = image_data.segmentation_cache.mmap_arrays_idx[model_name]
+                # Filter for current position and channel
+                segmented_frames_set = {idx[0] for idx in segmented_indices if len(idx) >= 3 and idx[1] == p and idx[2] == c}
+
+            if not segmented_frames_set:
+                reply = QMessageBox.question(
+                    self,
+                    "No Segmentation Found",
+                    "No segmented frames found for this position/channel.\n\n"
+                    "Do you want to export only the original images?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    return
+
+            # Ask user where to save the GIFs
+            save_dir = QFileDialog.getExistingDirectory(
+                self, "Select Directory to Save GIFs"
+            )
+            if not save_dir:
+                QMessageBox.warning(self, "Cancelled", "Export cancelled.")
+                return
+
+            # Create lists to store frames
+            original_frames = []
+            segmented_frames = []
+
+            # Show progress
+            from PySide6.QtWidgets import QProgressDialog
+            progress = QProgressDialog(
+                "Creating GIF animations...", "Cancel", 0, total_time_points, self
+            )
+            progress.setWindowTitle("Exporting GIFs")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.show()
+
+            # Loop through all time points
+            for t in range(total_time_points):
+                if progress.wasCanceled():
+                    QMessageBox.information(self, "Cancelled", "GIF export cancelled.")
+                    return
+
+                progress.setValue(t)
+                progress.setLabelText(f"Processing frame {t + 1}/{total_time_points}...")
+
+                # Get original image
+                original_img = image_data.get(t, p, c)
+
+                # Normalize to 8-bit for GIF
+                original_img_normalized = ((original_img - original_img.min()) /
+                                          (original_img.max() - original_img.min()) * 255).astype(np.uint8)
+                original_frames.append(Image.fromarray(original_img_normalized))
+
+                # Get segmented image (labeled) - only if already segmented
+                if t in segmented_frames_set:
+                    try:
+                        # Get the segmentation model name - use the first available model
+                        if hasattr(image_data.segmentation_cache, 'mmap_arrays_idx') and image_data.segmentation_cache.mmap_arrays_idx:
+                            model_name = list(image_data.segmentation_cache.mmap_arrays_idx.keys())[0]
+                            # Directly access the cached array without triggering processing
+                            mmap_array, _ = image_data.segmentation_cache.mmap_arrays_idx[model_name]
+                            segmented_img = mmap_array[t, p, c]
+
+                            # Create a colored version of the labeled image
+                            # Each label gets a unique color
+                            from skimage import color
+                            from skimage.measure import label
+
+                            # If it's binary, convert to labels
+                            if segmented_img.max() <= 1:
+                                segmented_img = label(segmented_img)
+
+                            # Create colored label image
+                            colored_labels = color.label2rgb(segmented_img, bg_label=0)
+                            colored_labels_uint8 = (colored_labels * 255).astype(np.uint8)
+                            segmented_frames.append(Image.fromarray(colored_labels_uint8))
+                        else:
+                            # No segmentation available, create blank image
+                            blank = np.zeros_like(original_img_normalized)
+                            segmented_frames.append(Image.fromarray(blank))
+                    except Exception as e:
+                        print(f"Error getting segmentation for frame {t}: {e}")
+                        # Create blank image if segmentation fails
+                        blank = np.zeros_like(original_img_normalized)
+                        segmented_frames.append(Image.fromarray(blank))
+                else:
+                    # Frame not segmented, create blank image
+                    blank = np.zeros_like(original_img_normalized)
+                    segmented_frames.append(Image.fromarray(blank))
+
+            progress.setValue(total_time_points)
+
+            # Save GIFs
+            original_gif_path = f"{save_dir}/original_p{p}_c{c}.gif"
+            segmented_gif_path = f"{save_dir}/segmented_p{p}_c{c}.gif"
+
+            # Save original GIF
+            original_frames[0].save(
+                original_gif_path,
+                save_all=True,
+                append_images=original_frames[1:],
+                duration=200,  # 200ms per frame
+                loop=0
+            )
+
+            # Save segmented GIF
+            segmented_frames[0].save(
+                segmented_gif_path,
+                save_all=True,
+                append_images=segmented_frames[1:],
+                duration=200,  # 200ms per frame
+                loop=0
+            )
+
+            progress.close()
+
+            segmented_count = len(segmented_frames_set)
+            QMessageBox.information(
+                self,
+                "Success",
+                f"GIFs created successfully!\n\n"
+                f"Original: {original_gif_path}\n"
+                f"Segmented: {segmented_gif_path}\n\n"
+                f"Total frames: {total_time_points}\n"
+                f"Segmented frames: {segmented_count}/{total_time_points}"
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to create GIFs: {str(e)}")
 
     # Handlers for pub/sub messages
     def on_cell_mapping_updated(self, cell_mapping):
