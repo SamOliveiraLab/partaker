@@ -1677,12 +1677,12 @@ class MotilityDialog(QDialog):
         self.density_layout.addLayout(bottom_panel)
 
     def export_forecast_data(self):
-        """Export with dialog to choose filtered vs all tracks"""
+        """Export with dialog to choose filtered vs all tracks, with optional morphology matching"""
 
         # Quick dialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Export Options")
-        dialog.setFixedSize(350, 150)
+        dialog.setFixedSize(400, 220)
 
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel("Choose export scope:"))
@@ -1693,6 +1693,13 @@ class MotilityDialog(QDialog):
 
         layout.addWidget(filtered_radio)
         layout.addWidget(all_radio)
+
+        # Add morphology option
+        layout.addWidget(QLabel("\nInclude morphological features:"))
+        morphology_checkbox = QCheckBox("Include morphology data (area, shape, health)")
+        morphology_checkbox.setChecked(True)
+        morphology_checkbox.setToolTip("Uses position-based matching to add biological features")
+        layout.addWidget(morphology_checkbox)
 
         # Buttons
         buttons = QHBoxLayout()
@@ -1711,54 +1718,233 @@ class MotilityDialog(QDialog):
         # Export based on choice
         tracks = self.lineage_tracks if all_radio.isChecked() else self.tracked_cells
         scope = "all" if all_radio.isChecked() else "filtered"
+        include_morphology = morphology_checkbox.isChecked()
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Cell Tracking Data",
-            f"forcast_data_{scope}_tracks.csv",
+            f"enhanced_tracking_data_{scope}_tracks.csv",
             "CSV Files (*.csv)",
         )
 
         if file_path:
-            # Create enhanced data with IDs and time points
-            export_data = []
-            for track in tracks:
-                track_id = track.get("ID", -1)
-                x_coords = track["x"]
-                y_coords = track["y"]
-                t_coords = track.get("t", list(range(len(x_coords))))
+            try:
+                # Show progress dialog for morphology matching
+                if include_morphology:
+                    from PySide6.QtWidgets import QProgressDialog
+                    progress = QProgressDialog(
+                        "Matching tracking data with morphological features...",
+                        "Cancel", 0, 100, self)
+                    progress.setWindowModality(Qt.WindowModal)
+                    progress.show()
 
-                # Get lineage information
-                parent_id = track.get("parent")
-                children_ids = track.get("children", [])
+                # Get current position and channel for metrics lookup
+                from nd2_analyzer.data.appstate import ApplicationState
+                appstate = ApplicationState.get_instance()
+                p = None
+                c = 0
+                if appstate and appstate.view_index:
+                    _, p, c = appstate.view_index
+                if p is None:
+                    p = 0
 
-                for i, (x, y, t) in enumerate(zip(x_coords, y_coords, t_coords)):
-                    export_data.append(
-                        {
-                            "cell_id": track_id,
-                            "time_point": t,
-                            "position_in_track": i,
-                            "x_pixels": x,
-                            "y_pixels": y,
-                            "x_um": x * 0.07,
-                            "y_um": y * 0.07,
-                            "parent_id": parent_id,
-                            "has_children": len(children_ids) > 0,
-                            "track_length": len(x_coords),
-                            "source": f"{scope}_tracks",
+                # Create enhanced data with morphological features
+                export_data = []
+                total_positions = sum(len(track['x']) for track in tracks)
+                processed_positions = 0
+
+                # Cache for metrics to avoid repeated queries
+                metrics_cache = {}
+
+                print(f"Starting export with morphology matching for {len(tracks)} tracks")
+                print(f"Total positions to process: {total_positions}")
+                print(f"Position: {p}, Channel: {c}")
+
+                for track_idx, track in enumerate(tracks):
+                    if include_morphology and progress.wasCanceled():
+                        return
+
+                    track_id = track.get('ID', -1)
+                    x_coords = track['x']
+                    y_coords = track['y']
+                    t_coords = track.get('t', list(range(len(x_coords))))
+
+                    # Get lineage information
+                    parent_id = track.get('parent')
+                    children_ids = track.get('children', [])
+
+                    for i, (x, y, t) in enumerate(zip(x_coords, y_coords, t_coords)):
+                        # Basic tracking data
+                        row_data = {
+                            'cell_id': track_id,
+                            'time_point': t,
+                            'position_in_track': i,
+                            'x_pixels': x,
+                            'y_pixels': y,
+                            'x_um': x * 0.07,  # Default calibration
+                            'y_um': y * 0.07,
+                            'parent_id': parent_id,
+                            'has_children': len(children_ids) > 0,
+                            'children_ids': str(children_ids) if children_ids else '',
+                            'track_length': len(x_coords),
+                            'source': f'{scope}_tracks_with_morphology' if include_morphology else f'{scope}_tracks'
                         }
+
+                        # Add morphological features if requested
+                        if include_morphology:
+                            morphology_data = self._find_matching_morphology(
+                                x, y, t, p, metrics_cache, tolerance=15)
+
+                            if morphology_data:
+                                # Add all available morphological features
+                                row_data.update({
+                                    'morphology_cell_id': morphology_data.get('cell_id'),  # Original per-frame cell_id
+                                    'centroid_x': morphology_data.get('centroid_x'),
+                                    'centroid_y': morphology_data.get('centroid_y'),
+                                    'area_pixels': morphology_data.get('area'),
+                                    'perimeter_pixels': morphology_data.get('perimeter'),
+                                    'aspect_ratio': morphology_data.get('aspect_ratio'),
+                                    'circularity': morphology_data.get('circularity'),
+                                    'solidity': morphology_data.get('solidity'),
+                                    'eccentricity': morphology_data.get('eccentricity'),
+                                    'major_axis_length': morphology_data.get('major_axis_length'),
+                                    'minor_axis_length': morphology_data.get('minor_axis_length'),
+                                    'equivalent_diameter': morphology_data.get('equivalent_diameter'),
+                                    'orientation_radians': morphology_data.get('orientation'),
+                                    'morphology_class': morphology_data.get('morphology_class'),
+                                    'match_distance': morphology_data.get('_match_distance'),
+                                    'bbox_y1': morphology_data.get('y1'),
+                                    'bbox_x1': morphology_data.get('x1'),
+                                    'bbox_y2': morphology_data.get('y2'),
+                                    'bbox_x2': morphology_data.get('x2'),
+                                    'fluorescence_channel': morphology_data.get('fluorescence_channel'),
+                                    'fluo_level': morphology_data.get('fluo_level'),
+                                })
+                            else:
+                                # No morphology match found - add None values
+                                row_data.update({
+                                    'morphology_cell_id': None,
+                                    'centroid_x': None,
+                                    'centroid_y': None,
+                                    'area_pixels': None,
+                                    'perimeter_pixels': None,
+                                    'aspect_ratio': None,
+                                    'circularity': None,
+                                    'solidity': None,
+                                    'eccentricity': None,
+                                    'major_axis_length': None,
+                                    'minor_axis_length': None,
+                                    'equivalent_diameter': None,
+                                    'orientation_radians': None,
+                                    'morphology_class': None,
+                                    'match_distance': None,
+                                    'bbox_y1': None, 'bbox_x1': None, 'bbox_y2': None, 'bbox_x2': None,
+                                    'fluorescence_channel': None,
+                                    'fluo_level': None,
+                                })
+
+                        export_data.append(row_data)
+                        processed_positions += 1
+
+                        # Update progress
+                        if include_morphology and processed_positions % 50 == 0:
+                            progress_percent = int((processed_positions / total_positions) * 100)
+                            progress.setValue(progress_percent)
+                            QApplication.processEvents()
+
+                if include_morphology:
+                    progress.setValue(100)
+
+                # Save to CSV
+                df = pd.DataFrame(export_data)
+                df.to_csv(file_path, index=False)
+
+                # Calculate statistics
+                total_positions = len(export_data)
+                if include_morphology:
+                    matched_positions = df['morphology_class'].notna().sum()
+                    match_rate = (matched_positions / total_positions * 100) if total_positions > 0 else 0
+                    avg_match_distance = df['match_distance'].mean() if 'match_distance' in df else 0
+
+                    QMessageBox.information(
+                        self,
+                        "Export Complete",
+                        f"Exported {len(tracks)} tracks with {total_positions} position records\n\n"
+                        f"Morphology Matching Statistics:\n"
+                        f"  • Matched: {matched_positions}/{total_positions} ({match_rate:.1f}%)\n"
+                        f"  • Avg match distance: {avg_match_distance:.2f} pixels\n\n"
+                        f"Includes: tracking, lineage, and morphology data!"
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Export Complete",
+                        f"Exported {len(tracks)} tracks with {total_positions} position records\n"
+                        f"Each record includes cell_id, time_point, and lineage info"
                     )
 
-            df = pd.DataFrame(export_data)
-            df.to_csv(file_path, index=False)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                QMessageBox.critical(
+                    self,
+                    "Export Error",
+                    f"Failed to export data: {str(e)}"
+                )
 
-            QMessageBox.information(
-                self,
-                "Export Complete",
-                f"Exported {len(tracks)} tracks with {len(export_data)} position records\n"
-                f"Each record includes cell_id, time_point, and lineage info\n"
-                f"Perfect for Hamed's flow simulations!",
-            )
+    def _find_matching_morphology(self, track_x, track_y, track_t, position, cache, tolerance=15):
+        """
+        Find morphology metrics that match a track position using spatial-temporal proximity.
+
+        Args:
+            track_x, track_y: Track position coordinates
+            track_t: Track time point
+            position: Image position (P)
+            cache: Dictionary to cache metrics queries
+            tolerance: Maximum pixel distance for considering a match (default: 15px)
+
+        Returns:
+            dict: Morphology data if match found, None otherwise
+        """
+        # Create cache key
+        cache_key = (track_t, position)
+
+        # Check cache first
+        if cache_key not in cache:
+            try:
+                # Query metrics for this time/position
+                metrics_df = self.metrics_service.query_optimized(time=track_t, position=position)
+
+                if not metrics_df.is_empty():
+                    cache[cache_key] = metrics_df.to_pandas()
+                else:
+                    cache[cache_key] = pd.DataFrame()  # Empty dataframe
+
+            except Exception as e:
+                print(f"Error querying metrics for t={track_t}, p={position}: {e}")
+                cache[cache_key] = pd.DataFrame()
+
+        metrics_df = cache[cache_key]
+
+        if metrics_df.empty:
+            return None
+
+        # Find closest cell by centroid distance
+        best_match = None
+        min_distance = float('inf')
+
+        for _, row in metrics_df.iterrows():
+            # Calculate distance between track position and cell centroid
+            dx = track_x - row['centroid_x']
+            dy = track_y - row['centroid_y']
+            distance = np.sqrt(dx*dx + dy*dy)
+
+            if distance < tolerance and distance < min_distance:
+                min_distance = distance
+                best_match = row.to_dict()
+                best_match['_match_distance'] = distance  # Store match quality
+
+        return best_match
 
     def export_density_grid(self):
         """Export density grid analysis"""
