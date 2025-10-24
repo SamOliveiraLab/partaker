@@ -540,11 +540,11 @@ class TrackingWidget(QWidget):
 
         # Get save path from user
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        default_name = f"tracking_animation_{timestamp}"
+        default_name = f"tracking_animation_{timestamp}.gif"
 
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Tracking Video", default_name,
-            "MP4 Video (*.mp4);;Animated GIF (*.gif)")
+            self, "Export Tracking Animation", default_name,
+            "Animated GIF (*.gif)")
 
         if not file_path:
             return
@@ -566,7 +566,7 @@ class TrackingWidget(QWidget):
 
             # Create progress dialog
             progress = QProgressDialog(
-                "Generating video frames...", "Cancel", 0, len(time_points), self)
+                "Generating GIF frames...", "Cancel", 0, len(time_points), self)
             progress.setWindowModality(Qt.WindowModal)
             progress.show()
 
@@ -634,25 +634,22 @@ class TrackingWidget(QWidget):
 
             progress.setValue(len(time_points))
 
-            # Save video
-            progress.setLabelText("Saving video file...")
+            # Save GIF
+            progress.setLabelText("Saving GIF file...")
             QApplication.processEvents()
 
-            fps = 5  # 5 frames per second
+            if not file_path.lower().endswith('.gif'):
+                file_path += '.gif'
 
-            if file_path.lower().endswith('.gif'):
-                imageio.mimsave(file_path, frames, fps=fps)
-            else:
-                if not file_path.lower().endswith('.mp4'):
-                    file_path += '.mp4'
-                imageio.mimsave(file_path, frames, fps=fps, codec='libx264')
+            fps = 5  # 5 frames per second
+            imageio.mimsave(file_path, frames, fps=fps)
 
             progress.close()
             QMessageBox.information(self, "Export Complete",
-                                   f"Tracking video exported to:\n{file_path}")
+                                   f"Tracking animation exported to:\n{file_path}")
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Export Error",
-                               f"Failed to export video: {str(e)}")
+                               f"Failed to export GIF: {str(e)}")
