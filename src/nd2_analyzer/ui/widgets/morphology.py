@@ -53,7 +53,7 @@ class MorphologyWidget(QWidget):
         pub.subscribe(self.on_cell_mapping_updated, "cell_mapping_updated")
         pub.subscribe(self.on_segmentation_ready, "segmentation_ready")
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
-        pub.subscribe(self.on_current_view_changed, "current_view_changed")
+        pub.subscribe(self.on_view_index_changed, "view_index_changed")
         pub.subscribe(self.set_tracking_data, "tracking_data_available")
         pub.subscribe(
             self.process_morphology_time_series,
@@ -73,25 +73,64 @@ class MorphologyWidget(QWidget):
             callback: Function to receive the mapping data
         """
         print(
-            f"MorphologyWidget: provide_cell_mapping called, have {len(self.cell_mapping)} cells"
+            f"MorphologyWidget: provide_cell_mapping called for T={time}, P={position}, C={channel}, cell_id={cell_id}"
         )
 
-        if not self.cell_mapping:
-            print("No cell mapping data available")
-            callback(None)
-            return
+        # Query metrics service for the requested frame on-demand
+        try:
+            polars_df = self.metrics_service.query_optimized(time=time, position=position)
 
-        # If cell_id is specified, check if it exists
-        if cell_id is not None and cell_id not in self.cell_mapping:
-            print(f"Cell ID {cell_id} not found in cell mapping")
-            callback(None)
-            return
+            if polars_df.is_empty():
+                print(f"   No metrics found for T={time}, P={position}")
+                callback(None)
+                return
 
-        # Return the mapping (full or filtered by cell_id)
-        if cell_id is not None:
-            callback({cell_id: self.cell_mapping[cell_id]})
-        else:
-            callback(self.cell_mapping)
+            # Convert to pandas and build cell_mapping for this frame
+            metrics_df = polars_df.to_pandas()
+            frame_cell_mapping = {}
+
+            for idx, row in metrics_df.iterrows():
+                if "cell_id" not in row:
+                    continue
+
+                row_cell_id = int(row["cell_id"])
+
+                # If specific cell requested, only process that one
+                if cell_id is not None and row_cell_id != cell_id:
+                    continue
+
+                # Extract bounding box
+                if all(col in row for col in ["y1", "x1", "y2", "x2"]):
+                    bbox = (int(row["y1"]), int(row["x1"]), int(row["y2"]), int(row["x2"]))
+                else:
+                    if "centroid_y" in row and "centroid_x" in row:
+                        cy, cx = row["centroid_y"], row["centroid_x"]
+                        bbox = (int(cy - 5), int(cx - 5), int(cy + 5), int(cx + 5))
+                    else:
+                        bbox = (0, 0, 10, 10)
+
+                # Extract metrics
+                exclude_cols = ["cell_id", "y1", "x1", "y2", "x2"]
+                metrics = {col: row[col] for col in row.index if col not in exclude_cols}
+
+                frame_cell_mapping[row_cell_id] = {"bbox": bbox, "metrics": metrics}
+
+            if cell_id is not None:
+                if cell_id in frame_cell_mapping:
+                    print(f"   ✅ Found cell {cell_id} in frame {time}")
+                    callback({cell_id: frame_cell_mapping[cell_id]})
+                else:
+                    print(f"   ❌ Cell {cell_id} not found in frame {time}")
+                    callback(None)
+            else:
+                print(f"   Returning {len(frame_cell_mapping)} cells for frame {time}")
+                callback(frame_cell_mapping)
+
+        except Exception as e:
+            print(f"   Error fetching cell mapping: {e}")
+            import traceback
+            traceback.print_exc()
+            callback(None)
 
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -212,7 +251,10 @@ class MorphologyWidget(QWidget):
 
     def fetch_metrics_from_service(self):
         """Fetch cell metrics and classification from the metrics service dataframe and annotate image"""
+        print("🔵 fetch_metrics_from_service CALLED")
+
         if not self.metrics_service:
+            print("❌ Metrics service not available")
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
 
@@ -221,25 +263,29 @@ class MorphologyWidget(QWidget):
             t = pub.sendMessage("get_current_t", default=0)
             p = pub.sendMessage("get_current_p", default=0)
             c = pub.sendMessage("get_current_c", default=0)
+
+            print(f"   Raw values from pub.sendMessage: t={t}, p={p}, c={c}")
+
             # Ensure values are not None
             t = t if t is not None else 0
             p = p if p is not None else 0
             c = c if c is not None else 0
 
-            print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
+            print(f"🔵 Fetching metrics for T:{t}, P:{p}, C:{c}")
 
             # Request cell metrics from the service for current frame
+            print(f"   Querying metrics_service.query_optimized(time={t}, position={p})")
             polars_df = self.metrics_service.query_optimized(time=t, position=p)
 
             if polars_df.is_empty():
-                print("No metrics found in polars dataframe")
+                print("❌ No metrics found in polars dataframe - EMPTY RESULT")
                 QMessageBox.warning(
                     self, "No Data", "No metrics available for the current frame."
                 )
                 return
 
-            print(f"Retrieved polars dataframe with shape: {polars_df.shape}")
-            print(f"Columns: {polars_df.columns}")
+            print(f"✅ Retrieved polars dataframe with shape: {polars_df.shape}")
+            print(f"   Columns: {polars_df.columns}")
 
             # Convert polars to pandas
             metrics_df = polars_df.to_pandas()
@@ -874,10 +920,40 @@ class MorphologyWidget(QWidget):
         if self.save_gif_button:
             self.save_gif_button.setVisible(False)
 
-    def on_current_view_changed(self, t, p, c):
+    def on_view_index_changed(self, index):
         """Handler for when the current view changes (time/position/channel)"""
-        # Update display if needed for new t/p/c values
-        pass
+        t, p, c = index
+        print(f"🔄 MorphologyWidget.on_view_index_changed called: T={t}, P={p}, C={c}")
+        print(f"   Has tracked_cell_lineage: {hasattr(self, 'tracked_cell_lineage')}")
+
+        if hasattr(self, "tracked_cell_lineage"):
+            print(f"   tracked_cell_lineage contents: {self.tracked_cell_lineage}")
+
+        # If we're tracking a cell lineage, re-highlight in the new frame
+        if hasattr(self, "tracked_cell_lineage") and self.tracked_cell_lineage:
+            # Check if any cells should be highlighted in this frame
+            if t in self.tracked_cell_lineage:
+                cell_ids_to_highlight = self.tracked_cell_lineage[t]
+                print(
+                    f"✅ Frame {t}: Re-highlighting tracked cells: {cell_ids_to_highlight}"
+                )
+
+                # For now, highlight the first cell (or parent)
+                # TODO: Enhance ViewAreaWidget to support multiple cell highlighting for lineages
+                primary_cell_id = cell_ids_to_highlight[0]
+                self.highlight_cell_in_image(primary_cell_id)
+
+                # If multiple cells, show info about the lineage
+                if len(cell_ids_to_highlight) > 1:
+                    print(
+                        f"  → Cell divided! Also tracking children: {cell_ids_to_highlight[1:]}"
+                    )
+            else:
+                print(
+                    f"❌ Frame {t}: Tracked cell not present in this frame (appears in frames: {sorted(self.tracked_cell_lineage.keys())})"
+                )
+        else:
+            print(f"   No cell lineage being tracked")
 
     def process_morphology_time_series(self):
         """Process morphology across time points using metrics service"""
