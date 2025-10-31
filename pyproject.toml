@@ -8,7 +8,20 @@ readme = "README.md"
 license = { text = "LGPL" }
 dependencies = [
     "pyside6 (==6.7.2)",
-    "tensorflow-macos (==2.15)",
+    # --- >>> PLATFORM-SPECIFIC TENSORFLOW (THIS BLOCK IS THE FIX) <<<
+    # Windows, Linux: regular tensorflow
+    "tensorflow (>=2.13.0,<2.16.0) ; platform_system != 'Darwin' and platform_system != 'Windows'",
+    # Mac ARM (Apple Silicon)
+    "tensorflow-macos (==2.15) ; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    # Mac Intel (if you ever use Intel Mac)
+    "tensorflow-macos (==2.15) ; platform_system == 'Darwin' and platform_machine != 'arm64'",
+    # Windows: Intel/AMD optimized
+    "tensorflow-intel (>=2.13.0,<2.16.0) ; platform_system == 'Windows'",
+    # Tensorflow IO GCS filesystem for non-Mac-ARM
+    "tensorflow-io-gcs-filesystem (>=0.23.1) ; platform_machine != 'arm64' or platform_system != 'Darwin'",
+    # (Old) Windows: keep compatibility version
+    "tensorflow-io-gcs-filesystem (<0.32.0) ; platform_system == 'Windows'",
+    # --- >>> END OF PLATFORM-SPECIFIC BLOCK <<<
     "polars (>=1.30.0,<2.0.0)",
     "nd2 (>=0.10.3,<0.11.0)",
     "opencv-python (>=4.11.0.86,<5.0.0.0)",

@@ -1,4 +1,5 @@
 import csv
+import datetime
 import os
 import pickle
 
@@ -115,11 +116,24 @@ class PopulationWidget(QWidget):
         pub.subscribe(self.on_experiment_loaded, "experiment_loaded")
 
     def export_dataframe(self):
-        # Export the DataFrame to a CSV file
+        """
+        Export the DataFrame to a CSV file with a filename based on the experiment name
+        and current datetime.
+        """
         df = self.metrics_service.df
         if not df.is_empty():
-            df.write_csv("cell_metrics.csv")
-            print("DataFrame exported to cell_metrics.csv")
+            experiment_name = (
+                self.experiment.name if self.experiment and self.experiment.name else "unknown_experiment"
+            )
+            current_datetime = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{experiment_name}_{current_datetime}_cell_metrics.csv"
+            
+            # Use QFileDialog to let the user choose the save location
+            file_path, _ = QFileDialog.getSaveFileName(self, "Save DataFrame", filename, "CSV Files (*.csv)")
+            
+            if file_path:
+                df.write_csv(file_path)
+                print(f"DataFrame exported to {file_path}")
         else:
             print("No data to export")
 

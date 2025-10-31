@@ -442,3 +442,15 @@ class App(QMainWindow):
 
             print(f"Error highlighting cell: {e}")
             traceback.print_exc()
+
+
+
+if __name__ == "__main__":
+    import sys
+    from PySide6.QtWidgets import QApplication
+    # Import main window class
+    from nd2_analyzer.ui.app import App  # or whatever main window class is
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec())
