@@ -146,12 +146,12 @@ class MetricsService:
 
             # Calculate derived metrics
             circularity = (
-                (4 * np.pi * cell.area) / (cell.perimeter**2)
+                round((4 * np.pi * cell.area) / (cell.perimeter**2), 4)
                 if cell.perimeter > 0
                 else 0
             )
             aspect_ratio = (
-                cell.major_axis_length / cell.minor_axis_length
+                round(cell.major_axis_length / cell.minor_axis_length, 4)
                 if cell.minor_axis_length > 0
                 else 1.0
             )
@@ -177,24 +177,24 @@ class MetricsService:
             if has_fluorescence:
                 # If only mcherry has fluo
                 if back_fluo_mcherry != -1 and back_fluo_yfp == -1:
-                    mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
+                    mcherry_fluo = round(_frame.mcherry[_frame.labeled_phc == cell_id].mean(), 4)
                     fluorescence_channel = 1
                     fluorescence_level = mcherry_fluo
 
                 # If both have fluorescence, compare them
                 elif back_fluo_mcherry != -1 and back_fluo_yfp != -1:
                     # Select the region corresponding to the cell in the frames
-                    mcherry_fluo = _frame.mcherry[_frame.labeled_phc == cell_id].mean()
-                    yfp_fluo = _frame.yfp[_frame.labeled_phc == cell_id].mean()
+                    mcherry_fluo = round(_frame.mcherry[_frame.labeled_phc == cell_id].mean(), 4)
+                    yfp_fluo = round(_frame.yfp[_frame.labeled_phc == cell_id].mean(), 4)
                     if back_fluo_mcherry != -1 and back_fluo_yfp != -1:
                         if (mcherry_fluo / back_fluo_mcherry) > (
                             yfp_fluo / back_fluo_yfp
                         ):
                             fluorescence_channel = 1
-                            fluorescence_level = mcherry_fluo
+                            fluorescence_level = round(mcherry_fluo, 4)
                         else:
                             fluorescence_channel = 2
-                            fluorescence_level = yfp_fluo
+                            fluorescence_level = round(yfp_fluo, 4)
 
             row_data = {
                 "time": _frame.index[0],
@@ -202,16 +202,16 @@ class MetricsService:
                 "cell_id": cell_id,
                 "area": cell.area,
                 "perimeter": cell.perimeter,
-                "eccentricity": cell.eccentricity,
-                "major_axis_length": cell.major_axis_length,
-                "minor_axis_length": cell.minor_axis_length,
-                "centroid_y": cell.centroid[0],
-                "centroid_x": cell.centroid[1],
+                "eccentricity": round(cell.eccentricity, 4),
+                "major_axis_length": round(cell.major_axis_length, 4),
+                "minor_axis_length": round(cell.minor_axis_length, 4),
+                "centroid_y": round(cell.centroid[0], 4),
+                "centroid_x": round(cell.centroid[1], 4),
                 "aspect_ratio": aspect_ratio,
                 "circularity": circularity,
-                "solidity": cell.solidity,
-                "equivalent_diameter": cell.equivalent_diameter,
-                "orientation": cell.orientation,
+                "solidity": round(cell.solidity, 4),
+                "equivalent_diameter": round(cell.equivalent_diameter, 4),
+                "orientation": round(cell.orientation, 4),
                 "morphology_class": morphology_class,
                 "y1": y1,
                 "x1": x1,
