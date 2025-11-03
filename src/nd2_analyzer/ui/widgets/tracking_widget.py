@@ -46,6 +46,7 @@ class TrackingWidget(QWidget):
 
         # Subscribe to relevant messages
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
+        pub.subscribe(self.provide_lineage_tracks, "get_lineage_tracks")
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -132,6 +133,13 @@ class TrackingWidget(QWidget):
         # Clear visualization
         self.figure.clear()
         self.canvas.draw()
+
+    def provide_lineage_tracks(self, callback):
+        """Provide lineage tracks to other components"""
+        if hasattr(self, "lineage_tracks") and self.lineage_tracks:
+            callback(self.lineage_tracks)
+        else:
+            callback(None)
 
     def track_cells(self):
         """Process cell tracking with lineage detection - using segmentation cache like the old architecture"""

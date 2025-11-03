@@ -170,11 +170,27 @@ def extract_cells_and_metrics(image, segmented_image):
             image, segmented_image.shape, preserve_range=True, anti_aliasing=True
         )
 
-    # Label connected regions in the segmented image
-    labeled_image = label(segmented_image)
+    # Check if segmentation is already labeled (OmniPose/Cellpose) or binary (UNET)
+    max_value = segmented_image.max()
+    unique_values = len(np.unique(segmented_image))
+
+    print(f"Segmented image max value: {max_value}")
+    print(f"Segmented image unique values: {unique_values}")
+
+    # If already labeled (max > 255 or many unique values), use as-is
+    # If binary (0 and 255), call label() to number regions
+    if max_value > 255 or unique_values > 100:
+        print("✓ Already labeled segmentation detected - preserving cell IDs!")
+        labeled_image = segmented_image
+        use_original_labels = True
+    else:
+        print("✓ Binary segmentation detected - calling label() to number cells")
+        labeled_image = label(segmented_image)
+        use_original_labels = False
 
     # Debugging: print labeled image shape
     print(f"Labeled image shape: {labeled_image.shape}")
+    print(f"Number of labeled regions: {labeled_image.max()}")
 
     # Extract properties for each labeled region
     cell_mapping = {}
@@ -201,8 +217,13 @@ def extract_cells_and_metrics(image, segmented_image):
         # Classify the cell's morphology
         metrics["morphology_class"] = classify_morphology(metrics)
 
-        # Add cell information to the mapping
-        cell_id = len(cell_mapping) + 1
+        # Use the original label as cell_id if already labeled
+        # Otherwise, assign sequential IDs
+        if use_original_labels:
+            cell_id = region.label  # Use OmniPose/Cellpose's original cell ID
+        else:
+            cell_id = len(cell_mapping) + 1  # Sequential numbering for binary masks
+
         cell_mapping[cell_id] = {
             "bbox": (x1, y1, x2, y2),
             "metrics": metrics,

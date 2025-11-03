@@ -58,9 +58,17 @@ class SegmentationService:
                 "Segmentation model must be specified for non-normal modes"
             )
 
+        print(f"\n{'#'*60}")
+        print(f"SEGMENTATION SERVICE - Image Request")
+        print(f"{'#'*60}")
+        print(f"  T={time}, P={position}, C={channel}")
+        print(f"  Mode: {mode}")
+        print(f"  Model: {model}")
+
         # Request cached, which will segment if not present
         cache_key = (time, position, channel, model)
         segmented = self.cache.with_model(model)[cache_key]
+        print(f"  Retrieved from cache: shape={segmented.shape}, dtype={segmented.dtype}")
 
         # Crop/Scale if we have it
         if self.crop_coordinates is not None:
@@ -139,13 +147,28 @@ class SegmentationService:
 
     def _post_process(self, raw_image, segmented, mode):
         """Apply final transformations based on display mode"""
+        import numpy as np
+
+        print(f"\n{'*'*60}")
+        print(f"POST-PROCESS FOR DISPLAY MODE: {mode}")
+        print(f"{'*'*60}")
+        print(f"Binary segmentation input:")
+        print(f"  Shape: {segmented.shape}")
+        print(f"  Dtype: {segmented.dtype}")
+        print(f"  Min/Max: {segmented.min()}/{segmented.max()}")
+        print(f"  Unique values: {np.unique(segmented)}")
+        print(f"  Total cell pixels: {np.sum(segmented > 0)}")
+
         if mode == "segmented":
+            print(f"→ Returning binary segmentation as-is (black & white)")
             return segmented
 
         if mode == "overlay":
+            print(f"→ Creating overlay with boundaries on raw image")
             return self._create_overlay(raw_image, segmented)
 
         if mode == "labeled":
+            print(f"→ Applying colormap (will call label() to number regions)")
             return self._apply_colormap(segmented)
 
         raise ValueError(f"Unknown display mode: {mode}")
@@ -171,8 +194,40 @@ class SegmentationService:
         import matplotlib.colors as mcolors
         from skimage.measure import label
 
-        labels = label(segmented)
-        n_labels = labels.max()
+        print(f"\n{'='*60}")
+        print(f"LABELED MODE COLORMAP - Segmentation Service")
+        print(f"{'='*60}")
+        print(f"📊 Input segmentation:")
+        print(f"  Shape: {segmented.shape}")
+        print(f"  Dtype: {segmented.dtype}")
+        print(f"  Min/Max: {segmented.min()}/{segmented.max()}")
+        print(f"  Unique values count: {len(np.unique(segmented))}")
+        print(f"  Total pixels as cells: {np.sum(segmented > 0)}")
+
+        # Check if segmentation is already labeled (OmniPose/Cellpose)
+        # or binary (UNET)
+        max_value = segmented.max()
+        unique_values = len(np.unique(segmented))
+
+        print(f"\n🏷️  Determining if already labeled or binary...")
+        print(f"  Max value: {max_value}")
+        print(f"  Unique values: {unique_values}")
+
+        # If max value > 255 or many unique values, it's already labeled
+        # Binary masks typically have only 0 and 255 (or 0 and 1)
+        if max_value > 255 or unique_values > 100:
+            print(f"  ✓ Already labeled! Using cell IDs as-is (no renumbering)")
+            labels = segmented
+            n_labels = labels.max()
+        else:
+            print(f"  ✓ Binary mask detected, calling label() to number cells...")
+            labels = label(segmented)
+            n_labels = labels.max()
+
+        print(f"  Final number of labeled regions: {n_labels}")
+        print(f"  Labeled shape: {labels.shape}")
+        print(f"  Labeled dtype: {labels.dtype}")
+        print(f"  Sample label values (first 20): {np.unique(labels)[:20]}")
 
         # Generate random hues with fixed high saturation and value for vivid colors
         np.random.seed(42)  # Optional: for reproducibility
@@ -192,6 +247,40 @@ class SegmentationService:
         # Map labels to colors
         colored = lut[labels]
         colored = (colored * 255).astype(np.uint8)
+
+        # Add cell ID text labels on each cell
+        from skimage.measure import regionprops
+
+        print(f"\n📝 ADDING CELL ID LABELS...")
+        regions = regionprops(labels)
+        print(f"  Found {len(regions)} regions to label")
+
+        for region in regions:
+            cell_id = region.label
+            centroid_y, centroid_x = region.centroid
+
+            # Convert to integer coordinates
+            x, y = int(centroid_x), int(centroid_y)
+
+            # Add white text with black outline for visibility
+            text = str(cell_id)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.4
+            thickness = 1
+
+            # Get text size to center it better
+            (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+            # Adjust position to center text
+            text_x = x - text_width // 2
+            text_y = y + text_height // 2
+
+            # Draw black outline (thicker)
+            cv2.putText(colored, text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
+            # Draw white text on top
+            cv2.putText(colored, text, (text_x, text_y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+        print(f"  ✅ Added {len(regions)} cell ID labels")
 
         return colored
 

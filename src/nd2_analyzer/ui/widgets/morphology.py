@@ -922,38 +922,9 @@ class MorphologyWidget(QWidget):
 
     def on_view_index_changed(self, index):
         """Handler for when the current view changes (time/position/channel)"""
-        t, p, c = index
-        print(f"🔄 MorphologyWidget.on_view_index_changed called: T={t}, P={p}, C={c}")
-        print(f"   Has tracked_cell_lineage: {hasattr(self, 'tracked_cell_lineage')}")
-
-        if hasattr(self, "tracked_cell_lineage"):
-            print(f"   tracked_cell_lineage contents: {self.tracked_cell_lineage}")
-
-        # If we're tracking a cell lineage, re-highlight in the new frame
-        if hasattr(self, "tracked_cell_lineage") and self.tracked_cell_lineage:
-            # Check if any cells should be highlighted in this frame
-            if t in self.tracked_cell_lineage:
-                cell_ids_to_highlight = self.tracked_cell_lineage[t]
-                print(
-                    f"✅ Frame {t}: Re-highlighting tracked cells: {cell_ids_to_highlight}"
-                )
-
-                # For now, highlight the first cell (or parent)
-                # TODO: Enhance ViewAreaWidget to support multiple cell highlighting for lineages
-                primary_cell_id = cell_ids_to_highlight[0]
-                self.highlight_cell_in_image(primary_cell_id)
-
-                # If multiple cells, show info about the lineage
-                if len(cell_ids_to_highlight) > 1:
-                    print(
-                        f"  → Cell divided! Also tracking children: {cell_ids_to_highlight[1:]}"
-                    )
-            else:
-                print(
-                    f"❌ Frame {t}: Tracked cell not present in this frame (appears in frames: {sorted(self.tracked_cell_lineage.keys())})"
-                )
-        else:
-            print(f"   No cell lineage being tracked")
+        # ViewAreaWidget now handles all tracking highlighting automatically
+        # This method can be used for other morphology-specific view updates if needed
+        pass
 
     def process_morphology_time_series(self):
         """Process morphology across time points using metrics service"""
