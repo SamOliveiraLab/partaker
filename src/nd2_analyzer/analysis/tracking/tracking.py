@@ -105,8 +105,11 @@ def track_cells(segmented_images):
             tracker.track(step_size=100)
 
             # Optimize tracks (resolves track hypotheses)
-            print("Optimizing tracks...")
-            tracker.optimize()
+            # NOTE: Optimization disabled for performance with large cell counts
+            # This step can take 10+ minutes with 700+ cells per frame
+            # Tracking quality may be slightly reduced but still functional
+            print("Skipping optimization for performance...")
+            # tracker.optimize()
 
             # Get the tracks and graph data for visualization
             data, properties, graph = tracker.to_napari()

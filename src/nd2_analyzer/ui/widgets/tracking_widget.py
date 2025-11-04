@@ -274,23 +274,37 @@ class TrackingWidget(QWidget):
                 progress.setValue(frame_count)
                 frame_count += 1
 
-                # Get existing segmentation results from MetricsService
-                metrics_df = self.metrics_service.query_optimized(time=t, position=p)
+                # Get the actual labeled segmentation from cache to preserve cell_ids
+                from nd2_analyzer.data.image_data import ImageData
 
-                # Get frame dimensions from image data
-                shape = self.image_data.data.shape
-                frame_shape = (shape[-2], shape[-1])  # Last two dimensions are Y, X
+                image_data_instance = ImageData.get_instance()
+                if not hasattr(image_data_instance, "segmentation_cache"):
+                    print(f"ERROR: No segmentation cache available for T={t}, P={p}")
+                    continue
 
-                # Create binary mask from bounding boxes
-                binary_mask = np.zeros(frame_shape, dtype=bool)
+                # Get segmentation from cache (this preserves the original cell_ids)
+                labeled_frame = image_data_instance.segmentation_cache[t, p, selected_channel]
 
-                for row in metrics_df.to_pandas().itertuples():
-                    y1, x1, y2, x2 = row.y1, row.x1, row.y2, row.x2
-                    binary_mask[y1:y2, x1:x2] = True
+                if labeled_frame is None:
+                    print(f"WARNING: No cached segmentation for T={t}, P={p}, C={selected_channel}")
+                    continue
 
-                # Apply connected component labeling
-                labeled_frame = label(binary_mask)
+                # Check if it's binary or already labeled
+                max_value = labeled_frame.max()
+                unique_values = len(np.unique(labeled_frame))
+
+                print(f"Frame T={t}, P={p}: max={max_value}, unique={unique_values}")
+
+                # If binary, label it (but this will create sequential IDs)
+                # If already labeled (Cellpose/OmniPose), use as-is to preserve IDs
+                if max_value <= 255 and unique_values <= 100:
+                    print(f"  Binary mask detected, calling label()...")
+                    labeled_frame = label(labeled_frame)
+                else:
+                    print(f"  Already labeled, preserving original cell_ids")
+
                 num_objects = np.max(labeled_frame)
+                print(f"  Found {num_objects} objects in frame")
                 labeled_frames.append(labeled_frame)
 
             progress.setValue(total_frames)

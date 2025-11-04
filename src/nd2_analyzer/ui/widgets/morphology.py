@@ -427,30 +427,96 @@ class MorphologyWidget(QWidget):
         # Clear previous tracking
         self.tracked_cell_lineage = {}
 
-        # Find the track for this cell
-        selected_track = None
-        for track in self.lineage_tracks:
-            if track["ID"] == cell_id:
-                selected_track = track
-                break
+        # Get current frame to know where this cell_id exists
+        from nd2_analyzer.data.appstate import ApplicationState
 
-        if not selected_track:
-            print(f"Cell {cell_id} not found in tracking data")
+        appstate = ApplicationState.get_instance()
+        if appstate and appstate.view_index:
+            t, p, c = appstate.view_index
+        else:
+            t, p = 0, 0
+
+        print(f"Current frame: T={t}, P={p}")
+        print(f"Looking for segmentation cell_id {cell_id} in this frame...")
+
+        # Get the cell's position from the current cell_mapping
+        if cell_id not in self.cell_mapping:
+            print(f"Cell {cell_id} not in current frame's cell_mapping")
             QMessageBox.warning(
-                self, "Cell Not Found", f"Cell {cell_id} not found in tracking data."
+                self, "Cell Not Found",
+                f"Cell {cell_id} is not in the current frame.\n"
+                f"Make sure you're viewing the frame where this cell exists."
             )
             return
 
-        # Get all frames where this cell appears
+        cell_info = self.cell_mapping[cell_id]
+
+        # Get centroid from bbox
+        y1, x1, y2, x2 = cell_info["bbox"]
+        cell_x = (x1 + x2) / 2
+        cell_y = (y1 + y2) / 2
+
+        print(f"Cell {cell_id} position: ({cell_x:.1f}, {cell_y:.1f})")
+
+        # Find which track passes through this position at time t
+        # We'll look for the track that's closest to this position at this time
+        selected_track = None
+        min_distance = float('inf')
+
+        print(f"Total lineage tracks available: {len(self.lineage_tracks)}")
+
+        # Debug: Check a few sample tracks
+        for i, track in enumerate(self.lineage_tracks[:5]):
+            print(f"Sample track {i}: ID={track.get('ID')}, has 't'={('t' in track)}, has 'x'={('x' in track)}, has 'y'={('y' in track)}")
+            if 't' in track:
+                print(f"  Time points: {track['t']}")
+
+        tracks_at_time_t = 0
+        for track in self.lineage_tracks:
+            if "t" in track and "x" in track and "y" in track:
+                # Check if this track exists at time t
+                for i, track_t in enumerate(track["t"]):
+                    if track_t == t:
+                        tracks_at_time_t += 1
+                        # Found this track at the right time, check distance
+                        track_x = track["x"][i]
+                        track_y = track["y"][i]
+                        distance = np.sqrt((track_x - cell_x)**2 + (track_y - cell_y)**2)
+
+                        if tracks_at_time_t <= 10:  # Only print first 10 to avoid spam
+                            print(f"  Track {track['ID']}: position ({track_x:.1f}, {track_y:.1f}), distance={distance:.1f}")
+
+                        if distance < min_distance:
+                            min_distance = distance
+                            selected_track = track
+                        break
+
+        print(f"Found {tracks_at_time_t} tracks at time {t}")
+
+        if not selected_track:
+            print(f"No track found for cell {cell_id} at frame {t}")
+            QMessageBox.warning(
+                self, "Cell Not Tracked",
+                f"Cell {cell_id} was not tracked.\n"
+                f"This might be because tracking was run on different frames,\n"
+                f"or this cell was filtered out during tracking."
+            )
+            return
+
+        print(f"✅ Matched cell_id {cell_id} to Track ID {selected_track['ID']} (distance: {min_distance:.1f} pixels)")
+
+        # Get all frames where this track appears
         if "t" in selected_track:
             t_values = selected_track["t"]
-            print(f"Cell {cell_id} appears in frames: {t_values}")
+            print(f"Track {selected_track['ID']} appears in frames: {t_values}")
 
-            # Map each frame to this cell ID
+            # Map each frame to this TRACK ID (not the original cell_id)
+            # The track ID is what we need for highlighting across frames
+            track_id = selected_track['ID']
             for t in t_values:
                 if t not in self.tracked_cell_lineage:
                     self.tracked_cell_lineage[t] = []
-                self.tracked_cell_lineage[t].append(cell_id)
+                self.tracked_cell_lineage[t].append(track_id)
 
             # Get children cells if any
             if "children" in selected_track and selected_track["children"]:
@@ -460,14 +526,15 @@ class MorphologyWidget(QWidget):
         QMessageBox.information(
             self,
             "Cell Tracking Prepared",
-            f"Cell {cell_id} will be tracked across {len(self.tracked_cell_lineage)} frames.\n"
-            f"Use the time slider to navigate frames.",
+            f"Cell {cell_id} (Track ID {selected_track['ID']}) will be tracked across {len(self.tracked_cell_lineage)} frames.\n"
+            f"Use the time slider to navigate frames and see the cell highlighted.",
         )
 
         # Notify that tracking data is ready
+        # Note: We're now passing track_id, not the original segmentation cell_id
         pub.sendMessage(
             "cell_tracking_ready",
-            cell_id=cell_id,
+            cell_id=selected_track['ID'],
             lineage_data=self.tracked_cell_lineage,
         )
 
