@@ -336,10 +336,29 @@ class App(QMainWindow):
 
                 traceback.print_exc()
 
-            # Save the experiment
+            # Save the experiment with ROI and registration data
             try:
                 if self.appstate.experiment is not None:
-                    self.appstate.experiment.save(folder_path)
+                    # Get ROI from appstate
+                    roi_mask = self.appstate.roi_mask if hasattr(self.appstate, 'roi_mask') else None
+
+                    # Get registration offsets from image_data
+                    registration_offsets = None
+                    if self.appstate.image_data and hasattr(self.appstate.image_data, 'registration_offsets'):
+                        registration_offsets = self.appstate.image_data.registration_offsets
+
+                    # Get crop coordinates from segmentation service
+                    crop_coordinates = None
+                    if hasattr(self, 'segmentation_service') and hasattr(self.segmentation_service, 'crop_coordinates'):
+                        crop_coordinates = self.segmentation_service.crop_coordinates
+
+                    self.appstate.experiment.save(
+                        folder_path,
+                        roi_mask=roi_mask,
+                        registration_offsets=registration_offsets,
+                        crop_coordinates=crop_coordinates
+                    )
+                    print(f"Saved experiment with ROI={roi_mask is not None}, Registration={registration_offsets is not None}")
             except Exception as e:
                 print(f"ERROR: Failed to save experiment: {str(e)}")
                 import traceback
@@ -379,8 +398,31 @@ class App(QMainWindow):
                 metrics_service = MetricsService()
                 metrics_loaded = metrics_service.load_optimized(folder_path)
 
-                self.appstate.experiment = Experiment.load(folder_path)
-                pub.sendMessage("image_data_loaded", image_data=ImageData.load_from_disk(folder_path))
+                # Load experiment with ROI and registration data
+                experiment, roi_mask, registration_offsets, crop_coordinates = Experiment.load(folder_path)
+                self.appstate.experiment = experiment
+
+                # Load image data
+                image_data = ImageData.load_from_disk(folder_path)
+
+                # Restore registration offsets if they exist
+                if registration_offsets is not None:
+                    image_data.registration_offsets = registration_offsets
+                    print(f"Restored registration offsets with shape {registration_offsets.shape}")
+
+                pub.sendMessage("image_data_loaded", image_data=image_data)
+
+                # Restore ROI if it exists
+                if roi_mask is not None:
+                    self.appstate.roi_mask = roi_mask
+                    print(f"Restored ROI mask with shape {roi_mask.shape}")
+                    # Broadcast ROI to view area and segmentation service
+                    pub.sendMessage("roi_selected", mask=roi_mask)
+
+                # Restore crop coordinates if they exist
+                if crop_coordinates is not None:
+                    print(f"Restored crop coordinates: {crop_coordinates}")
+                    pub.sendMessage("crop_selected", coords=crop_coordinates)
 
                 # Load tracking data
                 tracking_loaded = False

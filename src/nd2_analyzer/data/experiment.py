@@ -167,13 +167,18 @@ class Experiment:
         """Calculate time interval in hours for analysis"""
         return (self.phc_interval * self.fluorescence_factor) / 3600
 
-    def save(self, folder_path: str) -> None:
+    def save(self, folder_path: str, roi_mask=None, registration_offsets=None, crop_coordinates=None) -> None:
         """
-        Save experiment configuration to a JSON file.
+        Save experiment configuration to a JSON file, along with ROI and registration data.
 
         Args:
             folder_path: Path to save the configuration
+            roi_mask: Optional ROI mask to save (numpy array)
+            registration_offsets: Optional registration offsets to save (numpy array)
+            crop_coordinates: Optional crop coordinates (x, y, width, height)
         """
+        import numpy as np
+
         config = {
             "name": self.name,
             "nd2_files": self.nd2_files,
@@ -187,28 +192,47 @@ class Experiment:
             "rpu_values": self.rpu_values,
             "component_intervals": self.component_intervals,
             "focus_loss_intervals": self.focus_loss_intervals,
+            "has_roi": roi_mask is not None,
+            "has_registration": registration_offsets is not None,
+            "crop_coordinates": crop_coordinates,
         }
 
+        # Save JSON config
         file_path = os.path.join(folder_path, "experiment.json")
         with open(file_path, "w") as f:
             json.dump(config, f, indent=4)
 
+        # Save ROI mask if provided
+        if roi_mask is not None:
+            roi_path = os.path.join(folder_path, "roi_mask.npy")
+            np.save(roi_path, roi_mask)
+            print(f"Saved ROI mask to {roi_path}")
+
+        # Save registration offsets if provided
+        if registration_offsets is not None:
+            reg_path = os.path.join(folder_path, "registration_offsets.npy")
+            np.save(reg_path, registration_offsets)
+            print(f"Saved registration offsets to {reg_path}")
+
     @classmethod
-    def load(cls, folder_path: str) -> "Experiment":
+    def load(cls, folder_path: str):
         """
-        Load experiment configuration from a JSON file.
+        Load experiment configuration from a JSON file, along with ROI and registration data.
 
         Args:
             folder_path: Path to the configuration file
 
         Returns:
-            An Experiment instance
+            tuple: (Experiment instance, roi_mask, registration_offsets, crop_coordinates)
+                   roi_mask and registration_offsets are None if not saved
         """
+        import numpy as np
+
         file_path = os.path.join(folder_path, "experiment.json")
         with open(file_path, "r") as f:
             config = json.load(f)
 
-        return cls(
+        experiment = cls(
             name=config["name"],
             nd2_files=config["nd2_files"],
             interval=config["interval"],
@@ -222,6 +246,27 @@ class Experiment:
             component_intervals=config.get("component_intervals"),
             focus_loss_intervals=config.get("focus_loss_intervals", []),
         )
+
+        # Load ROI mask if it exists
+        roi_mask = None
+        if config.get("has_roi", False):
+            roi_path = os.path.join(folder_path, "roi_mask.npy")
+            if os.path.exists(roi_path):
+                roi_mask = np.load(roi_path)
+                print(f"Loaded ROI mask from {roi_path}")
+
+        # Load registration offsets if they exist
+        registration_offsets = None
+        if config.get("has_registration", False):
+            reg_path = os.path.join(folder_path, "registration_offsets.npy")
+            if os.path.exists(reg_path):
+                registration_offsets = np.load(reg_path)
+                print(f"Loaded registration offsets from {reg_path}")
+
+        # Load crop coordinates
+        crop_coordinates = config.get("crop_coordinates")
+
+        return experiment, roi_mask, registration_offsets, crop_coordinates
 
     def filter_track_frames(self, track):
         """
