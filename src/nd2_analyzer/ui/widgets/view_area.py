@@ -359,14 +359,22 @@ class ViewAreaWidget(QWidget):
         print(f"Tracked cell IDs for this frame: {tracked_ids}")
         print(f"Current display mode: {mode}")
 
-        # Get segmented image from cache
+        # IMPORTANT: Get segmented image directly from cache (ROI/registration already applied during segmentation)
+        # The segmentation cache contains the already-processed masks
         from nd2_analyzer.data.image_data import ImageData
 
         image_data = ImageData.get_instance()
         if not hasattr(image_data, "segmentation_cache"):
+            print(f"❌ No segmentation cache available")
             return display_image
 
-        segmented = image_data.segmentation_cache[time, position, channel]
+        # Get from cache with the current model
+        try:
+            segmented = image_data.segmentation_cache.with_model(self.current_model)[time, position, channel]
+        except Exception as e:
+            print(f"❌ Error getting segmentation from cache: {e}")
+            segmented = None
+
         if segmented is None:
             print(f"❌ No segmentation available for tracking highlight")
             return display_image
