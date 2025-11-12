@@ -34,6 +34,9 @@ class MetricsService:
             # Use Polars DataFrame as primary storage
             self.df = pl.DataFrame()
 
+            # NEW: Cell-based data storage (populated after tracking)
+            self.cell_data = None
+
             # Fast lookup cache for pending fluorescence updates
             self._pending_metrics = defaultdict(
                 dict
@@ -355,6 +358,39 @@ class MetricsService:
         if os.path.exists(parquet_path):
             self.df = pl.read_parquet(parquet_path)
             logger.info(f"Loaded {self.df.height} rows from {parquet_path}")
+
+    def create_cell_view(self, tracks):
+        """
+        Reorganize frame-based data into cell-based structure.
+
+        Parameters:
+        -----------
+        tracks : list
+            Cell tracking data from btrack
+
+        Returns:
+        --------
+        dict : Cell-based dataset
+        """
+        from nd2_analyzer.analysis.cell_view_data import create_cell_based_dataset, get_summary_stats
+
+        logger.info("Creating cell-based view from tracking data...")
+
+        # Create the cell-based structure
+        self.cell_data = create_cell_based_dataset(tracks, self.df)
+
+        # Get and log summary stats
+        stats = get_summary_stats(self.cell_data)
+
+        logger.info(f"Cell view created: {stats['total_cells']} cells tracked")
+
+        return self.cell_data
+
+    def get_cell(self, cell_id):
+        """Get all data for a specific cell."""
+        if self.cell_data is None:
+            raise ValueError("Cell view not created yet. Run create_cell_view() first.")
+        return self.cell_data.get(cell_id)
 
     #
     # @timing_decorator("calculate_metrics_optimized")

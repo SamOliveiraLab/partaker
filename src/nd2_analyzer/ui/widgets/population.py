@@ -97,9 +97,14 @@ class PopulationWidget(QWidget):
         bottom_btn_layout.addWidget(plot_btn)
 
         # Export DataFrame button
-        export_btn = QPushButton("Export DataFrame to CSV")
+        export_btn = QPushButton("Export Metrics (CSV)")
         export_btn.clicked.connect(self.export_dataframe)
         bottom_btn_layout.addWidget(export_btn)
+
+        # Export Cell Data button (NEW)
+        export_cell_btn = QPushButton("Export Cell Data")
+        export_cell_btn.clicked.connect(self.export_cell_data)
+        bottom_btn_layout.addWidget(export_cell_btn)
 
         # Calculate RPU button (new)
         rpu_btn = QPushButton("Calculate RPU Reference Values")
@@ -122,6 +127,48 @@ class PopulationWidget(QWidget):
             print("DataFrame exported to cell_metrics.csv")
         else:
             print("No data to export")
+
+    def export_cell_data(self):
+        """Export cell-based data to a pickle file."""
+        from PySide6.QtWidgets import QMessageBox
+
+        if self.metrics_service.cell_data is None:
+            QMessageBox.warning(
+                self,
+                "No Cell Data",
+                "Cell data has not been created yet.\n\n"
+                "Please run tracking first, then create the cell view."
+            )
+            return
+
+        # Let user choose save location
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Cell Data",
+            "cell_data.pkl",
+            "Pickle Files (*.pkl);;All Files (*)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'wb') as f:
+                    pickle.dump(self.metrics_service.cell_data, f)
+                print(f"✅ Cell data exported to {file_path}")
+                print(f"   Total cells: {len(self.metrics_service.cell_data)}")
+
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Cell data exported successfully!\n\n"
+                    f"File: {file_path}\n"
+                    f"Total cells: {len(self.metrics_service.cell_data)}"
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Export Error",
+                    f"Failed to export cell data:\n{str(e)}"
+                )
 
     def get_selected_positions(self):
         selected_positions = [

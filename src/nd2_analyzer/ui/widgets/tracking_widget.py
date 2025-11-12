@@ -151,6 +151,12 @@ class TrackingWidget(QWidget):
                 f"TRACKING DATA EXISTS: Found {len(self.lineage_tracks)} existing lineage tracks"
             )
 
+            # Create cell view if it doesn't exist yet
+            if self.metrics_service.cell_data is None:
+                print("🔄 Creating cell-based data view from existing tracks...")
+                self.metrics_service.create_cell_view(self.lineage_tracks)
+                print(f"✅ Cell data created: {len(self.metrics_service.cell_data)} cells")
+
             # If we have lineage_tracks but no tracked_cells, generate them
             if not hasattr(self, "tracked_cells") or not self.tracked_cells:
                 print("Regenerating tracked_cells from lineage_tracks")
@@ -329,6 +335,11 @@ class TrackingWidget(QWidget):
 
             all_tracks, _ = track_cells(labeled_frames)
             self.lineage_tracks = all_tracks
+
+            # Create cell-based view for analysis
+            print("🔄 Creating cell-based data view...")
+            self.metrics_service.create_cell_view(all_tracks)
+            print(f"✅ Cell data created: {len(self.metrics_service.cell_data)} cells")
 
             # Filter tracks by length for display
             MIN_TRACK_LENGTH = 5
@@ -524,8 +535,14 @@ class TrackingWidget(QWidget):
 
             # Update UI based on loaded data
             if self.lineage_tracks:
+                # Create cell view from loaded tracks
+                print("🔄 Creating cell-based data view from loaded tracks...")
+                self.metrics_service.create_cell_view(self.lineage_tracks)
+                print(f"✅ Cell data created: {len(self.metrics_service.cell_data)} cells")
+
                 self.lineage_button.setEnabled(True)
                 self.motility_button.setEnabled(True)
+                self.export_video_button.setEnabled(True)
 
                 # Notify other components about tracking data (especially MorphologyWidget)
                 print(
