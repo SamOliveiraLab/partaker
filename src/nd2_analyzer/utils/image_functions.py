@@ -1,16 +1,13 @@
 import cv2
+import numpy
 import numpy as np
 from matplotlib import pyplot as plt
 from numpy import diff
-
+from skimage import exposure
 
 # Shifting the image by a margin of pixels
 # Image Analysis
 # from aicsimageio import AICSImage
-
-
-# Dirty Implementation of Shifting Images
-
 
 def ShiftedImage_2D(Image, XShift, YShift):
     # Quick guard
@@ -182,3 +179,31 @@ def edge_cropping_estimation_vertical_high_low_distr(img):
     bottom = min_index
 
     return top, bottom
+
+def normalize_image(image):
+    """Normalize image to appropriate display range based on dtype."""
+    if image.dtype == np.uint16:
+        return exposure.rescale_intensity(image, out_range=(0, 65535)).astype(np.uint16)
+    elif image.dtype == np.uint8:
+        return exposure.rescale_intensity(image, out_range=(0, 255)).astype(np.uint8)
+    else:
+        return exposure.rescale_intensity(image, out_range="uint8").astype(np.uint8)
+
+def convert_image(image, dtype):
+
+    if image.dtype not in [np.uint8, np.uint16]:
+        ValueError("Convert image supports only uint8 and uint16 images")
+
+    if dtype not in [np.uint8, np.uint16]:
+        ValueError("Convert image supports only uint8 and uint16 images")
+
+    if image.dtype == np.uint16:
+        scaled_image = image / 65535
+    elif image.dtype == np.uint8:
+        scaled_image = image / 255
+
+    if dtype == np.uint16:
+        return scaled_image * 65535
+    elif dtype == np.uint8:
+        return scaled_image * 255
+
