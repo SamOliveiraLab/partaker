@@ -104,12 +104,12 @@ def track_cells(segmented_images):
             # Track with step_size for progress updates
             tracker.track(step_size=100)
 
-            # Optimize tracks (resolves track hypotheses)
-            # NOTE: Optimization disabled for performance with large cell counts
-            # This step can take 10+ minutes with 700+ cells per frame
-            # Tracking quality may be slightly reduced but still functional
-            print("Skipping optimization for performance...")
-            # tracker.optimize()
+            # Optimize tracks (resolves track hypotheses and detects divisions)
+            # NOTE: This step can take time with large cell counts (10+ min with 700+ cells)
+            # But it's REQUIRED for lineage detection!
+            print("Running optimization to detect divisions...")
+            print("(This may take several minutes for large datasets)")
+            tracker.optimize()
 
             # Get the tracks and graph data for visualization
             data, properties, graph = tracker.to_napari()

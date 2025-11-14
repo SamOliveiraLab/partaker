@@ -319,18 +319,16 @@ class TrackingWidget(QWidget):
                 max_value = labeled_frame.max()
                 unique_values = len(np.unique(labeled_frame))
 
-                print(f"Frame T={t}, P={p}: max={max_value}, unique={unique_values}")
+                # print(f"Frame T={t}, P={p}: max={max_value}, unique={unique_values}")
 
                 # If binary, label it (but this will create sequential IDs)
                 # If already labeled (Cellpose/OmniPose), use as-is to preserve IDs
                 if max_value <= 255 and unique_values <= 100:
-                    print(f"  Binary mask detected, calling label()...")
+                    # print(f"  Binary mask detected, calling label()...")
                     labeled_frame = label(labeled_frame)
-                else:
-                    print(f"  Already labeled, preserving original cell_ids")
 
                 num_objects = np.max(labeled_frame)
-                print(f"  Found {num_objects} objects in frame")
+                # print(f"  Found {num_objects} objects in frame")
                 labeled_frames.append(labeled_frame)
 
             progress.setValue(total_frames)
