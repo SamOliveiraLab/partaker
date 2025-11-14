@@ -72,6 +72,32 @@ class TrackingWidget(QWidget):
         self.motility_button.setEnabled(False)
         buttons_layout.addWidget(self.motility_button)
 
+        # Cell View button (NEW!)
+        self.cell_view_button = QPushButton("📊 Cell View (Histories)")
+        self.cell_view_button.clicked.connect(self.open_cell_view)
+        self.cell_view_button.setEnabled(False)
+        self.cell_view_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #CCCCCC;
+                color: #666666;
+            }
+        """)
+        buttons_layout.addWidget(self.cell_view_button)
+
         # Export tracking video button
         self.export_video_button = QPushButton("🎬 Export Tracking Video")
         self.export_video_button.clicked.connect(self.export_tracking_video)
@@ -343,6 +369,7 @@ class TrackingWidget(QWidget):
             # Update UI
             self.lineage_button.setEnabled(True)
             self.motility_button.setEnabled(True)
+            self.cell_view_button.setEnabled(True)
             self.export_video_button.setEnabled(True)
 
             # Notify other components about tracking data
@@ -561,6 +588,24 @@ class TrackingWidget(QWidget):
             lineage_tracks=self.lineage_tracks,
             image_data=self.image_data,
         )
+
+    def open_cell_view(self):
+        """Open the Cell View dialog to build and validate cell histories"""
+        if not self.lineage_tracks:
+            QMessageBox.warning(self, "Error", "No tracking data available.")
+            return
+
+        # Import the dialog
+        from nd2_analyzer.ui.widgets.cell_view_dialog import CellViewDialog
+
+        # Open the dialog
+        dialog = CellViewDialog(
+            self.lineage_tracks,
+            self.metrics_service,
+            self.image_data,
+            self
+        )
+        dialog.exec()
 
     def export_tracking_video(self):
         """Export tracking visualization as video"""
