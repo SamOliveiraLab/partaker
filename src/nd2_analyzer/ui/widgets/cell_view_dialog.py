@@ -871,8 +871,13 @@ class CellViewDialog(QDialog):
 
                     # Draw text with background for visibility
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 0.7
-                    thickness = 2
+                    # Smaller font in minimalist mode
+                    if show_cells:
+                        font_scale = 0.5
+                        thickness = 1
+                    else:
+                        font_scale = 0.4
+                        thickness = 1
 
                     # Get text size for background
                     (text_width, text_height), baseline = cv2.getTextSize(label_text, font, font_scale, thickness)
