@@ -817,25 +817,47 @@ class CellViewDialog(QDialog):
                         if t == frame_num:
                             current_position = point
 
+                # Adjust visualization based on show_cells mode
+                if show_cells:
+                    # Full mode: thicker lines, larger markers
+                    line_thickness = 3
+                    marker_size = 8
+                    marker_outline = 2
+                else:
+                    # Minimalist mode: thinner lines, smaller markers
+                    line_thickness = 1
+                    marker_size = 3
+                    marker_outline = 1
+
                 # Draw trajectory line if we have points
                 if len(trajectory_points) > 1:
-                    # Draw the trajectory as a thick white line
+                    # Draw the trajectory line (thickness varies by mode)
                     for i in range(len(trajectory_points) - 1):
                         cv2.line(colored_frame, trajectory_points[i], trajectory_points[i + 1],
-                                (255, 255, 255), 3, cv2.LINE_AA)  # White color
+                                (255, 255, 255), line_thickness, cv2.LINE_AA)
 
                 # Draw start marker (green circle)
                 if start_position:
-                    cv2.circle(colored_frame, start_position, 8, (0, 255, 0), -1)  # Green filled circle
-                    cv2.circle(colored_frame, start_position, 8, (255, 255, 255), 2)  # White outline
+                    cv2.circle(colored_frame, start_position, marker_size, (0, 255, 0), -1)
+                    if show_cells:
+                        cv2.circle(colored_frame, start_position, marker_size, (255, 255, 255), marker_outline)
 
-                # Draw current position marker and cell ID
+                # Draw current position marker and cell representation
                 if current_position:
                     x, y = current_position
 
+                    # In minimalist mode, draw a small rounded shape to represent the cell
+                    if not show_cells:
+                        # Draw small filled circle representing cell body (light gray)
+                        cell_body_radius = 8
+                        cv2.circle(colored_frame, current_position, cell_body_radius, (80, 80, 80), -1)
+                        # Draw outline
+                        cv2.circle(colored_frame, current_position, cell_body_radius, (150, 150, 150), 1)
+
                     # Draw current position marker (red circle)
-                    cv2.circle(colored_frame, current_position, 8, (0, 0, 255), -1)  # Red filled circle
-                    cv2.circle(colored_frame, current_position, 8, (255, 255, 255), 2)  # White outline
+                    cv2.circle(colored_frame, current_position, marker_size, (0, 0, 255), -1)
+                    if show_cells:
+                        cv2.circle(colored_frame, current_position, marker_size, (255, 255, 255), marker_outline)
 
                     # Get display ID (segmentation ID) for this track
                     if hasattr(self, 'track_to_seg') and track_id in self.track_to_seg:
