@@ -156,6 +156,23 @@ class CellViewDialog(QDialog):
         self.canvas = FigureCanvas(self.figure)
         right_layout.addWidget(self.canvas)
 
+        # Export options
+        from PySide6.QtWidgets import QCheckBox
+        export_options_layout = QVBoxLayout()
+
+        self.show_cells_checkbox = QCheckBox("Show cell segmentation in animation")
+        self.show_cells_checkbox.setChecked(True)  # Default: show cells
+        self.show_cells_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #ffffff;
+                font-size: 11px;
+                padding: 5px;
+            }
+        """)
+        export_options_layout.addWidget(self.show_cells_checkbox)
+
+        right_layout.addLayout(export_options_layout)
+
         # Action buttons
         validation_layout = QHBoxLayout()
 
@@ -365,6 +382,10 @@ class CellViewDialog(QDialog):
         # Count long tracks
         long_track_count = 0
 
+        # Use selection model to select multiple rows
+        from PySide6.QtCore import QItemSelectionModel
+        selection_model = self.cell_table.selectionModel()
+
         # Select all rows where lifespan >= 20
         for row in range(self.cell_table.rowCount()):
             # Get the lifespan from column 1
@@ -373,7 +394,12 @@ class CellViewDialog(QDialog):
                 try:
                     lifespan = int(lifespan_item.text())
                     if lifespan >= 20:
-                        self.cell_table.selectRow(row)
+                        # Select the entire row using the selection model
+                        index = self.cell_table.model().index(row, 0)
+                        selection_model.select(
+                            index,
+                            QItemSelectionModel.Select | QItemSelectionModel.Rows
+                        )
                         long_track_count += 1
                 except ValueError:
                     continue
@@ -659,12 +685,12 @@ class CellViewDialog(QDialog):
         print(f"Total frames: {max_frame - min_frame + 1}")
 
         # Ask user for save location
-        default_name = f"cell_animation_{'_'.join(map(str, selected_display_ids[:3]))}.mp4"
+        default_name = f"cell_animation_{'_'.join(map(str, selected_display_ids[:3]))}.gif"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Cell Animation",
             default_name,
-            "MP4 Video (*.mp4)"
+            "GIF Animation (*.gif)"
         )
 
         if not file_path:
@@ -672,22 +698,25 @@ class CellViewDialog(QDialog):
 
         # Export the animation
         try:
-            self._export_to_video(selected_cells, selected_track_ids, min_frame, max_frame, file_path)
+            show_cells = self.show_cells_checkbox.isChecked()
+            self._export_to_video(selected_cells, selected_track_ids, min_frame, max_frame, file_path, show_cells)
             QMessageBox.information(self, "Export Complete", f"Animation exported to:\n{file_path}")
         except Exception as e:
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Export Error", f"Failed to export animation:\n{str(e)}")
 
-    def _export_to_video(self, cells, track_ids, start_frame, end_frame, output_path):
-        """Export animation frames to MP4 video (cropped to ROI if available)"""
+    def _export_to_video(self, cells, track_ids, start_frame, end_frame, output_path, show_cells=True):
+        """Export animation frames to GIF (cropped to ROI if available)"""
         import cv2
-        from skimage.measure import regionprops, label
+        import imageio
+        from skimage.measure import label
 
         print(f"\n{'='*60}")
-        print(f"🎬 EXPORTING ANIMATION TO VIDEO")
+        print(f"🎬 EXPORTING ANIMATION TO GIF")
         print(f"{'='*60}")
         print(f"Selected track IDs: {track_ids}")
+        print(f"Show cells: {show_cells}")
 
         # Get model being used for segmentation
         model = self.image_data.segmentation_service.models.available_models[0]
@@ -720,12 +749,12 @@ class CellViewDialog(QDialog):
         width = crop_x_max - crop_x_min
         height = crop_y_max - crop_y_min
 
-        # Initialize video writer with cropped dimensions
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        fps = 5
-        video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # Collect frames for GIF
+        frames = []
+        duration_per_frame = 500  # milliseconds (2 FPS - slower for better viewing)
 
-        print(f"Video size: {width}x{height} (cropped from {full_width}x{full_height}), FPS: {fps}")
+        print(f"GIF size: {width}x{height} (cropped from {full_width}x{full_height})")
+        print(f"Duration per frame: {duration_per_frame}ms (slower playback)")
         print(f"Processing frames {start_frame} to {end_frame}...")
 
         # Create set of selected track IDs
@@ -747,8 +776,13 @@ class CellViewDialog(QDialog):
             # Crop labeled mask to ROI bounds
             labeled_cropped = labeled[crop_y_min:crop_y_max, crop_x_min:crop_x_max]
 
-            # Apply colormap to get colored labels
-            colored_frame = self._apply_colormap_with_labels(labeled_cropped)
+            # Create frame based on show_cells option
+            if show_cells:
+                # Apply colormap to get colored labels
+                colored_frame = self._apply_colormap_with_labels(labeled_cropped)
+            else:
+                # Create black background (just tracks, no cells)
+                colored_frame = np.zeros((height, width, 3), dtype=np.uint8)
 
             # For each selected track ID, draw trajectory and highlight current position
             for track_id in selected_track_ids:
@@ -785,17 +819,17 @@ class CellViewDialog(QDialog):
 
                 # Draw trajectory line if we have points
                 if len(trajectory_points) > 1:
-                    # Draw the trajectory as a thick blue line
+                    # Draw the trajectory as a thick white line
                     for i in range(len(trajectory_points) - 1):
                         cv2.line(colored_frame, trajectory_points[i], trajectory_points[i + 1],
-                                (255, 100, 0), 3, cv2.LINE_AA)  # Bright blue/cyan color
+                                (255, 255, 255), 3, cv2.LINE_AA)  # White color
 
                 # Draw start marker (green circle)
                 if start_position:
                     cv2.circle(colored_frame, start_position, 8, (0, 255, 0), -1)  # Green filled circle
                     cv2.circle(colored_frame, start_position, 8, (255, 255, 255), 2)  # White outline
 
-                # Draw current position marker and bounding box
+                # Draw current position marker and cell ID
                 if current_position:
                     x, y = current_position
 
@@ -803,41 +837,50 @@ class CellViewDialog(QDialog):
                     cv2.circle(colored_frame, current_position, 8, (0, 0, 255), -1)  # Red filled circle
                     cv2.circle(colored_frame, current_position, 8, (255, 255, 255), 2)  # White outline
 
-                    # Find segmentation label at this position for bounding box
-                    # Use cropped labeled array and adjusted coordinates
-                    if 0 <= y < labeled_cropped.shape[0] and 0 <= x < labeled_cropped.shape[1]:
-                        seg_label = labeled_cropped[y, x]
+                    # Get display ID (segmentation ID) for this track
+                    if hasattr(self, 'track_to_seg') and track_id in self.track_to_seg:
+                        cell_display_id = self.track_to_seg[track_id]
+                    else:
+                        cell_display_id = track_id
 
-                        if seg_label > 0:
-                            # Get mask for this segmentation label
-                            cell_mask = labeled_cropped == seg_label
+                    # Draw cell ID label near current position
+                    label_text = f"{cell_display_id}"
+                    label_pos = (x + 12, y - 12)  # Offset from marker
 
-                            # Get region props for bounding box
-                            regions = regionprops(cell_mask.astype(np.uint8))
-                            if regions:
-                                region = regions[0]
-                                y1, x1, y2, x2 = region.bbox
+                    # Draw text with background for visibility
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    font_scale = 0.7
+                    thickness = 2
 
-                                # Draw thick white rectangle to highlight
-                                cv2.rectangle(colored_frame, (x1, y1), (x2, y2),
-                                            (255, 255, 255), 3)
+                    # Get text size for background
+                    (text_width, text_height), baseline = cv2.getTextSize(label_text, font, font_scale, thickness)
 
-                                # Add track ID label in white
-                                cv2.putText(colored_frame, f"Track {track_id}", (x1, y1 - 10),
-                                          cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                    # Draw black background rectangle
+                    bg_x1 = label_pos[0] - 2
+                    bg_y1 = label_pos[1] - text_height - 2
+                    bg_x2 = label_pos[0] + text_width + 2
+                    bg_y2 = label_pos[1] + 2
+                    cv2.rectangle(colored_frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+
+                    # Draw white text on top
+                    cv2.putText(colored_frame, label_text, label_pos,
+                              font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
             # Add frame number
             cv2.putText(colored_frame, f"Frame: {frame_num}", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
 
-            # Write frame
-            video.write(colored_frame)
+            # Convert BGR to RGB for GIF (cv2 uses BGR, imageio expects RGB)
+            colored_frame_rgb = cv2.cvtColor(colored_frame, cv2.COLOR_BGR2RGB)
+            frames.append(colored_frame_rgb)
 
             if (frame_num - start_frame) % 10 == 0:
                 print(f"  Processed frame {frame_num}/{end_frame}")
 
-        video.release()
-        print(f"✅ Video exported successfully!")
+        # Save as GIF with slower playback
+        print(f"💾 Saving GIF with {len(frames)} frames...")
+        imageio.mimsave(output_path, frames, duration=duration_per_frame, loop=0)
+        print(f"✅ GIF exported successfully!")
         print(f"{'='*60}\n")
 
     def _apply_colormap_with_labels(self, segmented):
