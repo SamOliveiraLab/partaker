@@ -540,6 +540,7 @@ class CellViewDialog(QDialog):
 
         # Get track IDs from selected rows
         selected_track_ids = []
+        selected_display_ids = []  # For filename
         print(f"\nSelected {len(selected_rows)} rows:")
         for row in selected_rows:
             row_num = row.row()
@@ -550,6 +551,7 @@ class CellViewDialog(QDialog):
                 seg_id = cell_id_item.text()
                 print(f"  Row {row_num}: Cell {seg_id} → Track {track_id}")
                 selected_track_ids.append(track_id)
+                selected_display_ids.append(seg_id)
 
         print(f"\n🎬 Exporting animation for tracks: {selected_track_ids}")
 
@@ -573,7 +575,7 @@ class CellViewDialog(QDialog):
         print(f"Total frames: {max_frame - min_frame + 1}")
 
         # Ask user for save location
-        default_name = f"cell_animation_{'_'.join(map(str, selected_cell_ids[:3]))}.mp4"
+        default_name = f"cell_animation_{'_'.join(map(str, selected_display_ids[:3]))}.mp4"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Cell Animation",
@@ -586,7 +588,7 @@ class CellViewDialog(QDialog):
 
         # Export the animation
         try:
-            self._export_to_video(selected_cells, selected_cell_ids, min_frame, max_frame, file_path)
+            self._export_to_video(selected_cells, selected_track_ids, min_frame, max_frame, file_path)
             QMessageBox.information(self, "Export Complete", f"Animation exported to:\n{file_path}")
         except Exception as e:
             import traceback
@@ -638,23 +640,55 @@ class CellViewDialog(QDialog):
             # Apply colormap to get colored labels
             colored_frame = self._apply_colormap_with_labels(labeled)
 
-            # For each selected track ID, find and highlight it in this frame
+            # For each selected track ID, draw trajectory and highlight current position
             for track_id in selected_track_ids:
-                # Find this track's position at this frame
-                track_position = None
+                # Find this track in lineage_tracks
+                track_data = None
                 for track in self.lineage_tracks:
                     if track['ID'] == track_id and 't' in track and 'x' in track and 'y' in track:
-                        # Check if this frame is in the track
-                        for i, t in enumerate(track['t']):
-                            if t == frame_num:
-                                track_position = (int(track['x'][i]), int(track['y'][i]))
-                                break
+                        track_data = track
                         break
 
-                if track_position:
-                    x, y = track_position
+                if not track_data:
+                    continue
 
-                    # Find segmentation label at this position
+                # Collect all positions from start_frame up to current frame_num
+                trajectory_points = []
+                current_position = None
+                start_position = None
+
+                for i, t in enumerate(track_data['t']):
+                    if start_frame <= t <= frame_num:
+                        point = (int(track_data['x'][i]), int(track_data['y'][i]))
+                        trajectory_points.append(point)
+
+                        if start_position is None:
+                            start_position = point
+
+                        if t == frame_num:
+                            current_position = point
+
+                # Draw trajectory line if we have points
+                if len(trajectory_points) > 1:
+                    # Draw the trajectory as a thick blue line
+                    for i in range(len(trajectory_points) - 1):
+                        cv2.line(colored_frame, trajectory_points[i], trajectory_points[i + 1],
+                                (255, 100, 0), 3, cv2.LINE_AA)  # Bright blue/cyan color
+
+                # Draw start marker (green circle)
+                if start_position:
+                    cv2.circle(colored_frame, start_position, 8, (0, 255, 0), -1)  # Green filled circle
+                    cv2.circle(colored_frame, start_position, 8, (255, 255, 255), 2)  # White outline
+
+                # Draw current position marker and bounding box
+                if current_position:
+                    x, y = current_position
+
+                    # Draw current position marker (red circle)
+                    cv2.circle(colored_frame, current_position, 8, (0, 0, 255), -1)  # Red filled circle
+                    cv2.circle(colored_frame, current_position, 8, (255, 255, 255), 2)  # White outline
+
+                    # Find segmentation label at this position for bounding box
                     if 0 <= y < labeled.shape[0] and 0 <= x < labeled.shape[1]:
                         seg_label = labeled[y, x]
 
