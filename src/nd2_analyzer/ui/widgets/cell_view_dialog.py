@@ -2,9 +2,14 @@
 Cell View Dialog - Interactive Cell History Viewer
 
 This dialog builds and visualizes cell histories, allowing you to:
-1. Build cell-based organization from tracking data
+1. Build cell-based organization from tracking data (ROI-aware)
 2. Click on cells to see their complete time series
-3. Validate the reorganization worked correctly
+3. Select all long tracks (20+ frames) for batch export
+4. Export animations with trajectory visualization
+5. Validate the reorganization worked correctly
+
+IMPORTANT: All analysis respects ROI boundaries when ROI is defined.
+Only tracks with ≥50% of points within ROI are included.
 """
 
 import matplotlib.pyplot as plt
@@ -27,6 +32,7 @@ from PySide6.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from nd2_analyzer.analysis.cell_history import CellHistoryBuilder
+from nd2_analyzer.analysis.roi_helper import ROIHelper
 
 
 class CellViewDialog(QDialog):
@@ -110,6 +116,22 @@ class CellViewDialog(QDialog):
         self.filter_combo.currentTextChanged.connect(self.apply_filter)
         filter_layout.addWidget(self.filter_combo)
 
+        # Add "Select All Long Tracks" button
+        self.select_long_button = QPushButton("Select All Long (20+)")
+        self.select_long_button.clicked.connect(self.select_all_long_tracks)
+        self.select_long_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4a4a4a;
+                color: white;
+                padding: 5px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #5a5a5a;
+            }
+        """)
+        filter_layout.addWidget(self.select_long_button)
+
         left_layout.addLayout(filter_layout)
 
         splitter.addWidget(left_widget)
@@ -172,8 +194,29 @@ class CellViewDialog(QDialog):
         print("="*80)
 
         try:
+            # VALIDATE ROI BEFORE PROCESSING
+            ROIHelper.validate_analysis_within_roi("Cell History Building")
+
+            # Filter tracks by ROI if ROI is defined
+            tracks_to_process = self.lineage_tracks
+            if ROIHelper.has_roi():
+                print("\n🎯 Filtering tracks by ROI (minimum 50% coverage)...")
+                original_count = len(tracks_to_process)
+                tracks_to_process = ROIHelper.filter_tracks_by_roi(tracks_to_process, min_roi_coverage=0.5)
+                filtered_count = len(tracks_to_process)
+                print(f"  Filtered: {original_count} tracks → {filtered_count} tracks (within ROI)")
+
+                if filtered_count == 0:
+                    QMessageBox.warning(
+                        self,
+                        "No Tracks in ROI",
+                        "No tracks found within the ROI boundaries.\n\n"
+                        "Please check your ROI selection or tracking parameters."
+                    )
+                    return
+
             # Create builder
-            self.builder = CellHistoryBuilder(self.lineage_tracks, self.metrics_service)
+            self.builder = CellHistoryBuilder(tracks_to_process, self.metrics_service)
 
             # Build with minimum 5 frames
             self.cell_database = self.builder.build(min_track_length=5)
@@ -185,13 +228,15 @@ class CellViewDialog(QDialog):
             # Build segmentation_id -> track_id mapping using frame 0 as reference
             self._build_seg_to_track_mapping()
 
-
-            # Update status
+            # Update status with ROI info
             num_cells = len(self.cell_database)
             long_cells = len([c for c in self.cell_database.values() if c['lifespan'] >= 20])
 
+            roi_info = ROIHelper.get_roi_info()
+            roi_text = " | ROI Active" if roi_info['has_roi'] else ""
+
             self.status_label.setText(
-                f"✓ Built {num_cells} cell histories | {long_cells} long cells (20+ frames)"
+                f"✓ Built {num_cells} cell histories | {long_cells} long cells (20+ frames){roi_text}"
             )
             self.status_label.setStyleSheet(
                 "font-size: 14px; font-weight: bold; padding: 10px; color: green;"
@@ -308,6 +353,41 @@ class CellViewDialog(QDialog):
             self.populate_table(lambda c: c['fate'] == 'divided')
         elif filter_name == "High Coverage (>90%)":
             self.populate_table(lambda c: c['morphology_coverage'] > 0.9)
+
+    def select_all_long_tracks(self):
+        """Select all cells with lifespan >= 20 frames for batch export"""
+        if not self.cell_database:
+            return
+
+        # Clear current selection
+        self.cell_table.clearSelection()
+
+        # Count long tracks
+        long_track_count = 0
+
+        # Select all rows where lifespan >= 20
+        for row in range(self.cell_table.rowCount()):
+            # Get the lifespan from column 1
+            lifespan_item = self.cell_table.item(row, 1)
+            if lifespan_item:
+                try:
+                    lifespan = int(lifespan_item.text())
+                    if lifespan >= 20:
+                        self.cell_table.selectRow(row)
+                        long_track_count += 1
+                except ValueError:
+                    continue
+
+        # Show message
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self,
+            "Selection Complete",
+            f"Selected {long_track_count} cells with lifespan ≥ 20 frames.\n\n"
+            f"You can now export animation for all these tracks."
+        )
+
+        print(f"\n✓ Selected {long_track_count} long tracks (≥20 frames)")
 
     def on_cell_clicked(self, row, column):
         """Handle cell selection from table"""
@@ -596,7 +676,7 @@ class CellViewDialog(QDialog):
             QMessageBox.critical(self, "Export Error", f"Failed to export animation:\n{str(e)}")
 
     def _export_to_video(self, cells, track_ids, start_frame, end_frame, output_path):
-        """Export animation frames to MP4 video"""
+        """Export animation frames to MP4 video (cropped to ROI if available)"""
         import cv2
         from skimage.measure import regionprops, label
 
@@ -611,14 +691,37 @@ class CellViewDialog(QDialog):
 
         # Get first frame to determine video size
         first_seg = self.image_data.segmentation_cache.with_model(model)[(start_frame, 0, 0)]
-        height, width = first_seg.shape
+        full_height, full_width = first_seg.shape
 
-        # Initialize video writer
+        # Check if ROI exists and get crop bounds
+        roi_mask = ROIHelper.get_roi_mask()
+        crop_x_min, crop_y_min, crop_x_max, crop_y_max = 0, 0, full_width, full_height
+
+        if roi_mask is not None:
+            # Find ROI bounding box
+            roi_coords = np.argwhere(roi_mask > 0)
+            if len(roi_coords) > 0:
+                crop_y_min = int(roi_coords[:, 0].min())
+                crop_y_max = int(roi_coords[:, 0].max()) + 1
+                crop_x_min = int(roi_coords[:, 1].min())
+                crop_x_max = int(roi_coords[:, 1].max()) + 1
+                print(f"🎯 ROI detected - Cropping video to ROI bounding box")
+                print(f"  ROI bounds: X[{crop_x_min}:{crop_x_max}], Y[{crop_y_min}:{crop_y_max}]")
+            else:
+                print(f"⚠️ ROI mask is empty, using full frame")
+        else:
+            print(f"ℹ️ No ROI defined, using full frame")
+
+        # Calculate cropped dimensions
+        width = crop_x_max - crop_x_min
+        height = crop_y_max - crop_y_min
+
+        # Initialize video writer with cropped dimensions
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         fps = 5
         video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        print(f"Video size: {width}x{height}, FPS: {fps}")
+        print(f"Video size: {width}x{height} (cropped from {full_width}x{full_height}), FPS: {fps}")
         print(f"Processing frames {start_frame} to {end_frame}...")
 
         # Create set of selected track IDs
@@ -637,8 +740,11 @@ class CellViewDialog(QDialog):
             else:
                 labeled = label(seg_mask)  # Binary mask, label it
 
+            # Crop labeled mask to ROI bounds
+            labeled_cropped = labeled[crop_y_min:crop_y_max, crop_x_min:crop_x_max]
+
             # Apply colormap to get colored labels
-            colored_frame = self._apply_colormap_with_labels(labeled)
+            colored_frame = self._apply_colormap_with_labels(labeled_cropped)
 
             # For each selected track ID, draw trajectory and highlight current position
             for track_id in selected_track_ids:
@@ -653,13 +759,18 @@ class CellViewDialog(QDialog):
                     continue
 
                 # Collect all positions from start_frame up to current frame_num
+                # Adjust coordinates by crop offset
                 trajectory_points = []
                 current_position = None
                 start_position = None
 
                 for i, t in enumerate(track_data['t']):
                     if start_frame <= t <= frame_num:
-                        point = (int(track_data['x'][i]), int(track_data['y'][i]))
+                        # Original coordinates
+                        x_orig = int(track_data['x'][i])
+                        y_orig = int(track_data['y'][i])
+                        # Adjust for crop
+                        point = (x_orig - crop_x_min, y_orig - crop_y_min)
                         trajectory_points.append(point)
 
                         if start_position is None:
@@ -689,12 +800,13 @@ class CellViewDialog(QDialog):
                     cv2.circle(colored_frame, current_position, 8, (255, 255, 255), 2)  # White outline
 
                     # Find segmentation label at this position for bounding box
-                    if 0 <= y < labeled.shape[0] and 0 <= x < labeled.shape[1]:
-                        seg_label = labeled[y, x]
+                    # Use cropped labeled array and adjusted coordinates
+                    if 0 <= y < labeled_cropped.shape[0] and 0 <= x < labeled_cropped.shape[1]:
+                        seg_label = labeled_cropped[y, x]
 
                         if seg_label > 0:
                             # Get mask for this segmentation label
-                            cell_mask = labeled == seg_label
+                            cell_mask = labeled_cropped == seg_label
 
                             # Get region props for bounding box
                             regions = regionprops(cell_mask.astype(np.uint8))
