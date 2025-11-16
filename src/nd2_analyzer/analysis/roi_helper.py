@@ -7,7 +7,7 @@ Analysis should ONLY be performed within ROI, except when ROI is not defined.
 
 import numpy as np
 from typing import Optional, Tuple, List
-from nd2_analyzer.data.appstate import AppState
+from nd2_analyzer.data.appstate import ApplicationState
 
 
 class ROIHelper:
@@ -26,7 +26,9 @@ class ROIHelper:
             ROI mask if defined, None otherwise
         """
         try:
-            appstate = AppState.get_instance()
+            appstate = ApplicationState.get_instance()
+            if appstate is None:
+                return None
             return appstate.roi_mask if hasattr(appstate, 'roi_mask') else None
         except:
             return None
