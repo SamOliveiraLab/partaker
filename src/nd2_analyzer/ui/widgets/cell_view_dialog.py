@@ -309,6 +309,57 @@ class CellViewDialog(QDialog):
 
         print(f"  Mapped {len(self.seg_to_track)} segmentation IDs to track IDs")
 
+        # Build hierarchical lineage naming (e.g., 10.1, 10.1.2)
+        self._build_lineage_names()
+
+    def _build_lineage_names(self):
+        """Build hierarchical names for cells based on lineage (e.g., 10, 10.1, 10.1.2)"""
+        print("\n🌳 Building hierarchical lineage names...")
+
+        self.track_to_lineage_name = {}  # track_id -> hierarchical name (e.g., "10.1.2")
+
+        # First pass: Assign base names to cells at frame 0 (generation 0)
+        for track_id, seg_id in self.track_to_seg.items():
+            self.track_to_lineage_name[track_id] = str(seg_id)
+
+        # Create a mapping of parent -> children for easier traversal
+        parent_to_children = {}
+        for track in self.lineage_tracks:
+            track_id = track['ID']
+            children = track.get('children', [])
+            if children:
+                parent_to_children[track_id] = children
+
+        # Recursive function to assign names to descendants
+        def assign_descendant_names(parent_id, parent_name):
+            if parent_id not in parent_to_children:
+                return
+
+            children = parent_to_children[parent_id]
+            for idx, child_id in enumerate(children, 1):
+                # Child name = parent_name + "." + index
+                child_name = f"{parent_name}.{idx}"
+                self.track_to_lineage_name[child_id] = child_name
+
+                # Recursively assign names to this child's descendants
+                assign_descendant_names(child_id, child_name)
+
+        # Start recursive naming from all generation 0 cells
+        for track_id in self.track_to_seg.keys():
+            base_name = self.track_to_lineage_name[track_id]
+            assign_descendant_names(track_id, base_name)
+
+        # Count how many cells have hierarchical names
+        total_named = len(self.track_to_lineage_name)
+        daughters = sum(1 for name in self.track_to_lineage_name.values() if '.' in name)
+        print(f"  Created {total_named} hierarchical names ({daughters} daughter cells)")
+
+        # Print some examples
+        examples = list(self.track_to_lineage_name.items())[:5]
+        print(f"  Examples:")
+        for track_id, name in examples:
+            print(f"    Track {track_id} → {name}")
+
     def populate_table(self, filter_func=None):
         """Populate the cell table with data"""
         self.cell_table.setRowCount(0)
@@ -330,8 +381,10 @@ class CellViewDialog(QDialog):
         for row, cell in enumerate(cells):
             track_id = cell['cell_id']
 
-            # Cell ID - show segmentation ID if available, otherwise track ID
-            if hasattr(self, 'track_to_seg') and track_id in self.track_to_seg:
+            # Cell ID - show hierarchical lineage name (e.g., 10, 10.1, 10.1.2)
+            if hasattr(self, 'track_to_lineage_name') and track_id in self.track_to_lineage_name:
+                cell_id_text = self.track_to_lineage_name[track_id]
+            elif hasattr(self, 'track_to_seg') and track_id in self.track_to_seg:
                 seg_id = self.track_to_seg[track_id]
                 cell_id_text = str(seg_id)
             else:
@@ -632,8 +685,47 @@ class CellViewDialog(QDialog):
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", f"Failed to export:\n{str(e)}")
 
+    def _expand_selection_with_lineage(self, track_ids):
+        """
+        Expand track selection to include daughter cells when parent is selected.
+        This ensures division events are fully visualized.
+
+        Args:
+            track_ids: List of initially selected track IDs
+
+        Returns:
+            tuple: (expanded_track_ids, division_events)
+                - expanded_track_ids: List including daughters
+                - division_events: Dict mapping parent_id -> [daughter1_id, daughter2_id, division_frame]
+        """
+        expanded_ids = set(track_ids)
+        division_events = {}
+
+        for track_id in track_ids:
+            # Find this track
+            for track in self.lineage_tracks:
+                if track['ID'] == track_id:
+                    # Check if this track has children (divided)
+                    children = track.get('children', [])
+                    if children and len(children) > 0:
+                        # Add daughter cells to selection
+                        expanded_ids.update(children)
+
+                        # Find division frame (last frame of parent)
+                        if 't' in track and len(track['t']) > 0:
+                            division_frame = track['t'][-1]
+                            division_events[track_id] = {
+                                'daughters': children,
+                                'frame': division_frame,
+                                'position': (track['x'][-1], track['y'][-1]) if 'x' in track and 'y' in track else None
+                            }
+                            print(f"  Division detected: Cell {track_id} → {children} at frame {division_frame}")
+                    break
+
+        return list(expanded_ids), division_events
+
     def export_animation(self):
-        """Export animation of selected cells to MP4 file"""
+        """Export animation of selected cells to GIF file"""
         from PySide6.QtWidgets import QFileDialog
         import cv2
 
@@ -663,14 +755,20 @@ class CellViewDialog(QDialog):
                 selected_track_ids.append(track_id)
                 selected_display_ids.append(seg_id)
 
-        print(f"\n🎬 Exporting animation for tracks: {selected_track_ids}")
+        # Expand selection to include daughter cells for division visualization
+        expanded_track_ids, division_events = self._expand_selection_with_lineage(selected_track_ids)
 
-        # Get cells and find frame range
+        if len(expanded_track_ids) > len(selected_track_ids):
+            print(f"  Expanded selection: {len(selected_track_ids)} → {len(expanded_track_ids)} cells (including daughters)")
+
+        print(f"\n🎬 Exporting animation for tracks: {expanded_track_ids}")
+
+        # Get cells and find frame range (using expanded track IDs)
         selected_cells = []
         min_frame = float('inf')
         max_frame = 0
 
-        for track_id in selected_track_ids:
+        for track_id in expanded_track_ids:
             cell = self.builder.get_cell(track_id)
             if cell:
                 selected_cells.append(cell)
@@ -699,24 +797,28 @@ class CellViewDialog(QDialog):
         # Export the animation
         try:
             show_cells = self.show_cells_checkbox.isChecked()
-            self._export_to_video(selected_cells, selected_track_ids, min_frame, max_frame, file_path, show_cells)
+            self._export_to_video(selected_cells, expanded_track_ids, min_frame, max_frame, file_path, show_cells, division_events)
             QMessageBox.information(self, "Export Complete", f"Animation exported to:\n{file_path}")
         except Exception as e:
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Export Error", f"Failed to export animation:\n{str(e)}")
 
-    def _export_to_video(self, cells, track_ids, start_frame, end_frame, output_path, show_cells=True):
-        """Export animation frames to GIF (cropped to ROI if available)"""
+    def _export_to_video(self, cells, track_ids, start_frame, end_frame, output_path, show_cells=True, division_events=None):
+        """Export animation frames to GIF (cropped to ROI if available, with division visualization)"""
         import cv2
         import imageio
         from skimage.measure import label
+
+        if division_events is None:
+            division_events = {}
 
         print(f"\n{'='*60}")
         print(f"🎬 EXPORTING ANIMATION TO GIF")
         print(f"{'='*60}")
         print(f"Selected track IDs: {track_ids}")
         print(f"Show cells: {show_cells}")
+        print(f"Division events: {len(division_events)}")
 
         # Get model being used for segmentation
         model = self.image_data.segmentation_service.models.available_models[0]
@@ -751,7 +853,7 @@ class CellViewDialog(QDialog):
 
         # Collect frames for GIF
         frames = []
-        duration_per_frame = 500  # milliseconds (2 FPS - slower for better viewing)
+        duration_per_frame = 1000  # milliseconds (1 FPS - liquid slow motion for clear division viewing)
 
         print(f"GIF size: {width}x{height} (cropped from {full_width}x{full_height})")
         print(f"Duration per frame: {duration_per_frame}ms (slower playback)")
@@ -859,14 +961,15 @@ class CellViewDialog(QDialog):
                     if show_cells:
                         cv2.circle(colored_frame, current_position, marker_size, (255, 255, 255), marker_outline)
 
-                    # Get display ID (segmentation ID) for this track
-                    if hasattr(self, 'track_to_seg') and track_id in self.track_to_seg:
-                        cell_display_id = self.track_to_seg[track_id]
+                    # Get hierarchical lineage name for this track
+                    if hasattr(self, 'track_to_lineage_name') and track_id in self.track_to_lineage_name:
+                        label_text = self.track_to_lineage_name[track_id]
+                    elif hasattr(self, 'track_to_seg') and track_id in self.track_to_seg:
+                        # Fallback to segmentation ID
+                        label_text = str(self.track_to_seg[track_id])
                     else:
-                        cell_display_id = track_id
-
-                    # Draw cell ID label near current position
-                    label_text = f"{cell_display_id}"
+                        # Last resort: track ID
+                        label_text = f"T{track_id}"
                     label_pos = (x + 12, y - 12)  # Offset from marker
 
                     # Draw text with background for visibility
@@ -892,6 +995,25 @@ class CellViewDialog(QDialog):
                     # Draw white text on top
                     cv2.putText(colored_frame, label_text, label_pos,
                               font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+            # Draw division markers for cells that divide at this frame
+            for parent_id, div_info in division_events.items():
+                if div_info['frame'] == frame_num and div_info['position'] is not None:
+                    # Get division position with crop offset applied
+                    div_x_orig, div_y_orig = div_info['position']
+                    div_x = int(div_x_orig) - crop_x_min
+                    div_y = int(div_y_orig) - crop_y_min
+
+                    # Draw gold star at division point
+                    star_size = 15 if show_cells else 12
+                    cv2.drawMarker(colored_frame, (div_x, div_y),
+                                  (0, 215, 255), cv2.MARKER_STAR,
+                                  markerSize=star_size, thickness=2)
+
+                    # Optional: Add small "DIV" text near division marker
+                    if show_cells:
+                        cv2.putText(colored_frame, "DIV", (div_x + 10, div_y - 10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 215, 255), 1, cv2.LINE_AA)
 
             # Add frame number
             cv2.putText(colored_frame, f"Frame: {frame_num}", (10, 30),
