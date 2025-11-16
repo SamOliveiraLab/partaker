@@ -378,13 +378,17 @@ class CellViewDialog(QDialog):
                 except ValueError:
                     continue
 
+        # Enable export button if tracks were selected
+        if long_track_count > 0:
+            self.export_animation_button.setEnabled(True)
+
         # Show message
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(
             self,
             "Selection Complete",
             f"Selected {long_track_count} cells with lifespan ≥ 20 frames.\n\n"
-            f"You can now export animation for all these tracks."
+            f"Click '🎬 Export Animation' to create a video of all selected tracks."
         )
 
         print(f"\n✓ Selected {long_track_count} long tracks (≥20 frames)")
