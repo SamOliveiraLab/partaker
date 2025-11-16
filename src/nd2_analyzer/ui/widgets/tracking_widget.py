@@ -551,6 +551,7 @@ class TrackingWidget(QWidget):
             if self.lineage_tracks:
                 self.lineage_button.setEnabled(True)
                 self.motility_button.setEnabled(True)
+                self.cell_view_button.setEnabled(True)
 
                 # Notify other components about tracking data (especially MorphologyWidget)
                 print(
