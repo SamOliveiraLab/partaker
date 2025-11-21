@@ -1043,6 +1043,7 @@ class MorphologyWidget(QWidget):
 
         # Clear and set up the large figure (16×10 inches) with two subplots
         self.figure_annot_scatter.clf()
+        self.figure_annot_scatter.set_size_inches(16, 10)
         ax1 = self.figure_annot_scatter.add_subplot(2, 1, 1)
         ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2, sharex=ax1)
         ax1.set_facecolor('white')
@@ -1052,7 +1053,7 @@ class MorphologyWidget(QWidget):
         line_handles, line_labels = [], []
         for morph, fractions_list in morphology_fractions.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            line, = ax1.plot(times_plot, fractions_list, '-', color=color, linewidth=1.0)
+            line, = ax1.plot(times_plot, fractions_list, '-', color=color, linewidth=1.5)
             ax1.scatter(times_plot, fractions_list, color=color, s=25,
                         edgecolor='black', linewidth=0.3)
             line_handles.append(line)
@@ -1069,14 +1070,14 @@ class MorphologyWidget(QWidget):
         # Plot counts
         for morph, counts_list in morphology_counts.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax2.plot(times_plot, counts_list, '-', color=color, linewidth=1.0)
+            ax2.plot(times_plot, counts_list, '-', color=color, linewidth=1.5)
             ax2.scatter(times_plot, counts_list, color=color, s=25,
                         edgecolor='black', linewidth=0.3)
 
         # Secondary axis for total cell count
         ax3 = ax2.twinx()
         total_line, = ax3.plot(times_plot, total_cells, '--',
-                            color='black', linewidth=1.0)
+                            color='black', linewidth=1.5)
         ax3.set_ylabel("Total Cell Count", fontsize=20, labelpad=5)
 
         # Axis labels for counts plot
@@ -1098,7 +1099,7 @@ class MorphologyWidget(QWidget):
         # Compose and place the legend at the very top
         legend_handles = line_handles + [total_line]
         legend_labels = line_labels + ["Total Cells"]
-        self.figure_annot_scatter.legend(
+        legend = self.figure_annot_scatter.legend(
             legend_handles,
             legend_labels,
             loc='upper center',
@@ -1110,6 +1111,10 @@ class MorphologyWidget(QWidget):
             handletextpad=0.5,
             columnspacing=1.0
         )
+
+        # Make legend lines thicker
+        for line in legend.get_lines():
+            line.set_linewidth(4.0)
 
         # Provide extra breathing room around panels
         self.figure_annot_scatter.subplots_adjust(hspace=0.5, top=0.86, bottom=0.1)
