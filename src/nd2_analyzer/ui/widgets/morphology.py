@@ -994,111 +994,125 @@ class MorphologyWidget(QWidget):
         pass
 
     def process_morphology_time_series(self):
-        """Process morphology across time points using metrics service"""
+        """Process morphology across time points using metrics service."""
         if not self.metrics_service:
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
 
-        # Get current position using ApplicationState
         from nd2_analyzer.data.appstate import ApplicationState
         appstate = ApplicationState.get_instance()
 
-        # Get position from current view
+        # Determine the current position (p)
         p = None
         if appstate and appstate.view_index:
             _, p, _ = appstate.view_index
 
-        time_label = "Frame"
-        time_unit = "frame"
-
-        if appstate and appstate.experiment and hasattr(appstate.experiment, 'phc_interval'):
-            # Convert interval from seconds to minutes
-            interval_minutes = appstate.experiment.phc_interval / 60.0
-            time_label = f"Time (minutes, {interval_minutes:.2f} min/frame)"
-            time_unit = "minutes"
-
-        # Query metrics for all timepoints for this position
+        # Fetch all time‑points for the current position
         df = self.metrics_service.query_optimized(position=p)
-
         if df.is_empty():
             QMessageBox.warning(self, "No Data", "No metrics available.")
             return
 
-        # Convert to pandas
         metrics_df = df.to_pandas()
-
-        # Get all unique morphology classes
         all_morphologies = metrics_df["morphology_class"].unique()
-
-        # Group by time
-        # Create data structures for plotting
         times = sorted(metrics_df["time"].unique())
-        morphology_counts = {morphology: [] for morphology in all_morphologies}
-        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        morphology_counts = {m: [] for m in all_morphologies}
+        morphology_fractions = {m: [] for m in all_morphologies}
         total_cells = []
 
-        # Calculate counts and fractions for each timepoint
         for t in times:
             t_data = metrics_df[metrics_df["time"] == t]
             t_counts = t_data["morphology_class"].value_counts()
             t_total = len(t_data)
             total_cells.append(t_total)
+            for m in all_morphologies:
+                count = t_counts.get(m, 0)
+                morphology_counts[m].append(count)
+                morphology_fractions[m].append(count / t_total if t_total > 0 else 0)
 
-            for morph in all_morphologies:
-                count = t_counts.get(morph, 0)
-                morphology_counts[morph].append(count)
-                morphology_fractions[morph].append(
-                    count / t_total if t_total > 0 else 0
-                )
+        # Convert frame numbers to hours if phc_interval is available
+        import matplotlib
+        matplotlib.rcParams['font.family'] = 'Arial'
+        interval_hours = None
+        if appstate and appstate.experiment and hasattr(appstate.experiment, 'phc_interval'):
+            try:
+                interval_hours = appstate.experiment.phc_interval / 3600.0
+            except Exception:
+                interval_hours = None
+        times_plot = [t * interval_hours for t in times] if interval_hours else times
 
-        # Clear the figure and create two subplots
-        self.figure_annot_scatter.clear()
+        # Clear and set up the large figure (16×10 inches) with two subplots
+        self.figure_annot_scatter.clf()
         ax1 = self.figure_annot_scatter.add_subplot(2, 1, 1)
-        ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2)
+        ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2, sharex=ax1)
+        ax1.set_facecolor('white')
+        ax2.set_facecolor('white')
 
         # Plot fractions
-        for morph, fractions in morphology_fractions.items():
+        line_handles, line_labels = [], []
+        for morph, fractions_list in morphology_fractions.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax1.plot(times, fractions, "o-", label=morph, color=color, linewidth=2, markersize=6)
+            line, = ax1.plot(times_plot, fractions_list, '-', color=color, linewidth=1.0)
+            ax1.scatter(times_plot, fractions_list, color=color, s=25,
+                        edgecolor='black', linewidth=0.3)
+            line_handles.append(line)
+            line_labels.append(morph)
 
-        # Add context to title
-        ax1.set_title(f"Morphology Fractions Over Time - Position {p}", fontweight='bold', fontsize=12)
-        ax1.set_ylabel("Fraction (%)", fontsize=10)
-        ax1.set_xlabel(time_label, fontsize=10)
-        ax1.legend(loc='best', fontsize=9)
-        ax1.grid(True, alpha=0.3)
-
-        # Add frame range info as text
-        if time_unit == "minutes":
-            duration_mins = len(times) * interval_minutes
-            info_text = f"Frames: {min(times)}-{max(times)} ({len(times)} frames)\nDuration: {duration_mins:.1f} minutes\nTotal cells: {sum(total_cells)}"
-        else:
-            info_text = f"Frames: {min(times)}-{max(times)} ({len(times)} frames)\nTotal cells: {sum(total_cells)}"
-
-        ax1.text(0.02, 0.98, info_text,
-                transform=ax1.transAxes, fontsize=8, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        ax1.set_ylabel("Fraction (%)", fontsize=20, labelpad=5)
+        ax1.grid(False)
+        ax1.tick_params(labelsize=16)
+        ax1.spines['top'].set_visible(False)
+        ax1.spines['right'].set_visible(False)
+        ax1.spines['left'].set_color('gray')
+        ax1.spines['bottom'].set_color('gray')
 
         # Plot counts
-        for morph, counts in morphology_counts.items():
+        for morph, counts_list in morphology_counts.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax2.plot(times, counts, "o-", label=morph, color=color, linewidth=2, markersize=6)
+            ax2.plot(times_plot, counts_list, '-', color=color, linewidth=1.0)
+            ax2.scatter(times_plot, counts_list, color=color, s=25,
+                        edgecolor='black', linewidth=0.3)
 
-        # Add total cells line on secondary y-axis
+        # Secondary axis for total cell count
         ax3 = ax2.twinx()
-        ax3.plot(times, total_cells, "k--", label="Total Cells", linewidth=2)
+        total_line, = ax3.plot(times_plot, total_cells, '--',
+                            color='black', linewidth=1.0)
+        ax3.set_ylabel("Total Cell Count", fontsize=20, labelpad=5)
 
-        ax2.set_title(f"Cell Counts By Morphology Over Time - Position {p}", fontweight='bold', fontsize=12)
-        ax2.set_xlabel(time_label, fontsize=10)
-        ax2.set_ylabel("Count by Class", fontsize=10)
-        ax3.set_ylabel("Total Cell Count", fontsize=10)
-        ax2.grid(True, alpha=0.3)
+        # Axis labels for counts plot
+        ax2.set_ylabel("Count", fontsize=20, labelpad=5)
+        x_label = "Time (h)" if interval_hours else "Time (frame)"
+        ax2.set_xlabel(x_label, fontsize=20, labelpad=5)
+        ax2.grid(False)
+        ax2.tick_params(labelsize=16)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+        ax2.spines['left'].set_color('gray')
+        ax2.spines['bottom'].set_color('gray')
+        ax3.tick_params(labelsize=16)
+        ax3.spines['top'].set_visible(False)
+        ax3.spines['left'].set_visible(False)
+        ax3.spines['right'].set_color('gray')
+        ax3.spines['bottom'].set_visible(False)
 
-        # Legend for second plot
-        lines1, labels1 = ax2.get_legend_handles_labels()
-        lines2, labels2 = ax3.get_legend_handles_labels()
-        ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
+        # Compose and place the legend at the very top
+        legend_handles = line_handles + [total_line]
+        legend_labels = line_labels + ["Total Cells"]
+        self.figure_annot_scatter.legend(
+            legend_handles,
+            legend_labels,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1.02),
+            ncol=len(legend_labels),
+            frameon=False,
+            fontsize=18,
+            handlelength=2.0,
+            handletextpad=0.5,
+            columnspacing=1.0
+        )
 
-        # Adjust layout and draw
-        self.figure_annot_scatter.tight_layout()
+        # Provide extra breathing room around panels
+        self.figure_annot_scatter.subplots_adjust(hspace=0.5, top=0.86, bottom=0.1)
+
+        # Draw the figure on the canvas
         self.canvas_annot_scatter.draw()
