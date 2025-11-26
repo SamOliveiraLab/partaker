@@ -17,6 +17,10 @@ from nd2_analyzer.data.image_data import ImageData
 from .dialogs import AboutDialog, ExperimentDialog
 from nd2_analyzer.ui.dialogs.roisel import PolygonROISelector
 from nd2_analyzer.ui.dialogs.crop_selection import CropSelector
+from nd2_analyzer.ui.biofilms.analysis_mode import AnalysisMode, AnalysisModeConfig
+from nd2_analyzer.ui.dialogs.mode_selection_dialog import ModeSelectionDialog
+from nd2_analyzer.ui.biofilms.config.biofilm_config import BiofilmConfig
+from nd2_analyzer.ui.biofilms.cube_analysis import CubeAnalysisWidget
 from .widgets import (
     ViewAreaWidget,
     PopulationWidget,
@@ -33,6 +37,15 @@ class App(QMainWindow):
 
         self.appstate = ApplicationState.create_instance()
 
+        # Initialize analysis mode configuration FIRST
+        self.analysis_config = AnalysisModeConfig()
+        self.biofilm_config = BiofilmConfig()
+
+        # Show mode selection dialog
+        selected_mode = ModeSelectionDialog.show_mode_selection(
+            self.analysis_config, self)
+        self.current_analysis_mode = selected_mode
+
         self.setWindowTitle("Partaker 2 - GUI")
         self.setGeometry(100, 100, 1000, 800)
 
@@ -43,16 +56,13 @@ class App(QMainWindow):
         self.viewArea = ViewAreaWidget()
         self.layout.addWidget(self.viewArea)
 
-        self.segmentation_tab = SegmentationWidget()
-        self.populationTab = PopulationWidget()
-        self.morphologyTab = MorphologyWidget()
-        self.trackingTab = TrackingManager()
-
+        # Initialize tabs based on analysis mode
         self.tab_widget = QTabWidget()
-        self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
-        self.tab_widget.addTab(self.populationTab, "Population")
-        self.tab_widget.addTab(self.morphologyTab, "Morphology")
-        self.tab_widget.addTab(self.trackingTab, "Tracking")
+        if self.current_analysis_mode == AnalysisMode.SINGLE_CELL:
+            self.init_single_cell_tabs()
+        elif self.current_analysis_mode == AnalysisMode.BIOFILM_CLOUD:
+            self.init_biofilm_cloud_tabs()
+
         self.layout.addWidget(self.tab_widget)
 
         self.initMenuBar()
@@ -67,6 +77,26 @@ class App(QMainWindow):
         # pub.subscribe(self.highlight_cell, "highlight_cell_requested")
 
         pub.subscribe(self.provide_image_data, "get_image_data")
+
+    def init_single_cell_tabs(self):
+        """Initialize tabs for single cell analysis mode"""
+        self.segmentation_tab = SegmentationWidget()
+        self.populationTab = PopulationWidget()
+        self.morphologyTab = MorphologyWidget()
+        self.trackingTab = TrackingManager()
+
+        self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
+        self.tab_widget.addTab(self.populationTab, "Population")
+        self.tab_widget.addTab(self.morphologyTab, "Morphology")
+        self.tab_widget.addTab(self.trackingTab, "Tracking")
+
+    def init_biofilm_cloud_tabs(self):
+        """Initialize tabs for biofilm cloud analysis mode"""
+        self.segmentation_tab = SegmentationWidget()  # Same segmentation
+        self.cube_analysis_tab = CubeAnalysisWidget()
+
+        self.tab_widget.addTab(self.segmentation_tab, "Segmentation")
+        self.tab_widget.addTab(self.cube_analysis_tab, "Colony Analysis")
 
     def provide_image_data(self, callback):
         """Provide the image_data object through the callback"""

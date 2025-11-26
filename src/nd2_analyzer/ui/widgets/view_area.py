@@ -40,6 +40,16 @@ class ViewAreaWidget(QWidget):
         self.current_model = None
         self.valid_time_frames = None  # List of valid frame indices (excluding focus loss)
 
+        # Biofilm mode: Colony overlay support
+        self.colony_overlay = None
+        self.show_colony_overlay = False
+
+        # Biofilm mode: Manual colony selection support
+        self.manual_selection_active = False
+        self.current_polygon_points = []
+        self.colony_separator = None
+        self.temp_polygon_overlay = None
+
         # Set up the UI
         self.init_ui()
 
@@ -57,6 +67,12 @@ class ViewAreaWidget(QWidget):
         pub.subscribe(self.on_segmentation_cache_miss, "segmentation_cache_miss")
         pub.subscribe(self.on_experiment_loaded, "experiment_loaded")
         pub.subscribe(self.on_cell_tracking_ready, "cell_tracking_ready")
+
+        # Biofilm mode subscriptions
+        pub.subscribe(self.on_show_colony_overlay, "show_colony_overlay")
+        pub.subscribe(self.on_hide_colony_overlay, "hide_colony_overlay")
+        pub.subscribe(self.enable_manual_selection, "enable_manual_colony_selection")
+        pub.subscribe(self.disable_manual_selection, "disable_manual_colony_selection")
 
     # FOCUS LOSS HANDLING
 
@@ -952,3 +968,154 @@ class ViewAreaWidget(QWidget):
 
         self._create_qimage_and_display(highlighted_image)
         self.highlighted_image = highlighted_image
+
+    # BIOFILM MODE METHODS
+
+    def on_show_colony_overlay(self, overlay):
+        """Show colony overlay on image"""
+        self.colony_overlay = overlay
+        self.show_colony_overlay = True
+        if hasattr(self, 'current_image'):
+            self._display_with_temp_overlay()
+
+    def on_hide_colony_overlay(self):
+        """Hide colony overlay"""
+        self.show_colony_overlay = False
+        if hasattr(self, 'current_image'):
+            self._display_with_temp_overlay()
+
+    def enable_manual_selection(self, colony_separator=None):
+        """Enable manual colony selection mode"""
+        self.manual_selection_active = True
+        self.colony_separator = colony_separator
+        self.current_polygon_points = []
+
+        # Enable mouse click events on the image label
+        self.image_label.mousePressEvent = self.on_image_click
+        self.image_label.setStyleSheet("border: 2px solid blue;")  # Visual feedback
+        print("Manual selection enabled. Click on image to draw polygon.")
+
+    def disable_manual_selection(self):
+        """Disable manual colony selection mode"""
+        self.manual_selection_active = False
+        self.current_polygon_points = []
+
+        # Disable mouse events
+        self.image_label.mousePressEvent = None
+        self.image_label.setStyleSheet("")  # Remove border
+        print("Manual selection disabled.")
+
+    def on_image_click(self, event):
+        """Handle mouse clicks on the image for polygon drawing"""
+        if not self.manual_selection_active or not hasattr(self, 'current_image'):
+            return
+
+        # Get click position
+        click_x = event.pos().x()
+        click_y = event.pos().y()
+
+        # Get image dimensions
+        pixmap = self.image_label.pixmap()
+        if pixmap is None:
+            return
+
+        pixmap_width = pixmap.width()
+        pixmap_height = pixmap.height()
+        label_width = self.image_label.width()
+        label_height = self.image_label.height()
+
+        # Calculate the actual image position within the label (centered)
+        x_offset = (label_width - pixmap_width) / 2
+        y_offset = (label_height - pixmap_height) / 2
+
+        # Convert label coordinates to image coordinates
+        image_x = int(click_x - x_offset)
+        image_y = int(click_y - y_offset)
+
+        # Check if click is within image bounds
+        if image_x < 0 or image_x >= pixmap_width or image_y < 0 or image_y >= pixmap_height:
+            return
+
+        # Scale coordinates if image was resized
+        original_height, original_width = self.current_image.shape[:2]
+        scale_x = original_width / pixmap_width
+        scale_y = original_height / pixmap_height
+
+        image_x = int(image_x * scale_x)
+        image_y = int(image_y * scale_y)
+
+        # Add point to polygon
+        self.current_polygon_points.append((image_x, image_y))
+        print(f"Added polygon point: ({image_x}, {image_y}). Total points: {len(self.current_polygon_points)}")
+
+        # Send point to colony separator
+        if self.colony_separator:
+            self.colony_separator.add_polygon_point(image_x, image_y)
+
+        # Visual feedback - draw temporary overlay
+        self.draw_polygon_preview()
+
+        # Notify segmentation widget
+        pub.sendMessage("polygon_point_added", x=image_x, y=image_y, total_points=len(self.current_polygon_points))
+
+    def draw_polygon_preview(self):
+        """Draw a preview of the current polygon being drawn"""
+        if len(self.current_polygon_points) < 2:
+            return
+
+        # Create overlay on current image
+        overlay_image = self.current_image.copy()
+
+        # Normalize to 8-bit if needed
+        if overlay_image.dtype != np.uint8:
+            overlay_image = ((overlay_image - overlay_image.min()) /
+                           (overlay_image.max() - overlay_image.min()) * 255).astype(np.uint8)
+
+        # Convert to RGB if grayscale
+        if len(overlay_image.shape) == 2:
+            overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_GRAY2RGB)
+
+        # Draw polygon lines
+        points = np.array(self.current_polygon_points, dtype=np.int32)
+        cv2.polylines(overlay_image, [points], False, (0, 255, 255), 2)  # Yellow lines
+
+        # Draw points
+        for point in self.current_polygon_points:
+            cv2.circle(overlay_image, point, 3, (0, 0, 255), -1)  # Red dots
+
+        # Store as temp overlay for display
+        self.temp_polygon_overlay = overlay_image.copy()
+
+        # Display
+        self._display_with_temp_overlay()
+
+    def _display_with_temp_overlay(self):
+        """Display the current image with temporary polygon overlay and/or colony overlay"""
+        if not hasattr(self, 'current_image'):
+            return
+
+        display_image = self.current_image.copy()
+
+        # Normalize to 8-bit if needed
+        if display_image.dtype != np.uint8:
+            display_image = ((display_image - display_image.min()) /
+                           (display_image.max() - display_image.min()) * 255).astype(np.uint8)
+
+        # Convert to RGB if grayscale
+        if len(display_image.shape) == 2:
+            display_image = cv2.cvtColor(display_image, cv2.COLOR_GRAY2RGB)
+
+        # Add polygon overlay if present
+        if hasattr(self, 'temp_polygon_overlay') and self.temp_polygon_overlay is not None:
+            if self.temp_polygon_overlay.shape == display_image.shape:
+                overlay_mask = (self.temp_polygon_overlay != display_image).any(axis=2)
+                display_image[overlay_mask] = self.temp_polygon_overlay[overlay_mask]
+
+        # Add colony overlay if enabled
+        if self.show_colony_overlay and self.colony_overlay is not None:
+            if self.colony_overlay.shape[:2] == display_image.shape[:2]:
+                overlay_mask = (self.colony_overlay.sum(axis=2) > 0)
+                display_image[overlay_mask] = self.colony_overlay[overlay_mask]
+
+        # Display the image
+        self._create_qimage_and_display(display_image)

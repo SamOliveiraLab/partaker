@@ -153,12 +153,23 @@ class ImageData:
         for path in file_paths:
             arr = nd2.imread(path, dask=True)  # Lazy load dask
             shape = arr.shape
-            if len(shape) < 5:
-                raise ValueError(
-                    f"File {path} has shape {shape}; expected (T, P, C, Y, X)"
-                )
 
-            T, P, C, Y, X = shape
+            # Handle different ND2 formats
+            if len(shape) == 4:
+                # Format: (T, P, Y, X) - no channel dimension
+                # Add a channel dimension
+                print(f"File {path} has no channel dimension. Shape: {shape}")
+                print("Adding channel dimension: (T, P, Y, X) -> (T, P, 1, Y, X)")
+                T, P, Y, X = shape
+                arr = arr[:, :, np.newaxis, :, :]  # Add channel dimension
+                C = 1
+            elif len(shape) == 5:
+                # Format: (T, P, C, Y, X) - standard format
+                T, P, C, Y, X = shape
+            else:
+                raise ValueError(
+                    f"File {path} has shape {shape}; expected (T, P, Y, X) or (T, P, C, Y, X)"
+                )
 
             if channels is None:
                 # Set C, Y, X on the first file
