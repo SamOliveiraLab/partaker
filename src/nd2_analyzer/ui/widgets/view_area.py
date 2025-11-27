@@ -326,6 +326,9 @@ class ViewAreaWidget(QWidget):
         ):
             return  # Ignore outdated images
 
+        # Store current image for overlays
+        self.current_image = image
+
         # Process based on mode
         if mode == "normal":
             display_image = image
@@ -808,6 +811,10 @@ class ViewAreaWidget(QWidget):
 
         if self.current_mode == "normal":
             image = ImageData.get_instance().get(t, p, c)
+            # Broadcast to other widgets first
+            print(f"🔔 ViewArea broadcasting image_ready: mode=normal, T={t}, P={p}, C={c}")
+            pub.sendMessage("image_ready", image=image, time=t, position=p, channel=c, mode="normal")
+            # Then handle locally
             self.on_image_ready(image, t, p, c, "normal")
         else:
             print(

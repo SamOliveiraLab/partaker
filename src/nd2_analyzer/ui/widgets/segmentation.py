@@ -36,6 +36,7 @@ class SegmentationWidget(QWidget):
         
         # Add colony separator
         self.colony_separator = ColonySeparator()
+        self.current_raw_image = None
         self.current_segmented_image = None
         self.colony_overlay_visible = False
 
@@ -45,6 +46,7 @@ class SegmentationWidget(QWidget):
         # Subscribe to relevant topics
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_image_ready, "image_ready")
+        print("✅ SegmentationWidget: Subscribed to 'image_ready' messages")
         
         # Subscribe to provide segmentation parameters to other widgets
         pub.subscribe(self.provide_segmentation_params, "get_segmentation_params")
@@ -227,11 +229,12 @@ class SegmentationWidget(QWidget):
         self.model_combo.clear()
         from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
         self.model_combo.addItems([
+            SegmentationModels.OMNIPOSE_BACT_PHASE,
+            SegmentationModels.OMNIPOSE_BACT_FLUOR,
             SegmentationModels.CELLPOSE_BACT_PHASE,
             SegmentationModels.CELLPOSE_BACT_FLUOR,
             SegmentationModels.CELLPOSE,
-            SegmentationModels.UNET,
-            SegmentationModels.OMNIPOSE_BACT_PHASE_AFFINITY
+            SegmentationModels.UNET
         ])
 
     def select_all_positions(self):
@@ -333,19 +336,25 @@ class SegmentationWidget(QWidget):
     
     def on_image_ready(self, image, time, position, channel, mode):
         """Handle when images are ready"""
-        
+        print(f"📸 SegmentationWidget.on_image_ready CALLED: mode={mode}, T={time}, P={position}, C={channel}, shape={image.shape if image is not None else 'None'}")
+
         # Store raw image for colony detection
         if mode == "normal" and hasattr(self, 'analysis_config'):
+            print(f"  → Mode is 'normal', will store raw image")
             self.current_raw_image = image
-            
+            print(f"✅ Stored raw image (shape={image.shape})")
+
             # Enable colony detection if we're in biofilm mode
             if self.analysis_config.is_biofilm_mode():
+                print("🔵 Biofilm mode active")
                 if hasattr(self, 'detect_colonies_btn'):
                     self.detect_colonies_btn.setEnabled(True)
-        
+                    print("✅ Enabled detect_colonies_btn")
+
         # Store segmented image for other analysis
         if mode == "segmented" and hasattr(self, 'analysis_config'):
             self.current_segmented_image = image
+            print(f"✅ Stored segmented image (shape={image.shape})")
         
         # KEEP ALL EXISTING CODE BELOW
         if not self.is_segmenting:
@@ -736,10 +745,20 @@ class SegmentationWidget(QWidget):
 
     def detect_colonies(self):
         """Detect colonies from current raw image (BiofilmQ approach)"""
+        print("🔵 DEBUG: detect_colonies() button clicked!")
+
         # Get current raw image instead of segmented image
-        if not hasattr(self, 'current_raw_image') or self.current_raw_image is None:
-            self.progress_label.setText("No raw image available. Load image data first.")
+        if not hasattr(self, 'current_raw_image'):
+            print("❌ ERROR: current_raw_image attribute doesn't exist!")
+            self.progress_label.setText("ERROR: current_raw_image not initialized. Please restart the application.")
             return
+
+        if self.current_raw_image is None:
+            print("⚠️ WARNING: No image loaded yet. Please load/view an image first.")
+            self.progress_label.setText("⚠️ No image loaded. Please view an image in the viewport first, then try again.")
+            return
+
+        print(f"✅ Image loaded: shape={self.current_raw_image.shape}")
         
         # Detect colonies using raw image
         colonies = self.colony_separator.detect_colonies_from_raw_image(self.current_raw_image)
@@ -1025,10 +1044,20 @@ class SegmentationWidget(QWidget):
 
     def start_manual_selection(self):
         """Start manual colony selection using Colony ROI Selector"""
+        print("🟢 DEBUG: start_manual_selection() button clicked!")
+
         # Get current raw image
-        if not hasattr(self, 'current_raw_image') or self.current_raw_image is None:
-            self.progress_label.setText("No raw image available. Load image data first.")
+        if not hasattr(self, 'current_raw_image'):
+            print("❌ ERROR: current_raw_image attribute doesn't exist!")
+            self.progress_label.setText("ERROR: current_raw_image not initialized. Please restart the application.")
             return
+
+        if self.current_raw_image is None:
+            print("⚠️ WARNING: No image loaded yet. Please load/view an image first.")
+            self.progress_label.setText("⚠️ No image loaded. Please view an image in the viewport first, then try again.")
+            return
+
+        print(f"✅ Image loaded: shape={self.current_raw_image.shape}")
         
         # DEBUG: Check what colonies exist
         all_colonies = self.colony_separator.get_all_colonies()
@@ -1055,7 +1084,7 @@ class SegmentationWidget(QWidget):
         print(f"DEBUG: Passing {len(existing_colonies)} colonies to dialog")
         
         # Import and open dialog
-        from ui.dialogs.colony_roi_selector import ColonyROISelector
+        from nd2_analyzer.ui.dialogs.colony_roi_selector import ColonyROISelector
         roi_dialog = ColonyROISelector(self.current_raw_image, existing_colonies=existing_colonies, parent=self)
         roi_dialog.colonies_selected.connect(self.handle_selected_colonies)
         
