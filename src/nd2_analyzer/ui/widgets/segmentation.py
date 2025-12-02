@@ -95,8 +95,9 @@ class SegmentationWidget(QWidget):
         layout.addWidget(model_group)
 
         # Add biofilm configuration if in biofilm mode
-        if self.analysis_config.is_biofilm_mode():
-            self.add_biofilm_configuration_panel(layout)
+        # REMOVED: Biofilm-specific features moved to dedicated Colony Separation tab
+        # if self.analysis_config.is_biofilm_mode():
+        #     self.add_biofilm_configuration_panel(layout)
 
         # Position selection (existing code)
         position_group = QGroupBox("Positions")
@@ -415,10 +416,10 @@ class SegmentationWidget(QWidget):
         """Add biofilm-specific configuration panel"""
         biofilm_group = QGroupBox("Biofilm Analysis Configuration")
         biofilm_layout = QVBoxLayout()
-        
-        # Colony separation section
-        self.add_colony_separation_section(biofilm_layout)
-        
+
+        # Colony separation section - REMOVED: Now in dedicated Colony Separation tab
+        # self.add_colony_separation_section(biofilm_layout)
+
         # Add separator
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)

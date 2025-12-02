@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 from skimage import measure, morphology
 from skimage.segmentation import clear_border
+from skimage.filters import threshold_otsu
 from typing import List, Dict, Tuple
 import polars as pl
 
@@ -11,9 +12,18 @@ class ColonySeparator:
     """BiofilmQ-style colony separation tool for automatic biofilm region detection"""
     
     def __init__(self):
+        # Manual threshold parameters (BiofilmQ style)
         self.intensity_threshold = 0.5
-        self.min_colony_size = 100
-        self.max_colony_size = 50000
+
+        # Otsu thresholding parameters (from notebook)
+        self.closing_radius = 1  # radius for binary closing
+        self.min_object_size = 6  # minimum size to keep (removes noise)
+
+        # Common parameters
+        self.min_colony_size = 1000
+        self.max_colony_size = 100000
+
+        # Storage
         self.detected_colonies = []
         self.manual_additions = []
         self.manual_removals = []
@@ -120,20 +130,136 @@ class ColonySeparator:
         
         self.detected_colonies = colonies
         return colonies
-    
-    def update_parameters(self, intensity_threshold: float = None, 
-                        min_colony_size: int = None, 
+
+    def detect_colonies_otsu(self, raw_image: np.ndarray) -> List[Dict]:
+        """
+        Detect colonies using Otsu thresholding (notebook approach)
+
+        This method follows the exact process from the fluorescence analysis notebook:
+        1. Apply Otsu automatic thresholding
+        2. Binary closing to fill small holes
+        3. Remove small objects (noise)
+        4. Find contours and filter by size
+
+        Args:
+            raw_image: Raw grayscale microscopy image
+
+        Returns:
+            List of colony dictionaries with boundaries and properties
+        """
+        # Convert to float32 for processing
+        img_float = raw_image.astype(np.float32)
+
+        # Step 1: Apply Otsu automatic thresholding
+        threshold_value = threshold_otsu(img_float)
+        binary_mask = (img_float > threshold_value).astype(np.uint8)
+
+        print(f"Otsu threshold: {threshold_value:.2f}")
+
+        # Step 2: Binary closing to fill small holes within colonies
+        if self.closing_radius > 0:
+            from skimage.morphology import disk, binary_closing
+            footprint = disk(self.closing_radius)
+            binary_mask = binary_closing(binary_mask, footprint=footprint).astype(np.uint8)
+
+        # Step 3: Remove small objects (noise removal)
+        if self.min_object_size > 0:
+            binary_mask = morphology.remove_small_objects(
+                binary_mask.astype(bool),
+                min_size=self.min_object_size
+            ).astype(np.uint8)
+
+        # Step 4: Find contours of colony regions
+        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        colonies = []
+        colony_id = 1
+
+        for contour in contours:
+            # Calculate contour area
+            area = cv2.contourArea(contour)
+
+            # Filter by colony size
+            if self.min_colony_size <= area <= self.max_colony_size:
+                # Calculate bounding rectangle
+                x, y, w, h = cv2.boundingRect(contour)
+
+                # Calculate centroid
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    centroid_x = M["m10"] / M["m00"]
+                    centroid_y = M["m01"] / M["m00"]
+                else:
+                    centroid_x, centroid_y = x + w/2, y + h/2
+
+                # Calculate perimeter
+                perimeter = cv2.arcLength(contour, True)
+
+                # Fit ellipse if contour has enough points
+                if len(contour) >= 5:
+                    try:
+                        ellipse = cv2.fitEllipse(contour)
+                        (center_x, center_y), (major_axis, minor_axis), angle = ellipse
+                        eccentricity = np.sqrt(1 - (min(major_axis, minor_axis) / max(major_axis, minor_axis))**2)
+                    except:
+                        major_axis = minor_axis = np.sqrt(area / np.pi) * 2
+                        eccentricity = 0
+                        angle = 0
+                else:
+                    major_axis = minor_axis = np.sqrt(area / np.pi) * 2
+                    eccentricity = 0
+                    angle = 0
+
+                # Calculate solidity
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                solidity = area / hull_area if hull_area > 0 else 0
+
+                # Create colony data
+                colony_data = {
+                    'colony_id': colony_id,
+                    'area': area,
+                    'centroid': (centroid_x, centroid_y),
+                    'bbox': (x, y, x + w, y + h),
+                    'bbox_width': w,
+                    'bbox_height': h,
+                    'perimeter': perimeter,
+                    'major_axis_length': major_axis,
+                    'minor_axis_length': minor_axis,
+                    'eccentricity': eccentricity,
+                    'orientation': angle,
+                    'solidity': solidity,
+                    'contour': contour.squeeze(),
+                    'source': 'otsu_automatic'
+                }
+
+                colonies.append(colony_data)
+                colony_id += 1
+
+        self.detected_colonies = colonies
+        return colonies
+
+    def update_parameters(self,
+                        intensity_threshold: float = None,
+                        closing_radius: int = None,
+                        min_object_size: int = None,
+                        min_colony_size: int = None,
                         max_colony_size: int = None):
-        """Update detection parameters and re-detect if image is available"""
+        """Update detection parameters"""
         if intensity_threshold is not None:
             self.intensity_threshold = intensity_threshold
+        if closing_radius is not None:
+            self.closing_radius = closing_radius
+        if min_object_size is not None:
+            self.min_object_size = min_object_size
         if min_colony_size is not None:
             self.min_colony_size = min_colony_size
         if max_colony_size is not None:
             self.max_colony_size = max_colony_size
-        
-        print(f"Updated parameters: threshold={self.intensity_threshold:.3f}, "
-            f"min_size={self.min_colony_size}, max_size={self.max_colony_size}")
+
+        print(f"Updated parameters: closing_radius={self.closing_radius}, "
+              f"min_object_size={self.min_object_size}, "
+              f"min_colony_size={self.min_colony_size}, max_colony_size={self.max_colony_size}")
     
     def add_manual_colony(self, polygon_points: List[Tuple[int, int]], image_shape: Tuple[int, int]) -> Dict:
         """
