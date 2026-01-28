@@ -32,7 +32,7 @@ class ApplicationState:
         pub.subscribe(self.on_experiment_loaded, "experiment_loaded")
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
 
-    def on_roi_selected(self, mask: np.ndarray) -> None:
+    def on_roi_selected(self, mask: np.ndarray, p) -> None:
         self.roi_mask = mask
 
     def on_index_changed(self, index: Tuple[int, int, int]) -> None:

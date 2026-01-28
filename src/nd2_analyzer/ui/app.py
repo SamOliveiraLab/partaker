@@ -273,7 +273,8 @@ class App(QMainWindow):
         pub.sendMessage("crop_reset")
 
     def on_reset_roi(self):
-        pub.sendMessage("roi_reset")
+        t, p, c = ApplicationState.get_instance().view_index
+        pub.sendMessage("roi_reset", p=p)
 
     def hhln_test(self):
         ImageData.load_nd2(
