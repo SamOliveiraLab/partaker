@@ -226,8 +226,9 @@ class PolygonROISelector(QDialog):
 
         # TODO: Directly send via pubsubs
         # eg. self.application_state.image_data.segmentation_cache.set_binary_mask(self.roi_mask)
-        ApplicationState.get_instance()
-        pub.sendMessage("roi_selected", mask=self.mask)
+
+        t, p, c = ApplicationState.get_instance().view_index
+        pub.sendMessage("roi_selected", mask=self.mask, p=p)
 
         self.accept()  # This will close the dialog
 

@@ -23,7 +23,7 @@ class SegmentationService:
         self.cache = cache
         self.models = models
         self.get_raw_image = data_getter
-        self.roi_mask: Optional[np.ndarray] = None
+        self.roi_masks = {}
         self.crop_coordinates = None
 
         pub.subscribe(self.handle_image_request, "segmented_image_request")
@@ -36,14 +36,14 @@ class SegmentationService:
         self.overlay_color = (0, 255, 0)  # Green for outlines
         self.label_colormap = "viridis"
 
-    def on_roi_selected(self, mask: np.ndarray) -> None:
+    def on_roi_selected(self, mask: np.ndarray, p) -> None:
         """
         Saves the ROI mask to the service
         """
-        self.roi_mask = mask
+        self.roi_masks[p] = mask
 
-    def on_reset_roi(self) -> None:
-        self.roi_mask = None
+    def on_reset_roi(self, p) -> None:
+        self.roi_masks.pop(p)
 
     def on_crop_selected(self, coords: list):
         self.crop_coordinates = coords
@@ -66,8 +66,8 @@ class SegmentationService:
             x, y, width, height = self.crop_coordinates
             segmented = segmented[y: y + height, x: x + width]
 
-        if self.roi_mask is not None:
-            segmented = self._apply_roi_mask(segmented)
+        if position in self.roi_masks:
+            segmented = self._apply_roi_mask(segmented, self.roi_masks[position])
 
         # Post-process based on mode
         processed_image = self._post_process(
@@ -176,7 +176,7 @@ class SegmentationService:
 
         return colored
 
-    def _apply_roi_mask(self, segmented: np.ndarray) -> np.ndarray:
+    def _apply_roi_mask(self, segmented: np.ndarray, crop_roi_mask) -> np.ndarray:
         """
         Apply binary mask to segmentation results.
         Discard segmentations outside the mask and those touching the mask boundary.
@@ -202,7 +202,6 @@ class SegmentationService:
         from scipy.ndimage import binary_dilation
 
         # Crop roi_mask
-        crop_roi_mask = self.roi_mask
         if self.crop_coordinates is not None:
             x, y, width, height = self.crop_coordinates
             crop_roi_mask = crop_roi_mask[y: y + height, x: x + width]
