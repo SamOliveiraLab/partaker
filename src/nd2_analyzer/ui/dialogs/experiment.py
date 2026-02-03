@@ -64,12 +64,12 @@ class ExperimentDialog(QDialog):
         tab_widget.addTab(basic_tab, "Basic Settings")
 
         # Tab 2: Analysis Configuration
-        analysis_tab = self.create_analysis_tab()
-        tab_widget.addTab(analysis_tab, "Analysis Configuration")
+        # analysis_tab = self.create_analysis_tab()
+        # tab_widget.addTab(analysis_tab, "Analysis Configuration")
 
         # Tab 3: Channels
-        channels_tab = self.create_channels_tab()
-        tab_widget.addTab(channels_tab, "Channels")
+        # channels_tab = self.create_channels_tab()
+        # tab_widget.addTab(channels_tab, "Channels")
 
         # Tab 4: Components & Focus
         components_tab = self.create_components_tab()

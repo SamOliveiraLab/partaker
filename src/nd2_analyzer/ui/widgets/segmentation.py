@@ -98,25 +98,25 @@ class SegmentationWidget(QWidget):
         time_group.setLayout(time_layout)
         layout.addWidget(time_group)
 
-        # Channel and Mode selection
-        options_layout = QHBoxLayout()
-
-        # Channel selection
-        channel_layout = QHBoxLayout()
-        channel_layout.addWidget(QLabel("Channel:"))
-        self.channel_combo = QComboBox()
-        channel_layout.addWidget(self.channel_combo)
-        options_layout.addLayout(channel_layout)
-
-        # Mode selection
-        mode_layout = QHBoxLayout()
-        mode_layout.addWidget(QLabel("Mode:"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["segmented", "overlay", "labeled"])
-        mode_layout.addWidget(self.mode_combo)
-        options_layout.addLayout(mode_layout)
-
-        layout.addLayout(options_layout)
+        # # Channel and Mode selection
+        # options_layout = QHBoxLayout()
+        #
+        # # Channel selection
+        # channel_layout = QHBoxLayout()
+        # channel_layout.addWidget(QLabel("Channel:"))
+        # self.channel_combo = QComboBox()
+        # channel_layout.addWidget(self.channel_combo)
+        # options_layout.addLayout(channel_layout)
+        #
+        # # Mode selection
+        # mode_layout = QHBoxLayout()
+        # mode_layout.addWidget(QLabel("Mode:"))
+        # self.mode_combo = QComboBox()
+        # self.mode_combo.addItems(["segmented", "overlay", "labeled"])
+        # mode_layout.addWidget(self.mode_combo)
+        # options_layout.addLayout(mode_layout)
+        #
+        # layout.addLayout(options_layout)
 
         # Segmentation controls
         controls_layout = QHBoxLayout()
@@ -168,10 +168,11 @@ class SegmentationWidget(QWidget):
         # Select all positions by default
         self.select_all_positions()
 
-        # Populate channel combo
-        self.channel_combo.clear()
-        for c in range(c_max + 1):
-            self.channel_combo.addItem(f"Channel {c}")
+        # # Populate channel combo
+        # self.channel_combo.clear()
+        # for c in range(c_max + 1):
+        #     self.channel_combo.addItem(f"Channel {c}")
+        #
 
         # Populate model combo
         self.model_combo.clear()
@@ -219,14 +220,9 @@ class SegmentationWidget(QWidget):
         self.time_range = (t_start, t_end)
 
         # Get channel and mode
-        self.channel = self.channel_combo.currentIndex()
-        self.mode = self.mode_combo.currentText()
+        # self.channel = self.channel_combo.currentIndex()
+        # self.mode = self.mode_combo.currentText()
         self.current_model = self.model_combo.currentText()
-
-        # Check if metrics data already exists for these parameters
-        from nd2_analyzer.analysis.metrics_service import MetricsService
-
-        metrics_service = MetricsService()
 
         # Check if we need to segment anything
         frames_to_segment = []
@@ -315,8 +311,8 @@ class SegmentationWidget(QWidget):
         # Update progress
         self.progress_bar.setValue(len(self.processed_frames))
 
-        # Schedule next processing with a small delay
-        self.request_timer.start(50)  # 50ms delay
+        # Schedule next processing
+        self.request_timer.start(70)
 
     def cancel_segmentation(self):
         """Cancel the segmentation process"""
