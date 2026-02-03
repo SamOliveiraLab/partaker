@@ -18,6 +18,13 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QFileDialog,
 )
+from PySide6.QtWidgets import (
+            QMessageBox,
+            QDialog,
+            QVBoxLayout,
+            QLabel,
+            QDialogButtonBox,
+        )
 import seaborn as sns
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -104,7 +111,7 @@ class PopulationWidget(QWidget):
 
         # Calculate RPU button (new)
         rpu_btn = QPushButton("Calculate RPU Reference Values")
-        # rpu_btn.clicked.connect(self.calculate_rpu_values)
+        rpu_btn.clicked.connect(self.calculate_rpu_values)
         bottom_btn_layout.addWidget(rpu_btn)
 
         layout.addLayout(bottom_btn_layout)
@@ -335,193 +342,179 @@ class PopulationWidget(QWidget):
         # plt.savefig('1_9_iptg_on_p_all.pdf')
         # plt.show()
 
-    # def calculate_rpu_values(self):
-    #     """
-    #     Calculate RPU reference values from all segmented cells across all frames.
-    #     Displays results in a dialog and offers to export to CSV.
-    #     """
-    #     from PySide6.QtWidgets import (
-    #         QMessageBox,
-    #         QDialog,
-    #         QVBoxLayout,
-    #         QLabel,
-    #         QDialogButtonBox,
-    #     )
-    #
-    #     # Get the metrics DataFrame from the singleton
-    #     df = self.metrics_service.df
-    #
-    #     if df.is_empty():
-    #         QMessageBox.warning(
-    #             self,
-    #             "No Data",
-    #             "No metrics data available. Please run segmentation first.",
-    #         )
-    #         return
-    #
-    #     # Get available fluorescence channels
-    #     fluo_columns = [col for col in df.columns if col.startswith("fluo_")]
-    #
-    #     if not fluo_columns:
-    #         QMessageBox.warning(
-    #             self,
-    #             "No Data",
-    #             "No fluorescence data found in metrics. Please run segmentation with fluorescence channels.",
-    #         )
-    #         return
-    #
-    #     # Calculate average values for each channel (ignoring zeros)
-    #     rpu_values = {}
-    #     for channel_col in fluo_columns:
-    #         channel_num = int(channel_col.split("_")[1])  # Extract channel number
-    #
-    #         # Filter out zeros and calculate the average
-    #         channel_data = df.filter(pl.col(channel_col) > 0.1)
-    #
-    #         if channel_data.height > 0:
-    #             avg_value = channel_data[channel_col].mean()
-    #             std_value = channel_data[channel_col].std()
-    #             cell_count = channel_data.height
-    #
-    #             channel_name = f"Channel {channel_num}"
-    #             if channel_num == 1:
-    #                 channel_name = "mCherry"
-    #             elif channel_num == 2:
-    #                 channel_name = "YFP"
-    #
-    #             rpu_values[channel_num] = {
-    #                 "name": channel_name,
-    #                 "avg_value": avg_value,
-    #                 "std_value": std_value,
-    #                 "cell_count": cell_count,
-    #             }
-    #
-    #     if not rpu_values:
-    #         QMessageBox.warning(
-    #             self,
-    #             "No Data",
-    #             "No valid fluorescence data found (all values are zero or missing).",
-    #         )
-    #         return
-    #
-    #     # Create a dialog to display the results
-    #     dialog = QDialog(self)
-    #     dialog.setWindowTitle("RPU Reference Values")
-    #     dialog.setMinimumWidth(400)
-    #
-    #     layout = QVBoxLayout(dialog)
-    #
-    #     # Add title
-    #     title_label = QLabel("<h3>RPU Reference Values</h3>")
-    #     title_label.setAlignment(Qt.AlignCenter)
-    #     layout.addWidget(title_label)
-    #
-    #     # Add description
-    #     desc_label = QLabel(
-    #         "The following reference values were calculated from single-cell analysis "
-    #         "across all frames using segmentation model: UNet"
-    #     )
-    #     desc_label.setWordWrap(True)
-    #     layout.addWidget(desc_label)
-    #
-    #     # Add the calculated values
-    #     for channel_num, values in rpu_values.items():
-    #         value_label = QLabel(
-    #             f"<b>{values['name']} (Channel {channel_num}):</b> {values['avg_value']:.2f} ± {values['std_value']:.2f} "
-    #             f"<i>(from {values['cell_count']} cells)</i>"
-    #         )
-    #         value_label.setTextFormat(Qt.RichText)
-    #         layout.addWidget(value_label)
-    #
-    #     # Add note
-    #     note_label = QLabel(
-    #         "<i>Note: These values can be used as RPU reference values for normalizing "
-    #         "fluorescence measurements in future experiments.</i>"
-    #     )
-    #     note_label.setWordWrap(True)
-    #     layout.addWidget(note_label)
-    #
-    #     # Add buttons
-    #     button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-    #     layout.addWidget(button_box)
-    #
-    #     # Connect button signals
-    #     button_box.accepted.connect(lambda: self.export_rpu_values(rpu_values, dialog))
-    #     button_box.rejected.connect(dialog.reject)
-    #
-    #     # Show the dialog
-    #     dialog.exec_()
-    #
-    # def export_rpu_values(self, rpu_values, dialog):
-    #     """Export the calculated RPU values to a CSV file"""
-    #
-    #     # Ask for save location
-    #     file_path, _ = QFileDialog.getSaveFileName(
-    #         self,
-    #         "Save RPU Reference Values",
-    #         "rpu_reference_values.csv",
-    #         "CSV Files (*.csv)",
-    #     )
-    #
-    #     if not file_path:
-    #         return
-    #
-    #     try:
-    #         with open(file_path, "w", newline="") as csvfile:
-    #             writer = csv.writer(csvfile)
-    #
-    #             # Write header row
-    #             writer.writerow(
-    #                 [
-    #                     "Channel",
-    #                     "Channel Name",
-    #                     "RPU Reference Value",
-    #                     "Standard Deviation",
-    #                     "Cell Count",
-    #                 ]
-    #             )
-    #
-    #             # Write data rows
-    #             for channel_num, values in rpu_values.items():
-    #                 writer.writerow(
-    #                     [
-    #                         channel_num,
-    #                         values["name"],
-    #                         f"{values['avg_value']:.6f}",
-    #                         f"{values['std_value']:.6f}",
-    #                         values["cell_count"],
-    #                     ]
-    #                 )
-    #
-    #             # Write metadata
-    #             writer.writerow([])
-    #             writer.writerow(["Segmentation Model", "UNet"])
-    #
-    #             # If experiment info is available, add it
-    #             if self.experiment:
-    #                 writer.writerow(
-    #                     ["Experiment Name", getattr(self.experiment, "name", "Unknown")]
-    #                 )
-    #                 writer.writerow(
-    #                     [
-    #                         "ND2 Files",
-    #                         ", ".join(
-    #                             getattr(self.experiment, "nd2_files", ["Unknown"])
-    #                         ),
-    #                     ]
-    #                 )
-    #
-    #         dialog.accept()
-    #
-    #         from PySide6.QtWidgets import QMessageBox
-    #
-    #         QMessageBox.information(
-    #             self, "Export Complete", f"RPU reference values saved to:\n{file_path}"
-    #         )
-    #
-    #     except Exception as e:
-    #         from PySide6.QtWidgets import QMessageBox
-    #
-    #         QMessageBox.warning(
-    #             self, "Export Error", f"Failed to export RPU values: {str(e)}"
-    #         )
+    def calculate_rpu_values(self):
+        """
+        Calculate RPU reference values from all segmented cells across all frames.
+        Displays results in a dialog and offers to export to CSV.
+        """
+
+        # Get the metrics DataFrame from the singleton
+        df = self.metrics_service.df
+
+        if df.is_empty():
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No metrics data available. Please run segmentation first.",
+            )
+            return
+
+        # Calculate average values for each channel (ignoring zeros)
+        rpu_values = {}
+
+        # Get unique channel values
+        unique_channels = df["fluorescence_channel"].unique()
+
+        for channel_num in unique_channels:
+            # Filter data for this channel and filter out low values
+            channel_data = df.filter(
+                (pl.col("fluorescence_channel") == channel_num) &
+                (pl.col("fluo_level") > 0.1)
+            )
+
+            if channel_data.height > 0:
+                avg_value = channel_data["fluo_level"].mean()
+                std_value = channel_data["fluo_level"].std()
+                cell_count = channel_data.height
+
+                # Assign channel names
+                channel_name = f"Channel {channel_num}"
+                if channel_num == 1:
+                    channel_name = "mCherry"
+                elif channel_num == 2:
+                    channel_name = "YFP"
+
+                rpu_values[channel_num] = {
+                    "name": channel_name,
+                    "avg_value": avg_value,
+                    "std_value": std_value,
+                    "cell_count": cell_count,
+                }
+        if not rpu_values:
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No valid fluorescence data found (all values are zero or missing).",
+            )
+            return
+
+        # Create a dialog to display the results
+        dialog = QDialog(self)
+        dialog.setWindowTitle("RPU Reference Values")
+        dialog.setMinimumWidth(400)
+
+        layout = QVBoxLayout(dialog)
+
+        # Add title
+        title_label = QLabel("<h3>RPU Reference Values</h3>")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+
+        # Add description
+        desc_label = QLabel(
+            "The following reference values were calculated from single-cell analysis."
+        )
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+
+        # Add the calculated values
+        for channel_num, values in rpu_values.items():
+            value_label = QLabel(
+                f"<b>{values['name']} (Channel {channel_num}):</b> {values['avg_value']:.2f} ± {values['std_value']:.2f} "
+                f"<i>(from {values['cell_count']} cells)</i>"
+            )
+            value_label.setTextFormat(Qt.RichText)
+            layout.addWidget(value_label)
+
+        # Add note
+        note_label = QLabel(
+            "<i>Note: These values can be used as RPU reference values for normalizing "
+            "fluorescence measurements in future experiments.</i>"
+        )
+        note_label.setWordWrap(True)
+        layout.addWidget(note_label)
+
+        # Add buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        layout.addWidget(button_box)
+
+        # Connect button signals
+        button_box.accepted.connect(lambda: self.export_rpu_values(rpu_values, dialog))
+        button_box.rejected.connect(dialog.reject)
+
+        # Show the dialog
+        dialog.exec_()
+
+    def export_rpu_values(self, rpu_values, dialog):
+        """Export the calculated RPU values to a CSV file"""
+
+        # Ask for save location
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save RPU Reference Values",
+            "rpu_reference_values.csv",
+            "CSV Files (*.csv)",
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "w", newline="") as csvfile:
+                writer = csv.writer(csvfile)
+
+                # Write header row
+                writer.writerow(
+                    [
+                        "Channel",
+                        "Channel Name",
+                        "RPU Reference Value",
+                        "Standard Deviation",
+                        "Cell Count",
+                    ]
+                )
+
+                # Write data rows
+                for channel_num, values in rpu_values.items():
+                    writer.writerow(
+                        [
+                            channel_num,
+                            values["name"],
+                            f"{values['avg_value']:.6f}",
+                            f"{values['std_value']:.6f}",
+                            values["cell_count"],
+                        ]
+                    )
+
+                # Write metadata
+                writer.writerow([])
+                writer.writerow(["Segmentation Model", "UNet"])
+
+                # If experiment info is available, add it
+                if self.experiment:
+                    writer.writerow(
+                        ["Experiment Name", getattr(self.experiment, "name", "Unknown")]
+                    )
+                    writer.writerow(
+                        [
+                            "ND2 Files",
+                            ", ".join(
+                                getattr(self.experiment, "nd2_files", ["Unknown"])
+                            ),
+                        ]
+                    )
+
+            dialog.accept()
+
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                self, "Export Complete", f"RPU reference values saved to:\n{file_path}"
+            )
+
+        except Exception as e:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.warning(
+                self, "Export Error", f"Failed to export RPU values: {str(e)}"
+            )
