@@ -6,11 +6,11 @@ import numpy as np
 class LineageVisualization:
     def __init__(self, morphology_colors_rgb=None):
         self.morphology_colors_rgb = morphology_colors_rgb or {
-            "Artifact": (43 / 255, 58 / 255, 82 / 255),  # Dark navy #2B3A52
-            "Coccoid": (74 / 255, 140 / 255, 150 / 255),  # Teal #4A8C96
-            "Rod": (58 / 255, 125 / 255, 68 / 255),  # Green #3A7D44
-            "Elongated": (197 / 255, 213 / 255, 160 / 255),  # Sage #C5D5A0
-            "Deformed": (91 / 255, 143 / 255, 168 / 255),  # Steel blue #5B8FA8
+            "Artifact": (128 / 255, 128 / 255, 128 / 255),  # Gray #808080
+            "Coccoid": (46 / 255, 196 / 255, 182 / 255),  # Teal #2EC4B6
+            "Rod": (45 / 255, 106 / 255, 79 / 255),  # Dark green #2D6A4F
+            "Elongated": (233 / 255, 196 / 255, 106 / 255),  # Gold #E9C46A
+            "Deformed": (231 / 255, 111 / 255, 81 / 255),  # Coral #E76F51
         }
 
         # Store states needed for animations

@@ -415,11 +415,11 @@ class MotilityDialog(QDialog):
 
         # Define colors for morphology classes
         color_map = {
-            'Rod': '#3A7D44',
-            'Coccoid': '#4A8C96',
-            'Artifact': '#2B3A52',
-            'Elongated': '#C5D5A0',
-            'Deformed': '#5B8FA8'
+            'Rod': '#2D6A4F',
+            'Coccoid': '#2EC4B6',
+            'Artifact': '#808080',
+            'Elongated': '#E9C46A',
+            'Deformed': '#E76F51'
         }
 
         # Order morphology classes consistently
@@ -475,11 +475,11 @@ class MotilityDialog(QDialog):
 
         # Define colors (same order as legend)
         color_map = {
-            'Rod': '#3A7D44',
-            'Coccoid': '#4A8C96',
-            'Artifact': '#2B3A52',
-            'Elongated': '#C5D5A0',
-            'Deformed': '#5B8FA8'
+            'Rod': '#2D6A4F',
+            'Coccoid': '#2EC4B6',
+            'Artifact': '#808080',
+            'Elongated': '#E9C46A',
+            'Deformed': '#E76F51'
         }
 
         # Ensure consistent ordering of morphology classes
