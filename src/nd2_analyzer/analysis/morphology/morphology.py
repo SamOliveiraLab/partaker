@@ -57,7 +57,7 @@ def classify_morphology(metrics, parameters=None):
     - parameters: dict, optional threshold parameters to use (for optimization)
 
     Returns:
-    - str, the morphology class (Artifact, Divided, Healthy, Elongated, Deformed)
+    - str, the morphology class (Artifact, Coccoid, Rod, Elongated, Deformed)
     """
     # Extract metrics
     area = metrics.get("area", 0)
@@ -98,15 +98,15 @@ def classify_morphology(metrics, parameters=None):
     ):
         return "Artifact"
 
-    # Divided Cells (formerly Small) - recently divided cells
+    # Coccoid Cells (formerly Divided/Small) - recently divided cells
     if (
         area < params["divided_max_area"]
         and perimeter < params["divided_max_perimeter"]
         and aspect_ratio < params["divided_max_aspect_ratio"]
     ):
-        return "Divided"
+        return "Coccoid"
 
-    # Healthy Cells (formerly Normal) - balanced morphology
+    # Rod Cells (formerly Healthy/Normal) - balanced morphology
     elif (
         params["healthy_min_circularity"]
         <= circularity
@@ -116,7 +116,7 @@ def classify_morphology(metrics, parameters=None):
         <= params["healthy_max_aspect_ratio"]
         and solidity >= params["healthy_min_solidity"]
     ):
-        return "Healthy"
+        return "Rod"
 
     # Elongated Cells - large area, high aspect ratio
     elif (
@@ -135,7 +135,7 @@ def classify_morphology(metrics, parameters=None):
 
     # Default case
     else:
-        return "Healthy"  # Default to healthy if no other criteria match
+        return "Rod"  # Default to rod if no other criteria match
 
 
 def extract_cells_and_metrics(image, segmented_image):
@@ -282,18 +282,18 @@ def annotate_binary_mask(segmented_image, cell_mapping):
 
     # Define color mapping for morphology classes
     morphology_colors = {
-        "Artifact": (128, 128, 128),  # Gray
-        "Divided": (255, 0, 0),  # Blue
-        "Healthy": (0, 255, 0),  # Green
-        "Elongated": (0, 255, 255),  # Yellow
-        "Deformed": (255, 0, 255),  # Magenta
+        "Artifact": (82, 58, 43),  # Dark navy #2B3A52
+        "Coccoid": (150, 140, 74),  # Teal #4A8C96
+        "Rod": (68, 125, 58),  # Green #3A7D44
+        "Elongated": (160, 213, 197),  # Sage #C5D5A0
+        "Deformed": (168, 143, 91),  # Steel blue #5B8FA8
     }
 
     for cell_id, data in cell_mapping.items():
         y1, x1, y2, x2 = data["bbox"]
 
         # Get the morphology class and corresponding color
-        morphology_class = data["metrics"].get("morphology_class", "Healthy")
+        morphology_class = data["metrics"].get("morphology_class", "Rod")
         color = morphology_colors.get(
             morphology_class, (255, 255, 255)
         )  # Default to white

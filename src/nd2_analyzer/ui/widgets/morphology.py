@@ -34,11 +34,11 @@ class MorphologyWidget(QWidget):
 
         # Set up morphology colors (same as original)
         self.morphology_colors = {
-            "Artifact": (128, 128, 128),  # Gray
-            "Divided": (255, 0, 0),  # Blue
-            "Healthy": (0, 255, 0),  # Green
-            "Elongated": (0, 255, 255),  # Yellow
-            "Deformed": (255, 0, 255),  # Magenta
+            "Artifact": (82, 58, 43),  # Dark navy #2B3A52
+            "Coccoid": (150, 140, 74),  # Teal #4A8C96
+            "Rod": (68, 125, 58),  # Green #3A7D44
+            "Elongated": (160, 213, 197),  # Sage #C5D5A0
+            "Deformed": (168, 143, 91),  # Steel blue #5B8FA8
         }
 
         self.morphology_colors_rgb = {

@@ -6,11 +6,11 @@ import numpy as np
 class LineageVisualization:
     def __init__(self, morphology_colors_rgb=None):
         self.morphology_colors_rgb = morphology_colors_rgb or {
-            "Artifact": (128 / 255, 128 / 255, 128 / 255),  # Gray
-            "Divided": (255 / 255, 0 / 255, 0 / 255),  # Blue
-            "Healthy": (0 / 255, 255 / 255, 0 / 255),  # Green
-            "Elongated": (0 / 255, 255 / 255, 255 / 255),  # Yellow
-            "Deformed": (255 / 255, 0 / 255, 255 / 255),  # Magenta
+            "Artifact": (43 / 255, 58 / 255, 82 / 255),  # Dark navy #2B3A52
+            "Coccoid": (74 / 255, 140 / 255, 150 / 255),  # Teal #4A8C96
+            "Rod": (58 / 255, 125 / 255, 68 / 255),  # Green #3A7D44
+            "Elongated": (197 / 255, 213 / 255, 160 / 255),  # Sage #C5D5A0
+            "Deformed": (91 / 255, 143 / 255, 168 / 255),  # Steel blue #5B8FA8
         }
 
         # Store states needed for animations
@@ -275,13 +275,13 @@ class LineageVisualization:
                 {"ID": 7, "t": [2], "children": []},
             ]
             morphology_data = {
-                1: "Divided",
-                2: "Healthy",
-                3: "Healthy",
-                4: "Healthy",
-                5: "Healthy",
-                6: "Healthy",
-                7: "Healthy",
+                1: "Coccoid",
+                2: "Rod",
+                3: "Rod",
+                4: "Rod",
+                5: "Rod",
+                6: "Rod",
+                7: "Rod",
             }
         else:
             morphology_data = self.collect_cell_morphology_data(tracks)
@@ -775,10 +775,10 @@ class LineageVisualization:
                             morphology_data[track_id] = "Elongated"
                         else:
                             # Short tracks with division are probably already divided
-                            morphology_data[track_id] = "Divided"
+                            morphology_data[track_id] = "Coccoid"
                     else:
-                        # Non-dividing tracks are healthy by default
-                        morphology_data[track_id] = "Healthy"
+                        # Non-dividing tracks are rod by default
+                        morphology_data[track_id] = "Rod"
 
                         # Check if track exhibits deformation (use x,y positions to calculate path tortuosity)
                         if "x" in track and "y" in track and len(track["x"]) > 3:
@@ -817,7 +817,7 @@ class LineageVisualization:
                         # Preparing to divide
                         morphology_data[track_id] = "Elongated"
                     else:
-                        morphology_data[track_id] = "Divided"  # Just divided
+                        morphology_data[track_id] = "Coccoid"  # Just divided
                 else:
                     # Non-dividing cells - check if it's a terminal track
                     has_parent = False
@@ -831,7 +831,7 @@ class LineageVisualization:
 
                     if has_parent and "t" in track and len(track["t"]) < 3:
                         # Very short terminal tracks may be recently divided
-                        morphology_data[track_id] = "Divided"
+                        morphology_data[track_id] = "Coccoid"
                     elif (
                         "t" in track
                         and "x" in track
@@ -866,11 +866,11 @@ class LineageVisualization:
                             if angle_changes and np.mean(angle_changes) > 0.5:
                                 morphology_data[track_id] = "Deformed"
                             else:
-                                morphology_data[track_id] = "Healthy"
+                                morphology_data[track_id] = "Rod"
                         else:
-                            morphology_data[track_id] = "Healthy"
+                            morphology_data[track_id] = "Rod"
                     else:
-                        morphology_data[track_id] = "Healthy"  # Default case
+                        morphology_data[track_id] = "Rod"  # Default case
 
         # Adjust morphology distribution for visual balance
         # Make sure we have at least one of each morphology type for visualization
@@ -883,7 +883,7 @@ class LineageVisualization:
             print(f"  {morph}: {count} cells")
 
         # If we're missing some morphology classes, convert a few cells
-        required_morphologies = ["Healthy", "Divided", "Elongated", "Deformed"]
+        required_morphologies = ["Rod", "Coccoid", "Elongated", "Deformed"]
 
         for morph_class in required_morphologies:
             if (
@@ -1000,8 +1000,8 @@ class LineageVisualization:
 
         # Define cartoony colors (brighter, as in the first code)
         colors = {
-            "Healthy": "#b8e986",  # Brighter green
-            "Divided": "#ffd700",  # Brighter yellow
+            "Rod": "#b8e986",  # Brighter green
+            "Coccoid": "#ffd700",  # Brighter yellow
             "Elongated": "#87cefa",  # Brighter blue
             "Deformed": "#ff6347",  # Brighter red
             "Artifact": "#808080",  # Gray for artifacts
@@ -1077,8 +1077,8 @@ class LineageVisualization:
             height = base_height * bounce
 
             # Determine morphology and draw the cell
-            if morphology == "Healthy":
-                # Pulsing effect for healthy cells
+            if morphology == "Rod":
+                # Pulsing effect for rod cells
                 # Pulse every 40 frames
                 pulse = 1 + 0.05 * np.sin(2 * np.pi * phase / 40)
                 width *= pulse
@@ -1094,7 +1094,7 @@ class LineageVisualization:
                         width,
                         height,
                         boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
-                        facecolor=colors["Healthy"],
+                        facecolor=colors["Rod"],
                         edgecolor="white",
                         linewidth=1,
                         zorder=2,
@@ -1135,8 +1135,8 @@ class LineageVisualization:
                         ax.add_patch(ellipse2)
                         self.nucleoid_objects[node] = (ellipse1, ellipse2)
 
-            elif morphology == "Divided":
-                # Smaller size for divided cells with a pop effect
+            elif morphology == "Coccoid":
+                # Smaller size for coccoid cells with a pop effect
                 base_width *= 0.5
                 base_height *= 0.5
                 width = base_width * bounce
@@ -1156,7 +1156,7 @@ class LineageVisualization:
                         width,
                         height,
                         boxstyle=f"round,pad=0,rounding_size={0.01 if level <= 2 else 0.0075}",
-                        facecolor=colors["Divided"],
+                        facecolor=colors["Coccoid"],
                         edgecolor="white",
                         linewidth=1,
                         zorder=2,
@@ -1164,7 +1164,7 @@ class LineageVisualization:
                     ax.add_patch(cell)
                     self.cell_objects[node] = cell
 
-                # Nucleoids for larger divided cells
+                # Nucleoids for larger coccoid cells
                 if level <= 2:
                     if update and node in self.nucleoid_objects:
                         ellipse1, ellipse2 = self.nucleoid_objects[node]
@@ -1350,7 +1350,7 @@ class LineageVisualization:
                         width,
                         height,
                         boxstyle=f"round,pad=0,rounding_size={0.02 if level <= 2 else 0.015}",
-                        facecolor=colors["Healthy"],
+                        facecolor=colors["Rod"],
                         edgecolor="white",
                         linewidth=1,
                         zorder=2,
@@ -1414,8 +1414,8 @@ class LineageVisualization:
                 [0],
                 marker="o",
                 color="w",
-                markerfacecolor=colors["Healthy"],
-                label="Healthy Cell (pulsing)",
+                markerfacecolor=colors["Rod"],
+                label="Rod Cell (pulsing)",
                 markersize=10,
             ),
             plt.Line2D(
@@ -1423,8 +1423,8 @@ class LineageVisualization:
                 [0],
                 marker="o",
                 color="w",
-                markerfacecolor=colors["Divided"],
-                label="Divided Cell (pop effect)",
+                markerfacecolor=colors["Coccoid"],
+                label="Coccoid Cell (pop effect)",
                 markersize=10,
             ),
             plt.Line2D(
@@ -1697,8 +1697,8 @@ class LineageVisualization:
 
         # Define colors to match your second image
         colors = {
-            "Healthy": "#b8e986",  # Green
-            "Divided": "#ffd700",  # Yellow
+            "Rod": "#b8e986",  # Green
+            "Coccoid": "#ffd700",  # Yellow
             "Elongated": "#87cefa",  # Blue
             "Deformed": "#ff6347",  # Red
         }
@@ -1851,8 +1851,8 @@ class LineageVisualization:
             base_height = 0.04 if path_length < 2 else 0.03
 
             # Different shape based on morphology type
-            if node_type == "Divided":
-                # Smaller divided cells (yellow)
+            if node_type == "Coccoid":
+                # Smaller coccoid cells (yellow)
                 base_width *= 0.5
                 base_height *= 0.5
                 width = base_width
@@ -1863,7 +1863,7 @@ class LineageVisualization:
                     width,
                     height,
                     boxstyle=f"round,pad=0,rounding_size={0.01 if path_length < 2 else 0.0075}",
-                    facecolor=colors["Divided"],
+                    facecolor=colors["Coccoid"],
                     edgecolor="white",
                     linewidth=1,
                     zorder=2,
@@ -1915,7 +1915,7 @@ class LineageVisualization:
                     width,
                     height,
                     boxstyle=f"round,pad=0,rounding_size={0.02 if path_length < 2 else 0.015}",
-                    facecolor=colors["Healthy"],
+                    facecolor=colors["Rod"],
                     edgecolor="white",
                     linewidth=1,
                     zorder=2,
@@ -1941,10 +1941,10 @@ class LineageVisualization:
         # Add legend
         legend_elements = [
             mpatches.Patch(
-                facecolor=colors["Healthy"], edgecolor="white", label="Healthy"
+                facecolor=colors["Rod"], edgecolor="white", label="Rod"
             ),
             mpatches.Patch(
-                facecolor=colors["Divided"], edgecolor="white", label="Divided"
+                facecolor=colors["Coccoid"], edgecolor="white", label="Coccoid"
             ),
             mpatches.Patch(
                 facecolor=colors["Elongated"], edgecolor="white", label="Elongated"
@@ -2148,7 +2148,7 @@ class LineageVisualization:
             morphology_by_time[track_id] = {}
 
             # Default morphology from the sophisticated method
-            default_morphology = primary_morphology.get(track_id, "Healthy")
+            default_morphology = primary_morphology.get(track_id, "Rod")
 
             # Handle special cases for specific timepoints
             timestamps = track["t"]
@@ -2159,7 +2159,7 @@ class LineageVisualization:
                     and "children" in track
                     and track["children"]
                 ):
-                    morphology_by_time[track_id][t] = "Divided"
+                    morphology_by_time[track_id][t] = "Coccoid"
                 # Special case for elongated cells before division
                 elif (
                     i >= len(timestamps) - 3
@@ -2241,7 +2241,7 @@ class LineageVisualization:
         # Last resort - basic inference from track properties
         if "children" in track and track["children"]:
             if time == track["t"][-1]:
-                return "Divided"
+                return "Coccoid"
             elif "t" in track and time >= track["t"][-3]:
                 return "Elongated"
 
@@ -2266,7 +2266,7 @@ class LineageVisualization:
             if straightness < 0.6:
                 return "Deformed"
 
-        return "Healthy"
+        return "Rod"
 
     def export_morphology_classifications(self, parent_widget=None):
         """

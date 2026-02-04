@@ -415,15 +415,15 @@ class MotilityDialog(QDialog):
 
         # Define colors for morphology classes
         color_map = {
-            'Healthy': '#1f77b4',
-            'Divided': '#ff7f0e',
-            'Artifact': '#2ca02c',
-            'Elongated': '#d62728',
-            'Deformed': '#9467bd'
+            'Rod': '#3A7D44',
+            'Coccoid': '#4A8C96',
+            'Artifact': '#2B3A52',
+            'Elongated': '#C5D5A0',
+            'Deformed': '#5B8FA8'
         }
 
         # Order morphology classes consistently
-        ordered_classes = ['Healthy', 'Divided', 'Artifact', 'Elongated', 'Deformed']
+        ordered_classes = ['Rod', 'Coccoid', 'Artifact', 'Elongated', 'Deformed']
         available_classes = [cls for cls in ordered_classes if cls in data['morphology_class'].unique()]
 
         # Create y-positions for each class
@@ -475,15 +475,15 @@ class MotilityDialog(QDialog):
 
         # Define colors (same order as legend)
         color_map = {
-            'Healthy': '#1f77b4',
-            'Divided': '#ff7f0e',
-            'Artifact': '#2ca02c',
-            'Elongated': '#d62728',
-            'Deformed': '#9467bd'
+            'Rod': '#3A7D44',
+            'Coccoid': '#4A8C96',
+            'Artifact': '#2B3A52',
+            'Elongated': '#C5D5A0',
+            'Deformed': '#5B8FA8'
         }
 
         # Ensure consistent ordering of morphology classes
-        ordered_classes = ['Healthy', 'Divided', 'Artifact', 'Elongated', 'Deformed']
+        ordered_classes = ['Rod', 'Coccoid', 'Artifact', 'Elongated', 'Deformed']
         available_classes = [cls for cls in ordered_classes if cls in bin_percentages.columns]
 
         # Plot stacked bar chart

@@ -110,7 +110,7 @@ class CellViewDialog(QDialog):
         self.filter_combo.addItems([
             "All Cells",
             "Long Cells (20+ frames)",
-            "Divided Cells",
+            "Coccoid Cells",
             "High Coverage (>90%)"
         ])
         self.filter_combo.currentTextChanged.connect(self.apply_filter)
@@ -419,7 +419,7 @@ class CellViewDialog(QDialog):
             self.populate_table()
         elif filter_name == "Long Cells (20+ frames)":
             self.populate_table(lambda c: c['lifespan'] >= 20)
-        elif filter_name == "Divided Cells":
+        elif filter_name == "Coccoid Cells":
             self.populate_table(lambda c: c['fate'] == 'divided')
         elif filter_name == "High Coverage (>90%)":
             self.populate_table(lambda c: c['morphology_coverage'] > 0.9)
