@@ -70,11 +70,9 @@ class App(QMainWindow):
 
     def provide_image_data(self, callback):
         """Provide the image_data object through the callback"""
-        if hasattr(self, "image_data"):
-            print("Providing image_data to callback")
-            callback(self.application_state.image_data)
+        if self.appstate.image_data is not None:
+            callback(self.appstate.image_data)
         else:
-            print("No image_data available")
             callback(None)
 
     def on_exp_loaded(self, experiment: Experiment):
@@ -82,20 +80,20 @@ class App(QMainWindow):
 
     def on_image_request(self, time, position, channel):
         """Handle requests for raw image data"""
-        if not self.application_state.image_data:
+        if not self.appstate.image_data:
             return
 
         # Retrieve the image data
         try:
-            if self.application_state.image_data.is_nd2:
+            if self.appstate.image_data.is_nd2:
                 if self.has_channels:
-                    image = self.application_state.image_data.data[
+                    image = self.appstate.image_data.data[
                         time, position, channel
                     ]
                 else:
-                    image = self.application_state.image_data.data[time, position]
+                    image = self.appstate.image_data.data[time, position]
             else:
-                image = self.application_state.image_data.data[time]
+                image = self.appstate.image_data.data[time]
 
             # Convert to NumPy array if needed
             image = np.array(image)
@@ -113,22 +111,22 @@ class App(QMainWindow):
 
     def on_segmentation_request(self, time, position, channel, model_name):
         """Handle requests for segmentation data"""
-        if not self.application_state.image_data:
+        if not self.appstate.image_data:
             return
 
         try:
             # Get the appropriate segmentation model
             if model_name:
-                self.application_state.image_data.segmentation_cache.with_model(
+                self.appstate.image_data.segmentation_cache.with_model(
                     model_name
                 )
             else:
-                self.application_state.image_data.segmentation_cache.with_model(
+                self.appstate.image_data.segmentation_cache.with_model(
                     self.model_dropdown.currentText()
                 )
 
             # Get the segmentation
-            segmented_image = self.application_state.image_data.segmentation_cache[
+            segmented_image = self.appstate.image_data.segmentation_cache[
                 time, position, channel
             ]
 
@@ -154,21 +152,21 @@ class App(QMainWindow):
     def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
         """Handle request to draw cell bounding boxes"""
         # Get the segmentation using the same model as the segmentation cache
-        if not hasattr(self, "image_data") or not self.application_state.image_data:
+        if not hasattr(self, "image_data") or not self.appstate.image_data:
             print("No image data available")
             return
 
         # Get the current model from the cache
-        current_model = self.application_state.image_data.segmentation_cache.model_name
+        current_model = self.appstate.image_data.segmentation_cache.model_name
         if not current_model:
             # Default to a standard model if none set
             current_model = "bact_phase_cp3"  # This is CELLPOSE_BACT_PHASE
-            self.application_state.image_data.segmentation_cache.with_model(
+            self.appstate.image_data.segmentation_cache.with_model(
                 current_model
             )
 
         # Get the segmentation data
-        segmented_image = self.application_state.image_data.segmentation_cache[
+        segmented_image = self.appstate.image_data.segmentation_cache[
             time, position, channel
         ]
 
@@ -301,8 +299,8 @@ class App(QMainWindow):
 
             # TODO: think of a better way of seeing this information
             # # Log segmentation cache state before saving
-            # if hasattr(self, "image_data") and hasattr(self.application_state.image_data, "segmentation_cache"):
-            #     cache = self.application_state.image_data.segmentation_cache
+            # if hasattr(self, "image_data") and hasattr(self.appstate.image_data, "segmentation_cache"):
+            #     cache = self.appstate.image_data.segmentation_cache
             #     current_model = cache.model_name
             #     print(f"DEBUG: Saving project with segmentation cache")
             #     print(f"DEBUG: Current model: {current_model}")

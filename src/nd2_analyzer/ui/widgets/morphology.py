@@ -1,9 +1,10 @@
+import cv2
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from PIL import Image
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -14,6 +15,10 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFileDialog,
     QTabWidget,
+    QDialog,
+    QFormLayout,
+    QComboBox,
+    QLabel,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from pubsub import pub
@@ -28,6 +33,15 @@ class MorphologyWidget(QWidget):
         self.cell_mapping = {}
         self.selected_cell_id = None
         self.tracked_cell_lineage = {}
+        # Ideal cell examples for Cell Preview (class name -> cell_id)
+        self.ideal_examples = {
+            "Artifact": None,
+            "Coccoid": None,
+            "Rod": None,
+            "Elongated": None,
+            "Deformed": None,
+        }
+        self.ideal_metrics = {}
 
         # Store reference to metrics service
         self.metrics_service = MetricsService()
@@ -160,6 +174,17 @@ class MorphologyWidget(QWidget):
         )
         self.process_morphology_button.setFixedHeight(40)
         buttons_layout.addWidget(self.process_morphology_button)
+
+        buttons_layout.addSpacing(20)
+
+        # Add Select Ideal Cell Examples button (Cell Preview)
+        self.ideal_examples_button = QPushButton("Select Ideal Cell Examples")
+        self.ideal_examples_button.clicked.connect(self.select_ideal_examples)
+        self.ideal_examples_button.setStyleSheet(
+            "background-color: #2d2d2d; color: white; font-weight: bold;"
+        )
+        self.ideal_examples_button.setFixedHeight(40)
+        buttons_layout.addWidget(self.ideal_examples_button)
 
         buttons_layout.addSpacing(20)
 
@@ -351,6 +376,282 @@ class MorphologyWidget(QWidget):
             traceback.print_exc()
             print(f"Error fetching metrics: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to fetch metrics: {str(e)}")
+
+    def select_ideal_examples(self):
+        """
+        Open a dialog to select one ideal example cell per morphology class.
+        Shows a Cell Preview for the selected cell.
+        """
+        t = pub.sendMessage("get_current_t", default=0)
+        p = pub.sendMessage("get_current_p", default=0)
+        c = pub.sendMessage("get_current_c", default=0)
+        if t is None:
+            t = 0
+        if p is None:
+            p = 0
+        if c is None:
+            c = 0
+
+        # Get image_data via pub callback
+        image_data = [None]
+
+        def receive_image_data(data):
+            image_data[0] = data
+
+        pub.sendMessage("get_image_data", callback=receive_image_data)
+        image_data = image_data[0]
+
+        if not image_data or not hasattr(image_data, "segmentation_cache"):
+            QMessageBox.warning(
+                self,
+                "No image data",
+                "Load an experiment and ensure segmentation is available for the current frame.",
+            )
+            return
+
+        # Build frame cell_mapping from metrics service for current t, p
+        try:
+            polars_df = self.metrics_service.query_optimized(time=t, position=p)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Error", f"Could not load metrics for current frame: {e}"
+            )
+            return
+
+        if polars_df.is_empty():
+            QMessageBox.warning(
+                self,
+                "No metrics",
+                "No metrics for the current frame. Run 'Classify Cells' first.",
+            )
+            return
+
+        frame_cell_mapping = {}
+        metrics_df = polars_df.to_pandas()
+        for idx, row in metrics_df.iterrows():
+            if "cell_id" not in row:
+                continue
+            cell_id = int(row["cell_id"])
+            if all(col in row for col in ["y1", "x1", "y2", "x2"]):
+                bbox = (int(row["y1"]), int(row["x1"]), int(row["y2"]), int(row["x2"]))
+            else:
+                cy = row.get("centroid_y", 0)
+                cx = row.get("centroid_x", 0)
+                bbox = (int(cy - 5), int(cx - 5), int(cy + 5), int(cx + 5))
+            exclude_cols = ["cell_id", "y1", "x1", "y2", "x2"]
+            metrics = {col: row[col] for col in row.index if col not in exclude_cols}
+            frame_cell_mapping[cell_id] = {"bbox": bbox, "metrics": metrics}
+
+        # Store for use in update_preview
+        self._ideal_frame_cell_mapping = frame_cell_mapping
+        self._ideal_t = t
+        self._ideal_p = p
+        self._ideal_c = c
+        self._ideal_image_data = image_data
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Ideal Cell Examples")
+        dialog.setMinimumWidth(600)
+
+        layout = QVBoxLayout(dialog)
+
+        instructions = QLabel("Select one ideal example for each morphology class.")
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        main_layout = QHBoxLayout()
+        form_layout = QFormLayout()
+        selection_widget = QWidget()
+        selection_widget.setLayout(form_layout)
+
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_label = QLabel("Cell Preview")
+        preview_layout.addWidget(preview_label)
+        self.preview_image = QLabel()
+        self.preview_image.setMinimumSize(200, 200)
+        self.preview_image.setAlignment(Qt.AlignCenter)
+        self.preview_image.setScaledContents(True)
+        preview_layout.addWidget(self.preview_image)
+
+        main_layout.addWidget(selection_widget)
+        main_layout.addWidget(preview_widget)
+        layout.addLayout(main_layout)
+
+        self.ideal_selectors = {}
+        cell_ids = []
+        for cell_id, data in frame_cell_mapping.items():
+            if "metrics" in data and "morphology_class" in data["metrics"]:
+                cell_class = data["metrics"]["morphology_class"]
+                cell_ids.append((cell_id, cell_class))
+        cell_ids.sort(key=lambda x: (x[1], x[0]))
+
+        for class_name in self.ideal_examples.keys():
+            combo = QComboBox()
+            class_cells = [
+                str(cid) for cid, cclass in cell_ids if cclass == class_name
+            ]
+            if class_cells:
+                combo.addItems(class_cells)
+                if self.ideal_examples[class_name] is not None:
+                    idx = combo.findText(str(self.ideal_examples[class_name]))
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+                combo.currentIndexChanged.connect(
+                    lambda idx, cn=class_name: self._update_ideal_preview(cn)
+                )
+            else:
+                combo.addItem("No cells of this class")
+                combo.setEnabled(False)
+            self.ideal_selectors[class_name] = combo
+            form_layout.addRow(f"Ideal {class_name}:", combo)
+
+        button_box = QHBoxLayout()
+        save_button = QPushButton("Save Ideal Examples")
+        save_button.clicked.connect(lambda: self._save_ideal_examples(dialog))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(dialog.reject)
+        button_box.addWidget(save_button)
+        button_box.addWidget(cancel_button)
+        layout.addLayout(button_box)
+
+        for class_name in self.ideal_examples.keys():
+            if self.ideal_selectors[class_name].isEnabled():
+                self._update_ideal_preview(class_name)
+                break
+
+        dialog.exec_()
+
+    def _update_ideal_preview(self, class_name):
+        """Update the Cell Preview image for the selected ideal cell."""
+        if not hasattr(self, "ideal_selectors") or class_name not in self.ideal_selectors:
+            return
+        combo = self.ideal_selectors[class_name]
+        if not combo.isEnabled() or combo.currentText() == "No cells of this class":
+            return
+        try:
+            cell_id = int(combo.currentText())
+            frame_cell_mapping = getattr(
+                self, "_ideal_frame_cell_mapping", self.cell_mapping
+            )
+            if cell_id not in frame_cell_mapping:
+                return
+            y1, x1, y2, x2 = frame_cell_mapping[cell_id]["bbox"]
+
+            t = getattr(self, "_ideal_t", 0)
+            p = getattr(self, "_ideal_p", 0)
+            c = getattr(self, "_ideal_c", 0)
+            image_data = getattr(self, "_ideal_image_data", None)
+            if not image_data or not hasattr(image_data, "segmentation_cache"):
+                self.preview_image.setText("Preview not available")
+                return
+
+            segmented_image = image_data.segmentation_cache[t, p, c]
+            if segmented_image is None:
+                self.preview_image.setText("No segmentation for this frame")
+                return
+
+            padding = 10
+            y_min = max(0, y1 - padding)
+            y_max = min(segmented_image.shape[0], y2 + padding)
+            x_min = max(0, x1 - padding)
+            x_max = min(segmented_image.shape[1], x2 + padding)
+
+            cropped_seg = segmented_image[y_min:y_max, x_min:x_max]
+            cropped_rgb = cv2.cvtColor(
+                (cropped_seg > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR
+            )
+
+            cell_mask = np.zeros_like(cropped_seg)
+            local_y1, local_x1 = y1 - y_min, x1 - x_min
+            local_y2, local_x2 = y2 - y_min, x2 - x_min
+
+            roi = cropped_seg[
+                max(0, local_y1) : min(cropped_seg.shape[0], local_y2),
+                max(0, local_x1) : min(cropped_seg.shape[1], local_x2),
+            ]
+            # OpenCV requires CV_8U/CV_8S; segmentation may be int32 or float
+            roi_uint8 = (roi > 0).astype(np.uint8)
+            if roi_uint8.max() > 0:
+                num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+                    roi_uint8, connectivity=8
+                )
+                largest_label = 1
+                largest_area = 0
+                for lbl in range(1, num_labels):
+                    area = stats[lbl, cv2.CC_STAT_AREA]
+                    if area > largest_area:
+                        largest_area = area
+                        largest_label = lbl
+                component_mask = (labels == largest_label).astype(np.uint8) * 255
+                cell_mask[
+                    max(0, local_y1) : min(cropped_seg.shape[0], local_y2),
+                    max(0, local_x1) : min(cropped_seg.shape[1], local_x2),
+                ] = component_mask
+
+            color = self.morphology_colors.get(class_name, (0, 0, 255))
+            cropped_rgb[cell_mask > 0] = color
+
+            cv2.rectangle(
+                cropped_rgb,
+                (max(0, local_x1), max(0, local_y1)),
+                (
+                    min(cropped_seg.shape[1] - 1, local_x2),
+                    min(cropped_seg.shape[0] - 1, local_y2),
+                ),
+                (255, 0, 0),
+                2,
+            )
+            cv2.putText(
+                cropped_rgb,
+                f"ID: {cell_id}",
+                (5, 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1,
+            )
+
+            height, width = cropped_rgb.shape[:2]
+            bytes_per_line = 3 * width
+            # Keep a reference so the buffer stays valid for QImage
+            self._preview_img_copy = np.ascontiguousarray(cropped_rgb)
+            qimage = QImage(
+                self._preview_img_copy.data,
+                width,
+                height,
+                bytes_per_line,
+                QImage.Format_RGB888,
+            )
+            pixmap = QPixmap.fromImage(qimage)
+            self.preview_image.setPixmap(pixmap)
+        except Exception as e:
+            print(f"Error updating preview: {e}")
+            self.preview_image.clear()
+            self.preview_image.setText("Preview not available")
+
+    def _save_ideal_examples(self, dialog):
+        """Save the selected ideal examples and close the dialog."""
+        for class_name, combo in self.ideal_selectors.items():
+            if combo.isEnabled() and combo.currentText() != "No cells of this class":
+                self.ideal_examples[class_name] = int(combo.currentText())
+
+        frame_cell_mapping = getattr(
+            self, "_ideal_frame_cell_mapping", self.cell_mapping
+        )
+        self.ideal_metrics = {}
+        for class_name, cell_id in self.ideal_examples.items():
+            if cell_id is not None and cell_id in frame_cell_mapping:
+                self.ideal_metrics[class_name] = frame_cell_mapping[cell_id]["metrics"]
+
+        print("Ideal Metrics:")
+        for class_name, metrics in self.ideal_metrics.items():
+            print(f"{class_name}: {metrics}")
+
+        QMessageBox.information(
+            dialog, "Success", "Ideal examples saved successfully."
+        )
+        dialog.accept()
 
     def on_table_item_click(self, item):
         """Handle clicks on the metrics table to select and track cells"""
