@@ -459,8 +459,8 @@ class MorphologyWidget(QWidget):
 
         preview_widget = QWidget()
         preview_layout = QVBoxLayout(preview_widget)
-        preview_label = QLabel("Cell Preview")
-        preview_layout.addWidget(preview_label)
+        self.preview_label = QLabel("")  # Shows morphology class name when preview updates
+        preview_layout.addWidget(self.preview_label)
         self.preview_image = QLabel()
         self.preview_image.setMinimumSize(200, 200)
         self.preview_image.setAlignment(Qt.AlignCenter)
@@ -522,6 +522,14 @@ class MorphologyWidget(QWidget):
         combo = self.ideal_selectors[class_name]
         if not combo.isEnabled() or combo.currentText() == "No cells of this class":
             return
+        if hasattr(self, "preview_label"):
+            self.preview_label.setText(class_name)
+            # Color the label with the class color and make it bold
+            bgr = self.morphology_colors.get(class_name, (200, 200, 200))
+            r, g, b = int(bgr[2]), int(bgr[1]), int(bgr[0])
+            self.preview_label.setStyleSheet(
+                f"color: rgb({r},{g},{b}); font-weight: bold; font-size: 14px;"
+            )
         try:
             cell_id = int(combo.currentText())
             frame_cell_mapping = getattr(
@@ -584,25 +592,6 @@ class MorphologyWidget(QWidget):
 
             color = self.morphology_colors.get(class_name, (0, 0, 255))
             cropped_rgb[cell_mask > 0] = color
-
-            # ID label: smaller font, bold and clear (dark outline + green fill, antialiased)
-            label = f"ID: {cell_id}"
-            x, y = 5, 16
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            scale = 0.35
-            thickness = 2
-            # Dark outline for readability on any background
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    if dx != 0 or dy != 0:
-                        cv2.putText(
-                            cropped_rgb, label, (x + dx, y + dy), font, scale,
-                            (0, 0, 0), thickness + 1, cv2.LINE_AA
-                        )
-            cv2.putText(
-                cropped_rgb, label, (x, y), font, scale,
-                (0, 255, 0), thickness, cv2.LINE_AA
-            )
 
             height, width = cropped_rgb.shape[:2]
             bytes_per_line = 3 * width
