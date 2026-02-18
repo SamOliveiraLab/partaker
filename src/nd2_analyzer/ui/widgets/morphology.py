@@ -466,13 +466,12 @@ class MorphologyWidget(QWidget):
 
         preview_widget = QWidget()
         preview_layout = QVBoxLayout(preview_widget)
-        preview_label = QLabel("Cell Preview")
-        preview_layout.addWidget(preview_label)
+        self.preview_label = QLabel("Cell Preview")
+        preview_layout.addWidget(self.preview_label)
         self.preview_image = QLabel()
         self.preview_image.setMinimumSize(200, 200)
         self.preview_image.setAlignment(Qt.AlignCenter)
         self.preview_image.setScaledContents(True)
-        self.preview_image.setStyleSheet("border: 2px solid red;")
         preview_layout.addWidget(self.preview_image)
 
         main_layout.addWidget(selection_widget)
@@ -559,10 +558,10 @@ class MorphologyWidget(QWidget):
             x_max = min(segmented_image.shape[1], x2 + padding)
 
             cropped_seg = segmented_image[y_min:y_max, x_min:x_max]
-            # Preview: light blue background, selected cell as black shape
-            light_blue_bgr = (230, 216, 173)  # light blue
+            # Preview: black background, selected cell in morphology class color
+            black_bgr = (0, 0, 0)
             cropped_rgb = np.full(
-                (*cropped_seg.shape[:2], 3), light_blue_bgr, dtype=np.uint8
+                (*cropped_seg.shape[:2], 3), black_bgr, dtype=np.uint8
             )
 
             local_y1, local_x1 = y1 - y_min, x1 - x_min
@@ -602,29 +601,18 @@ class MorphologyWidget(QWidget):
                         max(0, local_x1) : min(cropped_seg.shape[1], local_x2),
                     ] = component_mask
 
-            # Draw selected cell as black shape on light blue background
-            cropped_rgb[cell_mask > 0] = (0, 0, 0)
+            # Draw selected cell with morphology class color on light blue background
+            color = self.morphology_colors.get(class_name, (0, 0, 255))
+            cropped_rgb[cell_mask > 0] = color
 
-            # Red rectangle around cell bbox
-            cv2.rectangle(
-                cropped_rgb,
-                (max(0, local_x1), max(0, local_y1)),
-                (
-                    min(cropped_seg.shape[1] - 1, local_x2),
-                    min(cropped_seg.shape[0] - 1, local_y2),
-                ),
-                (0, 0, 255),
-                2,
-            )
-            cv2.putText(
-                cropped_rgb,
-                f"ID {cell_id}",
-                (5, 15),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 0, 0),
-                1,
-            )
+            # Update preview label: morphology class name, bold and colored
+            if hasattr(self, "preview_label"):
+                rgb_color = (color[2], color[1], color[0])  # BGR to RGB for Qt
+                hex_color = f"#{rgb_color[0]:02x}{rgb_color[1]:02x}{rgb_color[2]:02x}"
+                self.preview_label.setText(class_name)
+                self.preview_label.setStyleSheet(
+                    f"font-weight: bold; color: {hex_color}; font-size: 14px;"
+                )
 
             # Convert BGR (OpenCV) -> RGB (Qt) for correct display
             cropped_rgb = cv2.cvtColor(cropped_rgb, cv2.COLOR_BGR2RGB)
