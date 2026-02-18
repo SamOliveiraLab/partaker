@@ -472,6 +472,7 @@ class MorphologyWidget(QWidget):
         self.preview_image.setMinimumSize(200, 200)
         self.preview_image.setAlignment(Qt.AlignCenter)
         self.preview_image.setScaledContents(True)
+        self.preview_image.setStyleSheet("border: 2px solid red;")
         preview_layout.addWidget(self.preview_image)
 
         main_layout.addWidget(selection_widget)
@@ -558,40 +559,53 @@ class MorphologyWidget(QWidget):
             x_max = min(segmented_image.shape[1], x2 + padding)
 
             cropped_seg = segmented_image[y_min:y_max, x_min:x_max]
-            cropped_rgb = cv2.cvtColor(
-                (cropped_seg > 0).astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR
+            # Preview: light blue background, selected cell as black shape
+            light_blue_bgr = (230, 216, 173)  # light blue
+            cropped_rgb = np.full(
+                (*cropped_seg.shape[:2], 3), light_blue_bgr, dtype=np.uint8
             )
 
-            cell_mask = np.zeros_like(cropped_seg)
             local_y1, local_x1 = y1 - y_min, x1 - x_min
             local_y2, local_x2 = y2 - y_min, x2 - x_min
 
-            roi = cropped_seg[
-                max(0, local_y1) : min(cropped_seg.shape[0], local_y2),
-                max(0, local_x1) : min(cropped_seg.shape[1], local_x2),
-            ]
-            # OpenCV requires CV_8U/CV_8S; segmentation may be int32 or float
-            roi_uint8 = (roi > 0).astype(np.uint8)
-            if roi_uint8.max() > 0:
-                num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-                    roi_uint8, connectivity=8
-                )
-                largest_label = 1
-                largest_area = 0
-                for lbl in range(1, num_labels):
-                    area = stats[lbl, cv2.CC_STAT_AREA]
-                    if area > largest_area:
-                        largest_area = area
-                        largest_label = lbl
-                component_mask = (labels == largest_label).astype(np.uint8) * 255
-                cell_mask[
+            # Prefer exact label match when the segmentation is a label image.
+            # Fall back to "largest component in bbox" for binary masks.
+            cell_mask = None
+            try:
+                if np.any(cropped_seg == cell_id):
+                    cell_mask = (cropped_seg == cell_id).astype(np.uint8) * 255
+            except Exception:
+                cell_mask = None
+
+            if cell_mask is None:
+                cell_mask = np.zeros_like(cropped_seg, dtype=np.uint8)
+                roi = cropped_seg[
                     max(0, local_y1) : min(cropped_seg.shape[0], local_y2),
                     max(0, local_x1) : min(cropped_seg.shape[1], local_x2),
-                ] = component_mask
+                ]
+                # OpenCV requires CV_8U/CV_8S; segmentation may be int32 or float
+                roi_uint8 = (roi > 0).astype(np.uint8)
+                if roi_uint8.max() > 0:
+                    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+                        roi_uint8, connectivity=8
+                    )
+                    largest_label = 1
+                    largest_area = 0
+                    for lbl in range(1, num_labels):
+                        area = stats[lbl, cv2.CC_STAT_AREA]
+                        if area > largest_area:
+                            largest_area = area
+                            largest_label = lbl
+                    component_mask = (labels == largest_label).astype(np.uint8) * 255
+                    cell_mask[
+                        max(0, local_y1) : min(cropped_seg.shape[0], local_y2),
+                        max(0, local_x1) : min(cropped_seg.shape[1], local_x2),
+                    ] = component_mask
 
-            color = self.morphology_colors.get(class_name, (0, 0, 255))
-            cropped_rgb[cell_mask > 0] = color
+            # Draw selected cell as black shape on light blue background
+            cropped_rgb[cell_mask > 0] = (0, 0, 0)
 
+            # Red rectangle around cell bbox
             cv2.rectangle(
                 cropped_rgb,
                 (max(0, local_x1), max(0, local_y1)),
@@ -599,19 +613,21 @@ class MorphologyWidget(QWidget):
                     min(cropped_seg.shape[1] - 1, local_x2),
                     min(cropped_seg.shape[0] - 1, local_y2),
                 ),
-                (255, 0, 0),
+                (0, 0, 255),
                 2,
             )
             cv2.putText(
                 cropped_rgb,
-                f"ID: {cell_id}",
+                f"ID {cell_id}",
                 (5, 15),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (0, 255, 0),
+                (0, 0, 0),
                 1,
             )
 
+            # Convert BGR (OpenCV) -> RGB (Qt) for correct display
+            cropped_rgb = cv2.cvtColor(cropped_rgb, cv2.COLOR_BGR2RGB)
             height, width = cropped_rgb.shape[:2]
             bytes_per_line = 3 * width
             # Keep a reference so the buffer stays valid for QImage

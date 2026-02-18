@@ -39,6 +39,7 @@ class ViewAreaWidget(QWidget):
         self.current_mode = "normal"  # normal, segmented, or labeled
         self.current_model = None
         self.valid_time_frames = None  # List of valid frame indices (excluding focus loss)
+        self.current_pixmap = None  # Store original pixmap for re-scaling on resize
 
         # Set up the UI
         self.init_ui()
@@ -288,14 +289,27 @@ class ViewAreaWidget(QWidget):
         # Create QImage
         q_image = QImage(processed_img.data, width, height, bytes_per_line, qt_format)
 
+        # Store original pixmap for re-scaling on resize
+        self.current_pixmap = QPixmap.fromImage(q_image)
+
         # Scale and display
-        pixmap = QPixmap.fromImage(q_image).scaled(
+        pixmap = self.current_pixmap.scaled(
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.image_label.setPixmap(pixmap)
 
         # Store for highlighting
         self.current_image_data = image.copy()
+
+    def resizeEvent(self, event):
+        """Re-scale the image when the widget is resized to maintain aspect ratio"""
+        if hasattr(self, 'current_pixmap') and self.current_pixmap is not None:
+            if hasattr(self, 'image_label') and self.image_label.size().width() > 0:
+                pixmap = self.current_pixmap.scaled(
+                    self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                self.image_label.setPixmap(pixmap)
+        super().resizeEvent(event)
 
     # SIMPLIFIED EVENT HANDLERS
 
@@ -537,8 +551,9 @@ class ViewAreaWidget(QWidget):
 
         # Image display area
         self.image_label = QLabel()
-        self.image_label.setScaledContents(True)
+        self.image_label.setScaledContents(False)  # False so manual scaling with KeepAspectRatio is preserved
         self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.image_label.setAlignment(Qt.AlignCenter)  # Center the image if it doesn't fill the label
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_label.customContextMenuRequested.connect(self.show_context_menu)
         layout.addWidget(self.image_label)
