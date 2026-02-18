@@ -41,7 +41,7 @@ class App(QMainWindow):
         self.layout = QHBoxLayout(self.central_widget)
 
         self.viewArea = ViewAreaWidget()
-        self.layout.addWidget(self.viewArea)
+        self.viewArea.setMinimumWidth(500)  # Prevent view area from being squashed
 
         self.segmentation_tab = SegmentationWidget()
         self.populationTab = PopulationWidget()
@@ -53,7 +53,16 @@ class App(QMainWindow):
         self.tab_widget.addTab(self.populationTab, "Population")
         self.tab_widget.addTab(self.morphologyTab, "Morphology")
         self.tab_widget.addTab(self.trackingTab, "Tracking")
-        self.layout.addWidget(self.tab_widget)
+
+        # Splitter: view area gets more space by default, user can drag to resize
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.addWidget(self.viewArea)
+        self.main_splitter.addWidget(self.tab_widget)
+        self.main_splitter.setStretchFactor(0, 2)   # view area grows more
+        self.main_splitter.setStretchFactor(1, 1)  # tabs get less
+        # Initial sizes: ~60% view area, ~40% tabs (for 1000px width: 600, 400)
+        self.main_splitter.setSizes([600, 400])
+        self.layout.addWidget(self.main_splitter)
 
         self.initMenuBar()
 
