@@ -606,18 +606,15 @@ class MotilityDialog(QDialog):
         QApplication.setOverrideCursor(Qt.WaitCursor)
 
         try:
-            # Get current position and channel
-            p = pub.sendMessage("get_current_p", default=0)
-            if p is None:
-                p = 0
-                print(f"Current position was None, defaulting to position {p}")
+            # Get current view position and channel (pub.sendMessage does not return listener values)
+            from nd2_analyzer.data.appstate import ApplicationState
+            appstate = ApplicationState.get_instance()
+            if appstate and appstate.view_index:
+                _, p, c = appstate.view_index
+            else:
+                p, c = 0, 0
 
-            c = pub.sendMessage("get_current_c", default=0)
-            if c is None:
-                c = 0
-                print(f"Current channel was None, defaulting to channel {c}")
-
-            print(f"Using position={p}, channel={c}")
+            print(f"Using current view position={p}, channel={c}")
 
             # Determine chamber dimensions from image data
             chamber_dimensions = (1392, 1040)  # default

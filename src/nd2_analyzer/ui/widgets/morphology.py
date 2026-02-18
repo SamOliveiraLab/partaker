@@ -284,19 +284,15 @@ class MorphologyWidget(QWidget):
             return
 
         try:
-            # Get current frame information
-            t = pub.sendMessage("get_current_t", default=0)
-            p = pub.sendMessage("get_current_p", default=0)
-            c = pub.sendMessage("get_current_c", default=0)
+            # Get current frame from view area (pub.sendMessage does not return listener values)
+            from nd2_analyzer.data.appstate import ApplicationState
+            appstate = ApplicationState.get_instance()
+            if appstate and appstate.view_index:
+                t, p, c = appstate.view_index
+            else:
+                t, p, c = 0, 0, 0
 
-            print(f"   Raw values from pub.sendMessage: t={t}, p={p}, c={c}")
-
-            # Ensure values are not None
-            t = t if t is not None else 0
-            p = p if p is not None else 0
-            c = c if c is not None else 0
-
-            print(f"🔵 Fetching metrics for T:{t}, P:{p}, C:{c}")
+            print(f"🔵 Fetching metrics for current view T:{t}, P:{p}, C:{c}")
 
             # Request cell metrics from the service for current frame
             print(f"   Querying metrics_service.query_optimized(time={t}, position={p})")
@@ -382,15 +378,12 @@ class MorphologyWidget(QWidget):
         Open a dialog to select one ideal example cell per morphology class.
         Shows a Cell Preview for the selected cell.
         """
-        t = pub.sendMessage("get_current_t", default=0)
-        p = pub.sendMessage("get_current_p", default=0)
-        c = pub.sendMessage("get_current_c", default=0)
-        if t is None:
-            t = 0
-        if p is None:
-            p = 0
-        if c is None:
-            c = 0
+        from nd2_analyzer.data.appstate import ApplicationState
+        appstate = ApplicationState.get_instance()
+        if appstate and appstate.view_index:
+            t, p, c = appstate.view_index
+        else:
+            t, p, c = 0, 0, 0
 
         # Get image_data via pub callback
         image_data = [None]
@@ -592,24 +585,23 @@ class MorphologyWidget(QWidget):
             color = self.morphology_colors.get(class_name, (0, 0, 255))
             cropped_rgb[cell_mask > 0] = color
 
-            cv2.rectangle(
-                cropped_rgb,
-                (max(0, local_x1), max(0, local_y1)),
-                (
-                    min(cropped_seg.shape[1] - 1, local_x2),
-                    min(cropped_seg.shape[0] - 1, local_y2),
-                ),
-                (255, 0, 0),
-                2,
-            )
+            # ID label: smaller font, bold and clear (dark outline + green fill, antialiased)
+            label = f"ID: {cell_id}"
+            x, y = 5, 16
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 0.35
+            thickness = 2
+            # Dark outline for readability on any background
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    if dx != 0 or dy != 0:
+                        cv2.putText(
+                            cropped_rgb, label, (x + dx, y + dy), font, scale,
+                            (0, 0, 0), thickness + 1, cv2.LINE_AA
+                        )
             cv2.putText(
-                cropped_rgb,
-                f"ID: {cell_id}",
-                (5, 15),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                1,
+                cropped_rgb, label, (x, y), font, scale,
+                (0, 255, 0), thickness, cv2.LINE_AA
             )
 
             height, width = cropped_rgb.shape[:2]
