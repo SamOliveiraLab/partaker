@@ -12,6 +12,17 @@ from .unet import unet_segmentation
 
 use_gpu = True
 
+
+def _cellpose_gpu():
+    """Use CPU for Cellpose on MPS (Apple Silicon) to avoid float64/MPS incompatibility."""
+    try:
+        import torch
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return False
+    except Exception:
+        pass
+    return use_gpu
+
 class SegmentationModels:
 
     CELLPOSE_BACT_PHASE = "bact_phase_cp3"
@@ -146,7 +157,10 @@ class SegmentationModels:
         try:
             # Run segmentation with Cellpose
             masks, _, _ = cellpose_inst.eval(images, diameter=None, channels=[0, 0])
-            masks = np.array(masks)  # Ensure masks are a NumPy array
+            # Ensure masks are CPU numpy (avoids MPS float64 issues if any tensor leaked through)
+            masks = np.array(
+                [np.asarray(m, dtype=np.int32) for m in masks], dtype=np.int32
+            )
 
             # Label the segmented regions uniquely
             labeled_masks = np.zeros_like(masks, dtype=np.int32)
@@ -225,7 +239,8 @@ class SegmentationModels:
         if mode == SegmentationModels.CELLPOSE:
             if SegmentationModels.CELLPOSE not in self.models:
                 self.models[self.CELLPOSE] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ
+                    gpu=_cellpose_gpu()
+                    and "PARTAKER_GPU" in os.environ
                     and os.environ["PARTAKER_GPU"] == "1",
                     model_type="deepbacs_cp3",
                 )
@@ -233,11 +248,17 @@ class SegmentationModels:
             segmented_images = self.segment_cellpose(
                 images, progress, self.models[mode]
             )
+            if segmented_images is None:
+                raise RuntimeError(
+                    "Cellpose segmentation failed (see console for details). "
+                    "On Apple Silicon, GPU is disabled for Cellpose to avoid MPS/float64 errors."
+                )
 
         elif mode == SegmentationModels.CELLPOSE_BACT_PHASE:
             if SegmentationModels.CELLPOSE_BACT_PHASE not in self.models:
                 self.models[self.CELLPOSE_BACT_PHASE] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ
+                    gpu=_cellpose_gpu()
+                    and "PARTAKER_GPU" in os.environ
                     and os.environ["PARTAKER_GPU"] == "1",
                     model_type="bact_phase_cp3",
                 )
@@ -245,18 +266,30 @@ class SegmentationModels:
             segmented_images = self.segment_cellpose(
                 images, progress, self.models[mode]
             )
+            if segmented_images is None:
+                raise RuntimeError(
+                    "Cellpose segmentation failed (see console for details). "
+                    "On Apple Silicon, GPU is disabled for Cellpose to avoid MPS/float64 errors."
+                )
 
         elif mode == SegmentationModels.CELLPOSE_BACT_FLUOR:
             if SegmentationModels.CELLPOSE_BACT_FLUOR not in self.models:
                 self.models[self.CELLPOSE_BACT_FLUOR] = models.CellposeModel(
-                    gpu="PARTAKER_GPU" in os.environ
+                    gpu=_cellpose_gpu()
+                    and "PARTAKER_GPU" in os.environ
                     and os.environ["PARTAKER_GPU"] == "1",
                     model_type="bact_fluor_cp3",
+                    nchan=2,
                 )
 
             segmented_images = self.segment_cellpose(
                 images, progress, self.models[mode]
             )
+            if segmented_images is None:
+                raise RuntimeError(
+                    "Cellpose segmentation failed (see console for details). "
+                    "On Apple Silicon, GPU is disabled for Cellpose to avoid MPS/float64 errors."
+                )
 
         elif mode == SegmentationModels.UNET:
             if mode not in self.models:
@@ -274,7 +307,7 @@ class SegmentationModels:
         elif mode == SegmentationModels.OMNIPOSE_BACT_PHASE:
             if mode not in self.models:
                 self.models[mode] = models.CellposeModel(
-                    gpu=use_gpu, model_type="bact_phase_omni"
+                    gpu=_cellpose_gpu(), model_type="bact_phase_omni"
                 )
 
             segmented_images = self.segment_omnipose(
@@ -284,7 +317,7 @@ class SegmentationModels:
         elif mode == SegmentationModels.OMNIPOSE_BACT_FLUOR:
             if mode not in self.models:
                 self.models[mode] = models.CellposeModel(
-                    gpu=use_gpu, model_type="bact_fluor_omni"
+                    gpu=_cellpose_gpu(), model_type="bact_fluor_omni"
                 )
 
             segmented_images = self.segment_omnipose(
