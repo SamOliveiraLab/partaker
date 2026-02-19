@@ -231,6 +231,12 @@ class App(QMainWindow):
         load_action.triggered.connect(self.load_from_folder)
         file_menu.addAction(load_action)
 
+        # Tools menu (benchmark for paper)
+        tools_menu = menu_bar.addMenu("Tools")
+        benchmark_action = QAction("Run segmentation model benchmark", self)
+        benchmark_action.triggered.connect(self.run_segmentation_benchmark)
+        tools_menu.addAction(benchmark_action)
+
         help_menu = menu_bar.addMenu("Help")
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
@@ -291,6 +297,49 @@ class App(QMainWindow):
     def show_experiment_dialog(self):
         experiment = ExperimentDialog()
         experiment.exec_()
+
+    def run_segmentation_benchmark(self):
+        """Run model benchmark on 5 representative frames, print report to console."""
+        from nd2_analyzer.analysis.segmentation.segmentation_benchmark import (
+            benchmark_from_nd2,
+            print_benchmark_report,
+            DEFAULT_N_FRAMES,
+        )
+
+        if not self.appstate.image_data:
+            QMessageBox.warning(
+                self,
+                "No data",
+                "Load an experiment first (File → Experiment).",
+            )
+            return
+
+        save_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Save overlay images for figures? (Cancel to skip)",
+            "",
+            QFileDialog.ShowDirsOnly,
+        )
+        if save_dir == "":
+            save_dir = None  # User cancelled
+
+        data_arr = self.appstate.image_data.data
+        p, c = self.viewArea.current_p, self.viewArea.current_c
+        print(f"\n[Partaker] Running benchmark on {DEFAULT_N_FRAMES} frames (spread across T) at P={p}, C={c}...")
+        if save_dir:
+            print(f"Saving overlays to {save_dir}")
+        data = benchmark_from_nd2(
+            data_arr,
+            n_frames=DEFAULT_N_FRAMES,
+            p=p,
+            c=c,
+            save_overlays_dir=save_dir,
+        )
+        print_benchmark_report(data)
+        msg = f"Report printed to console ({DEFAULT_N_FRAMES} frames). Check the terminal for speed and memory specs."
+        if save_dir:
+            msg += f"\nOverlays saved to: {save_dir}"
+        QMessageBox.information(self, "Benchmark complete", msg)
 
     def show_about_dialog(self):
         about_dialog = AboutDialog()

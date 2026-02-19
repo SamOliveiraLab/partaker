@@ -34,6 +34,13 @@ dependencies = [
     "btrack (>=0.6.5,<0.7.0)",
 ]
 
+[project.optional-dependencies]
+ground-truth = ["napari>=0.4.0", "tifffile>=2023.0.0"]
+
+[project.scripts]
+partaker-benchmark = "nd2_analyzer.benchmark:main"
+partaker-create-gt = "nd2_analyzer.create_ground_truth:main"
+
 [project.gui-scripts]
 gui = "nd2_analyzer:main"
 
