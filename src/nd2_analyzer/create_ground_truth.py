@@ -30,16 +30,27 @@ except ImportError:
 
 def load_nd2_frames(nd2_path: str, frame_indices: list, p: int = 0, c: int = 0) -> tuple:
     """Load frames from ND2. Returns (frames_array, frame_indices)."""
-    arr = nd2.imread(nd2_path)
-    if arr.ndim < 5:
-        raise ValueError(f"Expected ND2 shape (T,P,C,Y,X), got {arr.shape}")
-    frames = []
-    for (t, _, _) in frame_indices:
-        f = arr[t, p, c]
-        if hasattr(f, "compute"):
-            f = f.compute()
-        frames.append(np.asarray(f).squeeze())
-    return np.stack(frames), frame_indices
+    try:
+        arr = nd2.imread(nd2_path)
+        if arr.ndim < 5:
+            raise ValueError(f"Expected ND2 shape (T,P,C,Y,X), got {arr.shape}")
+        frames = []
+        for (t, _, _) in frame_indices:
+            f = arr[t, p, c]
+            if hasattr(f, "compute"):
+                f = f.compute()
+            frames.append(np.asarray(f).squeeze())
+        return np.stack(frames), frame_indices
+    except (ValueError, OSError):
+        # Fallback: read frame-by-frame via ND2File (avoids imread reshape issues)
+        with nd2.ND2File(str(nd2_path)) as f:
+            frames = []
+            for (t, _, _) in frame_indices:
+                frame = f[t, p, c]
+                if hasattr(frame, "compute"):
+                    frame = frame.compute()
+                frames.append(np.asarray(frame).squeeze())
+            return np.stack(frames), frame_indices
 
 
 def select_frame_indices(T: int, n_frames: int = 5, p: int = 0, c: int = 0) -> list:
@@ -116,8 +127,13 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {output_dir}")
 
-    arr = nd2.imread(str(nd2_path))
-    T = arr.shape[0]
+    # Get T from ND2 (avoid full imread reshape if file has layout quirks)
+    try:
+        arr = nd2.imread(str(nd2_path))
+        T = arr.shape[0]
+    except (ValueError, OSError):
+        with nd2.ND2File(str(nd2_path)) as f:
+            T = f.sizes.get("T", f.shape[0])
     frame_indices = select_frame_indices(T, args.n_frames, args.position, args.channel)
     print(f"Frames to annotate: {frame_indices}")
 
