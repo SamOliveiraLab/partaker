@@ -30,27 +30,44 @@ except ImportError:
 
 def load_nd2_frames(nd2_path: str, frame_indices: list, p: int = 0, c: int = 0) -> tuple:
     """Load frames from ND2. Returns (frames_array, frame_indices)."""
-    try:
-        arr = nd2.imread(nd2_path)
-        if arr.ndim < 5:
-            raise ValueError(f"Expected ND2 shape (T,P,C,Y,X), got {arr.shape}")
-        frames = []
-        for (t, _, _) in frame_indices:
-            f = arr[t, p, c]
-            if hasattr(f, "compute"):
-                f = f.compute()
-            frames.append(np.asarray(f).squeeze())
-        return np.stack(frames), frame_indices
-    except (ValueError, OSError):
-        # Fallback: read frame-by-frame via ND2File (avoids imread reshape issues)
-        with nd2.ND2File(str(nd2_path)) as f:
+    nd2_path = str(nd2_path)
+
+    # Try 1: imread (or dask)
+    for use_dask in (False, True):
+        try:
+            arr = nd2.imread(nd2_path, dask=use_dask)
+            if arr.ndim < 5:
+                raise ValueError(f"Expected ND2 shape (T,P,C,Y,X), got {arr.shape}")
             frames = []
             for (t, _, _) in frame_indices:
-                frame = f[t, p, c]
+                f = arr[t, p, c]
+                if hasattr(f, "compute"):
+                    f = f.compute()
+                frames.append(np.asarray(f).squeeze())
+            return np.stack(frames), frame_indices
+        except (ValueError, OSError):
+            continue
+
+    # Try 2: ND2File.to_dask() and read only needed frames (file must stay open)
+    try:
+        with nd2.ND2File(nd2_path) as f:
+            arr = f.to_dask()
+            frames = []
+            for (t, _, _) in frame_indices:
+                frame = arr[t, p, c]
                 if hasattr(frame, "compute"):
                     frame = frame.compute()
                 frames.append(np.asarray(frame).squeeze())
             return np.stack(frames), frame_indices
+    except (ValueError, OSError, TypeError):
+        pass
+
+    raise ValueError(
+        "Could not read this ND2 (metadata shape mismatch). Workarounds:\n"
+        "  1. Use a different ND2 from the same microscope that loads in Partaker.\n"
+        "  2. Export 5 frames to TIFF (e.g. in ImageJ/Fiji), then run with a folder of TIFFs.\n"
+        "  3. Open an issue at https://github.com/tlambert03/nd2 with the file details."
+    )
 
 
 def select_frame_indices(T: int, n_frames: int = 5, p: int = 0, c: int = 0) -> list:
