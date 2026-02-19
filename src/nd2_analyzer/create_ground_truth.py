@@ -5,7 +5,7 @@ Workflow:
   1. Load ND2 and use first frame (or -n for more)
   2. Optionally pre-fill labels from a Partaker model (default: omnipose_bact_phase)
   3. Edit in Napari (paint, erase, add cells)
-  4. Save labels on close → gt_T{t}_P{p}_C{c}.tif
+  4. Save labels on close → gt_T{t}_P{p}_C{c}.png
 
 Usage:
   partaker-create-gt <nd2_path> [--output-dir DIR] [--n-frames 1] [--prefill omnipose_bact_phase]
@@ -24,8 +24,9 @@ import nd2
 try:
     import napari
     import tifffile
+    import imageio
 except ImportError:
-    napari = tifffile = None
+    napari = tifffile = imageio = None
 
 
 def load_nd2_frames(nd2_path: str, frame_indices: list, p: int = 0, c: int = 0) -> tuple:
@@ -92,9 +93,9 @@ def run_prefill_segmentation(frames: np.ndarray, model_id: str) -> np.ndarray:
 
 
 def main() -> int:
-    if napari is None or tifffile is None:
-        print("Error: napari and tifffile are required. Install with:")
-        print("  pip install napari tifffile")
+    if napari is None or tifffile is None or imageio is None:
+        print("Error: napari, tifffile and imageio are required. Install with:")
+        print("  pip install napari tifffile imageio")
         print("  or: uv sync --extra ground-truth")
         return 1
 
@@ -171,8 +172,8 @@ def main() -> int:
                     for i, idx in enumerate(frame_indices):
                         if i < lbl.shape[0]:
                             t, p, c = idx
-                            path = output_dir / f"gt_T{t}_P{p}_C{c}.tif"
-                            tifffile.imwrite(path, lbl[i].astype(np.uint16))
+                            path = output_dir / f"gt_T{t}_P{p}_C{c}.png"
+                            imageio.imwrite(path, lbl[i].astype(np.uint16), format="PNG")
                     print(f"Saved {len(frame_indices)} ground-truth masks to {output_dir}")
                     break
         except Exception as e:
