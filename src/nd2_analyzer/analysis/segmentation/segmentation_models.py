@@ -6,6 +6,8 @@ from cellpose_omni import models, utils
 
 # cellpose_omni MODEL_NAMES lacks cp3 models (bact_phase_cp3, bact_fluor_cp3, deepbacs_cp3),
 # so it falls back to 'cyto'. Add them so the correct models are loaded.
+# Note: cp3 models may 404 when cellpose_omni tries to download from omnipose-models (they
+# are not in that repo). For prefill/GT creation use omnipose_bact_phase (bact_phase_omnitorch_0).
 _CP3_MODELS = ["bact_phase_cp3", "bact_fluor_cp3", "deepbacs_cp3"]
 for _m in _CP3_MODELS:
     if _m not in models.MODEL_NAMES:
