@@ -3,6 +3,15 @@ import os
 import cv2
 import numpy as np
 from cellpose_omni import models, utils
+
+# cellpose_omni MODEL_NAMES lacks cp3 models (bact_phase_cp3, bact_fluor_cp3, deepbacs_cp3),
+# so it falls back to 'cyto'. Add them so the correct models are loaded.
+_CP3_MODELS = ["bact_phase_cp3", "bact_fluor_cp3", "deepbacs_cp3"]
+for _m in _CP3_MODELS:
+    if _m not in models.MODEL_NAMES:
+        models.MODEL_NAMES = list(models.MODEL_NAMES) + [_m]
+    if _m not in models.C2_MODEL_NAMES:
+        models.C2_MODEL_NAMES = list(models.C2_MODEL_NAMES) + [_m]
 from scipy.ndimage import gaussian_filter
 from skimage import exposure
 from skimage.measure import label
