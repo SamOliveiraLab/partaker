@@ -2,13 +2,13 @@
 Create ground-truth segmentation masks for benchmark using Napari.
 
 Workflow:
-  1. Load ND2 and select 5 frames (spread across T)
+  1. Load ND2 and use first frame (or -n for more)
   2. Optionally pre-fill labels from a Partaker model (default: omnipose_bact_phase)
   3. Edit in Napari (paint, erase, add cells)
   4. Save labels on close → gt_T{t}_P{p}_C{c}.tif
 
 Usage:
-  partaker-create-gt <nd2_path> [--output-dir DIR] [--n-frames 5] [--prefill omnipose_bact_phase]
+  partaker-create-gt <nd2_path> [--output-dir DIR] [--n-frames 1] [--prefill omnipose_bact_phase]
   python scripts/create_ground_truth.py <nd2_path> ...
 
 Requires: pip install napari tifffile  (or uv sync --extra ground-truth)
@@ -111,8 +111,8 @@ def main() -> int:
     parser.add_argument(
         "-n", "--n-frames",
         type=int,
-        default=5,
-        help="Number of frames to annotate (default: 5)",
+        default=1,
+        help="Number of frames to annotate (default: 1, first frame only)",
     )
     parser.add_argument(
         "-p", "--position",
@@ -186,9 +186,9 @@ def main() -> int:
     else:
         viewer.add_labels(np.zeros_like(frames, dtype=np.int32), name="cells")
 
-    viewer.events.closing.connect(save_on_close)
-
     napari.run()
+    # Save when user has closed the viewer (run() just returned)
+    save_on_close()
     print("Done.")
     return 0
 

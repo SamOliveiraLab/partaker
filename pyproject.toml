@@ -35,7 +35,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ground-truth = ["napari>=0.4.0", "tifffile>=2023.0.0"]
+# napari>=0.6.0 required for pydantic 2.x (older napari imports pydantic.v1.display_errors and fails)
+ground-truth = ["napari>=0.6.0", "tifffile>=2023.0.0"]
 
 [project.scripts]
 partaker-benchmark = "nd2_analyzer.benchmark:main"
