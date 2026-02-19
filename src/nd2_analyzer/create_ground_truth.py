@@ -129,9 +129,9 @@ def main() -> int:
     parser.add_argument(
         "--prefill",
         type=str,
-        default="bact_phase_cp3",
+        default="bact_phase_cp",
         metavar="MODEL",
-        help="Pre-fill labels from this model (default: bact_phase_cp3). Use 'none' to start blank.",
+        help="Pre-fill labels from this model (default: bact_phase_cp; use bact_phase_cp3 if you have it from cellpose.org). Use 'none' to start blank.",
     )
     args = parser.parse_args()
 
