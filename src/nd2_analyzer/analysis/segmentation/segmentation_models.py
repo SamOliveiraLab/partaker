@@ -261,6 +261,7 @@ class SegmentationModels:
                     and "PARTAKER_GPU" in os.environ
                     and os.environ["PARTAKER_GPU"] == "1",
                     model_type="bact_phase_cp3",
+                    nchan=2,
                 )
 
             segmented_images = self.segment_cellpose(
