@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import nd2
+from skimage.color import label2rgb
 
 try:
     import napari
@@ -173,7 +174,9 @@ def main() -> int:
                         if i < lbl.shape[0]:
                             t, p, c = idx
                             path = output_dir / f"gt_T{t}_P{p}_C{c}.png"
-                            imageio.imwrite(path, lbl[i].astype(np.uint16), format="PNG")
+                            # RGB image so it's visible in Word (not a dark label mask)
+                            rgb = label2rgb(lbl[i], bg_label=0, bg_color=(0, 0, 0))
+                            imageio.imwrite(path, (rgb * 255).astype(np.uint8), format="PNG")
                     print(f"Saved {len(frame_indices)} ground-truth masks to {output_dir}")
                     break
         except Exception as e:
