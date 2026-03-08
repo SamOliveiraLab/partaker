@@ -11,7 +11,7 @@ class Experiment:
 
     Attributes:
         name (str): Name of the experiment
-        nd2_files (List[str]): List of paths to ND2 files
+        image_files (List[str]): List of paths to Image files
         phc_interval (float): Time step between phase contrast frames in seconds
         fluorescence_factor (float): Factor for fluorescence imaging frequency relative to PHC
         epsilon (float): Minimum fluorescence threshold for filtering
@@ -27,7 +27,7 @@ class Experiment:
     def __init__(
             self,
             name: str,
-            nd2_files: List[str],
+            image_files: List[str],
             interval: float,
             fluorescence_factor: float = 3.0,
             epsilon: float = 0.1,
@@ -44,7 +44,7 @@ class Experiment:
 
         Args:
             name: Name of the experiment
-            nd2_files: List of paths to ND2 files
+            image_files: List of paths to image files
             interval: Time step between PHC frames in seconds
             fluorescence_factor: Factor for fluorescence imaging frequency
             epsilon: Minimum fluorescence threshold
@@ -57,7 +57,7 @@ class Experiment:
             focus_loss_intervals: Time intervals where autofocus failed (in hours)
         """
         self.name = name
-        self.nd2_files = []
+        self.image_files = []
         self.phc_interval = interval
         self.fluorescence_factor = fluorescence_factor
         self.epsilon = epsilon
@@ -86,49 +86,67 @@ class Experiment:
         self.focus_loss_intervals = focus_loss_intervals or []
         self.base_shape = ()
 
-        # Add ND2 files
-        for _file in nd2_files:
-            self.add_nd2_file(_file)
+        # Add Image files
+        for _file in image_files:
+            self.add_image_file(_file)
 
-    def add_nd2_file(self, file_path: str) -> None:
+    def add_image_file(self, file_path: str) -> None:
         """
-        Add a new ND2 file to the experiment.
+        Add a new Image file to the experiment.
 
         Args:
-            file_path: Path to the ND2 file
+            file_path: Path to the Image file
 
         Raises:
             FileNotFoundError: If the file does not exist
-            ValueError: If the file cannot be opened as an ND2 file or if its shape is incompatible
+            ValueError: If the file cannot be opened as an Image file or if its shape is incompatible
         """
-        if file_path in self.nd2_files:
+        if file_path in self.image_files:
             return
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File {file_path} does not exist.")
 
         try:
-            with ND2File(file_path) as reader:
-                shape = reader.shape
+            from nd2 import ND2File
+            import tifffile
+            from ome_types import from_xml
 
-                if len(self.base_shape) == 0:
-                    self.base_shape = shape
-                elif self.nd2_files:
-                    if len(shape) != len(self.base_shape):
-                        raise ValueError(
-                            f"File {file_path} has different dimensions ({len(shape)}) "
-                            f"than existing files ({len(self.base_shape)})."
-                        )
-                    if shape[1:] != self.base_shape[1:]:
-                        raise ValueError(
-                            f"File {file_path} shape {shape} is not compatible "
-                            f"with existing files shape {self.base_shape}."
-                        )
+            # if nd2 file with nd2file, else with triffile
+            if file_path.endswith(".nd2"):
+                with ND2File(file_path) as reader:
+                    shape = reader.shape
 
-                self.nd2_files.append(file_path)
+                    self.check_base_shape(shape, file_path)
+                    self.image_files.append(file_path)
+            elif file_path.endswith((".tif", ".tiff", ".ome.tif", ".ome.tiff", "ome.btf")):
+                with tifffile.TiffFile(file_path) as tif:
+                    # Extract ome-xml string
+                    ome_xml = tif.ome_metadata
+                    ome = from_xml(ome_xml)
+                    shape = tif.asarray()
+
+                    self.check_base_shape(shape, file_path)
+                    self.image_files.append(file_path)
+
 
         except Exception as e:
-            raise ValueError(f"Error opening ND2 file {file_path}: {str(e)}")
+            raise ValueError(f"Error opening Image file {file_path}: {str(e)}")
+
+    def check_base_shape(self, shape, path):
+        if len(self.base_shape) == 0:
+            self.base_shape = shape
+        elif self.image_files:
+                if len(shape) != len(self.base_shape):
+                    raise ValueError(
+                        f"File {path} has different dimensions ({len(shape)}) "
+                        f"than existing files ({len(self.base_shape)})."
+                    )
+                if shape[1:] != self.base_shape[1:]:
+                    raise ValueError(
+                        f"File {path} shape {shape} is not compatible "
+                        f"with existing files shape {self.base_shape}."
+                    )
 
     def add_focus_loss_interval(self, start: float, end: float) -> None:
         """
@@ -181,7 +199,7 @@ class Experiment:
 
         config = {
             "name": self.name,
-            "nd2_files": self.nd2_files,
+            "image_files": self.image_files,
             "interval": self.phc_interval,
             "fluorescence_factor": self.fluorescence_factor,
             "epsilon": self.epsilon,
@@ -234,7 +252,7 @@ class Experiment:
 
         experiment = cls(
             name=config["name"],
-            nd2_files=config["nd2_files"],
+            image_files=config["image_files"],
             interval=config["interval"],
             fluorescence_factor=config.get("fluorescence_factor", 3.0),
             epsilon=config.get("epsilon", 0.1),

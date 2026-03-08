@@ -492,7 +492,7 @@ class PopulationWidget(QWidget):
     #                     [
     #                         "ND2 Files",
     #                         ", ".join(
-    #                             getattr(self.experiment, "nd2_files", ["Unknown"])
+    #                             getattr(self.experiment, "image_files", ["Unknown"])
     #                         ),
     #                     ]
     #                 )

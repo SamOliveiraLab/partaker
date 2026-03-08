@@ -111,7 +111,7 @@ class App(QMainWindow):
             callback(None)
 
     def on_exp_loaded(self, experiment: Experiment):
-        ImageData.load_nd2(experiment.nd2_files)
+        ImageData.load_nd2(experiment.image_files)
 
     def on_image_request(self, time, position, channel):
         """Handle requests for raw image data"""

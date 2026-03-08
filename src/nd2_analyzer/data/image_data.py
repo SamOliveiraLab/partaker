@@ -151,7 +151,13 @@ class ImageData:
         channels = height = width = None
 
         for path in file_paths:
-            arr = nd2.imread(path, dask=True)  # Lazy load dask
+            if path.endswith(".nd2"):
+                arr = nd2.imread(path, dask=True)  # Lazy load dask
+            else:
+                import tifffile
+                store = tifffile.imread(path, aszarr=True)
+                arr = da.from_zarr(store) # Lazy load dask
+
             shape = arr.shape
 
             # Handle different ND2 formats

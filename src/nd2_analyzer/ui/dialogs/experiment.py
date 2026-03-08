@@ -121,7 +121,7 @@ class ExperimentDialog(QDialog):
         layout.addWidget(details_group)
 
         # Files group
-        files_group = QGroupBox("ND2 Files")
+        files_group = QGroupBox("Image Files")
         files_layout = QVBoxLayout()
 
         self.file_list_widget = QListWidget()
@@ -345,12 +345,12 @@ class ExperimentDialog(QDialog):
         return tab
 
     def add_file(self):
-        """Open file dialog to add ND2 files"""
-        file_filter = "ND2 Files (*.nd2)"
+        """Open the file dialog to add ND2 and OME-TIFF files"""
+        file_filter = "ND2 and TIFF Files (*.nd2 *.ome.tif *ome.tiff *ome.tf2 *ome.tf8 *ome.btf)"
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         dialog.setNameFilter(file_filter)
-        dialog.setWindowTitle("Select ND2 File")
+        dialog.setWindowTitle("Select Image File")
         dialog.finished.connect(self._on_file_dialog_finished)
         dialog.open()
 
@@ -501,7 +501,7 @@ class ExperimentDialog(QDialog):
         self.fluorescence_factor_spinbox.setValue(self.experiment.fluorescence_factor)
 
         # Files
-        self.file_paths = list(self.experiment.nd2_files)
+        self.file_paths = list(self.experiment.image_files)
         for file_path in self.file_paths:
             self.file_list_widget.addItem(os.path.basename(file_path))
 
@@ -541,7 +541,7 @@ class ExperimentDialog(QDialog):
             return
 
         if not self.file_paths:
-            QMessageBox.warning(self, "Input Error", "Please add at least one ND2 file.")
+            QMessageBox.warning(self, "Input Error", "Please add at least one image file.")
             return
 
         # Parse positions
@@ -579,7 +579,7 @@ class ExperimentDialog(QDialog):
         try:
             experiment = Experiment(
                 name=name,
-                nd2_files=self.file_paths,
+                image_files=self.file_paths,
                 interval=self.time_step_spinbox.value(),
                 fluorescence_factor=self.fluorescence_factor_spinbox.value(),
                 epsilon=self.epsilon_spinbox.value(),

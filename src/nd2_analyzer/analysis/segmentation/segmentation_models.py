@@ -201,13 +201,18 @@ class SegmentationModels:
             "cluster": True,  # use DBSCAN clustering
             "resample": True,  # whether or not to run dynamics on rescaled grid or original grid
             "verbose": False,  # turn on if you want to see more output
-            "tile": False,  # average the outputs from flipped (augmented) images; slower, usually not needed
+            "tile": True,  # average the outputs from flipped (augmented) images; slower, usually not needed
             "niter": None,
             # default None lets Omnipose calculate # of Euler iterations (usually <20) but you can tune it for over/under segmentation
             "augment": False,  # Can optionally rotate the image and average network outputs, usually not needed
             # 'affinity_seg': True, # new feature, stay tuned...
+            "batch_size": 4  # default is 8, halved to prevent (out of memory) OOM errors
         }
 
+        print("type:", type(images))
+        print("len:", len(images))
+        print("shape:", getattr(images, "shape", None))
+        print("first image shape:", images[0].shape if isinstance(images, list) else None)
         masks, flows, styles = model.eval(images, **params)
         # masks = np.array(masks)  # Ensure masks are a NumPy array
 
