@@ -51,7 +51,7 @@ class MetricsService:
 
     @timing_decorator("compute_metrics_at_frame")
     def compute_metrics_at_frame(
-        self, image: np.ndarray, time, position, channel, mode
+            self, image: np.ndarray, time, position, channel, mode
     ):
         if mode != "segmented":
             return
@@ -112,7 +112,7 @@ class MetricsService:
     """
     Computes the metrics for each labeled cell from the segmentation
         # Uses regionprops to get geometrical features
-    
+
         # For fluorescence analysis:
         # Takes each segmented cell
         # 1. calculate physical metrics
@@ -146,7 +146,7 @@ class MetricsService:
 
             # Calculate derived metrics
             circularity = (
-                (4 * np.pi * cell.area) / (cell.perimeter**2)
+                (4 * np.pi * cell.area) / (cell.perimeter ** 2)
                 if cell.perimeter > 0
                 else 0
             )
@@ -189,7 +189,7 @@ class MetricsService:
                     yfp_fluo = _frame.yfp[_frame.labeled_phc == cell_id].mean()
                     if back_fluo_mcherry != -1 and back_fluo_yfp != -1:
                         if (mcherry_fluo / back_fluo_mcherry) > (
-                            yfp_fluo / back_fluo_yfp
+                                yfp_fluo / back_fluo_yfp
                         ):
                             fluorescence_channel = 1
                             fluorescence_level = mcherry_fluo
@@ -239,14 +239,13 @@ class MetricsService:
 
         return result.height > 0
 
-
     @timing_decorator("query_optimized")
     def query_optimized(
-        self,
-        time: Optional[int] = None,
-        position: Optional[int] = None,
-        cell_id: Optional[int] = None,
-        exclude_focus_loss: bool = True,
+            self,
+            time: Optional[int] = None,
+            position: Optional[int] = None,
+            cell_id: Optional[int] = None,
+            exclude_focus_loss: bool = True,
     ) -> pl.DataFrame:
         """
         Queries metrics for a given time/position/cell_id.
