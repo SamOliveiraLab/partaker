@@ -168,6 +168,7 @@ class MetricsService:
             }
 
             # TODO: confirm that we need all these metrics
+
             # TODO: confirm this function is working
             morphology_class = classify_morphology(metrics_dict)
 
@@ -224,6 +225,20 @@ class MetricsService:
             batch_data.append(row_data)
 
         return batch_data
+
+    # Checks if selected frame has metrics data
+    def has_data_for(self, position: int, time: int, channel=None) -> bool:
+        # Check if metrics exist for a frame
+        if self.df.is_empty():
+            return False
+        # Return metrics results for a given frame
+        result = self.df.filter(
+            (pl.col("time") == time) &
+            (pl.col("position") == position)
+        )
+
+        return result.height > 0
+
 
     @timing_decorator("query_optimized")
     def query_optimized(

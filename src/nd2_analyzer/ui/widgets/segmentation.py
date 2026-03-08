@@ -27,6 +27,7 @@ class SegmentationWidget(QWidget):
         self.is_segmenting = False
         self.queue = []
         self.processed_frames = set()
+        self.segmented_storage = {}
         
         # Add biofilm analysis components
         self.analysis_config = AnalysisModeConfig()
@@ -279,7 +280,7 @@ class SegmentationWidget(QWidget):
         self.current_model = self.model_combo.currentText()
 
         # Check if metrics data already exists for these parameters
-        from metrics_service import MetricsService
+        from nd2_analyzer.analysis.metrics_service import MetricsService
         metrics_service = MetricsService()
 
         # Check if we need to segment anything
@@ -345,6 +346,7 @@ class SegmentationWidget(QWidget):
             self.current_raw_image = image
             print(f"✅ Stored raw image (shape={image.shape})")
 
+
             # Enable colony detection if we're in biofilm mode
             if self.analysis_config.is_biofilm_mode():
                 print("🔵 Biofilm mode active")
@@ -354,8 +356,10 @@ class SegmentationWidget(QWidget):
 
         # Store segmented image for other analysis
         if mode == "segmented" and hasattr(self, 'analysis_config'):
+            self.segmented_storage[(position, time)] = image
             self.current_segmented_image = image
             print(f"✅ Stored segmented image (shape={image.shape})")
+            print(f"✅ Stored segmented image (T={time}, P={position}, shape={image.shape})")
         
         # KEEP ALL EXISTING CODE BELOW
         if not self.is_segmenting:
@@ -387,7 +391,18 @@ class SegmentationWidget(QWidget):
 
         # Schedule next processing with a small delay
         self.request_timer.start(50)  # 50ms delay
-    
+
+    def export_segmented(self, output_folder):
+
+        import tifffile
+        from pathlib import Path
+        # Get positions and times to export
+        for (pos, t), img in self.segmented_storage.items():
+            path = Path(output_folder) / f"pos{pos}_t{t}.tif"
+            # Write TIF images to the output directory
+            tifffile.imwrite(path, img)
+        print(f"✅ Exported {len(self.segmented_storage)} segmented images")
+
 
     def cancel_segmentation(self):
         """Cancel the segmentation process"""
@@ -609,7 +624,7 @@ class SegmentationWidget(QWidget):
     
     def analyze_biofilm_colonies(self):
         """Analyze colonies from existing segmentation data"""
-        from metrics_service import MetricsService
+        from nd2_analyzer.analysis.metrics_service import MetricsService
         
         # Get selected positions
         selected_positions = self.get_selected_positions()
@@ -1150,18 +1165,18 @@ class SegmentationWidget(QWidget):
         self.show_overlay_btn.setEnabled(len(colonies) > 0)
     
     def convert_to_tif(self):
-        """Convert selected ND2 data to TIF files"""
+        """Export segmented images to TIFF files"""
+
         folder_path = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if not folder_path:
             return
-            
-        positions = self.get_selected_positions()
-        if not positions:
+
+        if not hasattr(self, "segmented_storage") or not self.segmented_storage:
+            self.progress_label.setText("No segmented images to export")
             return
-            
-        pub.sendMessage("convert_nd2_to_tif", 
-                       positions=positions, 
-                       time_start=self.time_start_spin.value(),
-                       time_end=self.time_end_spin.value(),
-                       channel=self.channel_combo.currentIndex(),
-                       output_folder=folder_path)
+
+        self.export_segmented(folder_path)
+
+        self.progress_label.setText(
+            f"Exported {len(self.segmented_storage)} segmented images"
+        )
