@@ -12,8 +12,8 @@ from .segmentation_models import SegmentationModels
 
 
 class SegmentationCache:
-    def __init__(self, nd2_data):
-        self.nd2_data = nd2_data
+    def __init__(self, image_data):
+        self.image_data = image_data
         self.mmap_arrays_idx = {}
         self.model_name = None
 
@@ -47,22 +47,22 @@ class SegmentationCache:
                 index_list = [list(idx) for idx in index_set]
                 model_group.attrs["index_set"] = json.dumps(index_list)
 
-            # Store nd2_data reference or metadata
-            # Note: We don't store the actual nd2_data, just metadata about it
-            if self.nd2_data is not None:
-                nd2_group = f.create_group("nd2_metadata")
+            # Store image_data reference or metadata
+            # Note: We don't store the actual image_data, just metadata about it
+            if self.image_data is not None:
+                image_group = f.create_group("image_metadata")
                 # Store file path if available
-                if hasattr(self.nd2_data, "filename"):
-                    nd2_group.attrs["filename"] = str(self.nd2_data.filename)
+                if hasattr(self.image_data, "filename"):
+                    image_group.attrs["filename"] = str(self.image_data.filename)
                 # Store shape if available
-                if hasattr(self.nd2_data, "shape"):
-                    nd2_shape = self.nd2_data.shape
-                    nd2_group.attrs["shape"] = json.dumps(nd2_shape)
+                if hasattr(self.image_data, "shape"):
+                    image_shape = self.image_data.shape
+                    image_group.attrs["shape"] = json.dumps(image_shape)
 
     @classmethod
-    def load(cls, file_path, nd2_data=None):
+    def load(cls, file_path, image_data=None):
         """Load cache state from an HDF5 file"""
-        cache = cls(nd2_data)
+        cache = cls(image_data)
 
         with h5py.File(file_path, "r") as f:
             # Load basic attributes
@@ -293,7 +293,7 @@ class SegmentationCache:
         idx = tuple(i % s for i, s in zip(idx, self.shape))
 
         try:
-            frame = self.nd2_data[idx].compute()
+            frame = self.image_data[idx].compute()
 
             # TODO: migrate to segmentation service
             # Normalize frame first
@@ -319,11 +319,11 @@ class SegmentationCache:
 
     @property
     def shape(self):
-        return self.nd2_data.shape
+        return self.image_data.shape
 
     @property
     def ndim(self):
-        return self.nd2_data.ndim - 2  # Since the last 2 will be image X and Y
+        return self.image_data.ndim - 2  # Since the last 2 will be image X and Y
 
     @property
     def dtype(self):

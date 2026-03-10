@@ -112,7 +112,7 @@ class Experiment:
             import tifffile
             from ome_types import from_xml
 
-            # if nd2 file with nd2file, else with triffile
+            # if ND2 - import with ND2File, else import with tifffile
             if file_path.endswith(".nd2"):
                 with ND2File(file_path) as reader:
                     shape = reader.shape

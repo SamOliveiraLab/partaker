@@ -25,11 +25,11 @@ class ImageData:
     _instance: Optional["ImageData"] = None
     _lock = threading.Lock()
 
-    def __init__(self, data, path, is_nd2=True, channel_n=0):
+    def __init__(self, data, path, is_image=True, channel_n=0):
         self.data = data
-        self.nd2_filename = path
+        self.image_filename = path
         self.processed_images = []
-        self.is_nd2 = is_nd2
+        self.is_image = is_image
         self.registration_offsets: Optional[np.ndarray] = (
             None  # If we are doing registration
         )
@@ -54,7 +54,7 @@ class ImageData:
             return cls._instance
 
     @classmethod
-    def create_instance(cls, data, path, is_nd2=True, channel_n=0) -> "ImageData":
+    def create_instance(cls, data, path, is_image=True, channel_n=0) -> "ImageData":
         """Create/replace the singleton instance"""
         with cls._lock:
             # Clean up old instance if it exists
@@ -62,7 +62,7 @@ class ImageData:
                 cls._instance._cleanup()
 
             # Create new instance
-            instance = cls(data, path, is_nd2, channel_n)
+            instance = cls(data, path, is_image, channel_n)
             cls._instance = instance
 
         pub.sendMessage("image_data_loaded", image_data=cls._instance)
@@ -206,7 +206,7 @@ class ImageData:
             f"Cropped P to {min_p}. Final array shape: {full_data.shape}"
         )
 
-        inst = cls.create_instance(data=full_data, path=file_paths, is_nd2=True)
+        inst = cls.create_instance(data=full_data, path=file_paths, is_image=True)
         inst.channel_n = channels
         return inst
 
@@ -238,7 +238,7 @@ class ImageData:
             self.segmentation_cache.save(str(cache_path))
 
         # Save other container data
-        container_data = {"nd2_filename": self.nd2_filename, "is_nd2": self.is_nd2}
+        container_data = {"image_filename": self.image_filename, "is_image": self.is_image}
 
         # Save container metadata
         with open(base_dir / "image_data.json", "w") as f:
@@ -254,18 +254,18 @@ class ImageData:
         if meta_path.exists():
             with open(meta_path, "r") as f:
                 meta_json = json.load(f)
-                nd2_filename = meta_json.get("nd2_filename")
-                is_nd2 = meta_json.get("is_nd2", True)
+                image_filename = meta_json.get("image_filename")
+                is_image = meta_json.get("is_image", True)
 
                 files_ok = (
-                    isinstance(nd2_filename, str) and os.path.exists(nd2_filename)
+                    isinstance(image_filename, str) and os.path.exists(image_filename)
                 ) or (
-                    isinstance(nd2_filename, list)
-                    and all(os.path.exists(_fname) for _fname in nd2_filename)
+                    isinstance(image_filename, list)
+                    and all(os.path.exists(_fname) for _fname in image_filename)
                 )
 
                 if files_ok:
-                    image_data = cls.load_nd2(nd2_filename)
+                    image_data = cls.load_nd2(image_filename)
 
                     # Load segmentation cache if file exists
                     cache_path = base_dir / "segmentation_cache.h5"
@@ -281,6 +281,6 @@ class ImageData:
 
                     return image_data
                 else:
-                    raise FileNotFoundError(f"ND2 file not found: {nd2_filename}")
+                    raise FileNotFoundError(f"ND2 file not found: {image_filename}")
         else:
             raise FileNotFoundError(f"Metadata file not found in {filename}")
