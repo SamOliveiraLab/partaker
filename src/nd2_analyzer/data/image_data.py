@@ -160,22 +160,24 @@ class ImageData:
 
             shape = arr.shape
 
-            # Handle different ND2 formats
-            if len(shape) == 4:
-                # Format: (T, P, Y, X) - no channel dimension
-                # Add a channel dimension
-                print(f"File {path} has no channel dimension. Shape: {shape}")
-                print("Adding channel dimension: (T, P, Y, X) -> (T, P, 1, Y, X)")
-                T, P, Y, X = shape
-                arr = arr[:, :, np.newaxis, :, :]  # Add channel dimension
-                C = 1
-            elif len(shape) == 5:
-                # Format: (T, P, C, Y, X) - standard format
-                T, P, C, Y, X = shape
+            # Handle different file formats
+            if path.endswith(".nd2"):
+
+                with nd2.ND2File(path) as f:
+                    axes = "".join(f.sizes)
+                    arr, axes = cls.normalize_axes(arr, axes)
+            elif path.endswith((".tif", ".tiff", ".ome.tif", ".ome.tiff", ".ome.tf2", ".ome.tf8", ".ome.btf")):
+                import tifffile
+                with tifffile.TiffFile(path) as tif:
+                    series = tif.series[0]
+                    axes = series.axes
+                    arr, axes = cls.normalize_axes(arr, axes)
             else:
                 raise ValueError(
                     f"File {path} has shape {shape}; expected (T, P, Y, X) or (T, P, C, Y, X)"
                 )
+
+            T, P, C, Y, X = arr.shape
 
             if channels is None:
                 # Set C, Y, X on the first file
@@ -207,6 +209,21 @@ class ImageData:
         inst = cls.create_instance(data=full_data, path=file_paths, is_nd2=True)
         inst.channel_n = channels
         return inst
+
+    def normalize_axes(arr, axes):
+        """Adjusts axes to 5D shape"""
+        axes = axes.upper()
+        # Ensure required axes exist
+        if "T" not in axes:
+            arr = np.expand_dims(arr, axis=0)
+            axes = "T" + axes
+        if "P" not in axes:
+            arr = np.expand_dims(arr, axis=1)
+            axes = axes.replace("T", "TP")
+        if "C" not in axes:
+            arr = np.expand_dims(arr, axis=2)
+            axes = axes.replace("TP", "TPC")
+        return arr, axes
 
     def save_to_disk(self, filename: str):
         """Saves state to file
