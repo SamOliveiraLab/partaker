@@ -2,7 +2,7 @@ from ..biofilms.colony_separator import ColonySeparator
 from PySide6.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout, QLabel,
                                QSlider, QPushButton, QSpinBox, QCheckBox,
                                QFrame, QSplitter, QWidget, QComboBox, QAbstractItemView, QListWidget, QProgressBar,
-                               QRadioButton, QDialog, QFileDialog)
+                               QRadioButton, QDialog, QFileDialog, QMessageBox)
 from PySide6.QtCore import Qt, QTimer
 from pubsub import pub
 import numpy as np
@@ -392,7 +392,7 @@ class SegmentationWidget(QWidget):
         # Schedule next processing with a small delay
         self.request_timer.start(50)  # 50ms delay
 
-    def export_segmented(self, output_folder):
+    """def export_segmented(self, output_folder):
 
         import tifffile
         from pathlib import Path
@@ -401,7 +401,7 @@ class SegmentationWidget(QWidget):
             path = Path(output_folder) / f"pos{pos}_t{t}.tif"
             # Write TIF images to the output directory
             tifffile.imwrite(path, img)
-        print(f"✅ Exported {len(self.segmented_storage)} segmented images")
+        print(f"✅ Exported {len(self.segmented_storage)} segmented images")"""
 
     def cancel_segmentation(self):
         """Cancel the segmentation process"""
@@ -1163,18 +1163,19 @@ class SegmentationWidget(QWidget):
         self.colony_count_label.setText(f"Colonies detected: {len(colonies)}")
         self.show_overlay_btn.setEnabled(len(colonies) > 0)
 
+
+
     def convert_to_tif(self):
-        """Convert selected ND2 data to TIF files"""
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Output Folder")
-        if not folder_path:
+        from nd2_analyzer.ui.dialogs.export_raw import ExportDialog
+        from nd2_analyzer.data.image_data import ImageData
+        image_data = ImageData.get_instance()
+
+        if image_data is None:
+            QMessageBox.critical(self,
+                "No Experiment Loaded",
+                "⚠️ Please load an experiment before exporting images."
+            )
             return
 
-        if not hasattr(self, "segmented_storage") or not self.segmented_storage:
-            self.progress_label.setText("No segmented images to export")
-            return
-
-        self.export_segmented(folder_path)
-
-        self.progress_label.setText(
-            f"Exported {len(self.segmented_storage)} segmented images"
-        )
+        dialog = ExportDialog(self)  # pass parent optionally
+        dialog.exec()  # modal dialog
