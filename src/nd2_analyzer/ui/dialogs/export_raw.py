@@ -289,10 +289,10 @@ class ExportDialog(QDialog):
         total = 0
         # Loop per position
         for p in range(P):
-            stack_path = exp_folder / f"position_{p}.tif"
-            with tf.TiffWriter(stack_path, bigtiff=True) as tif:
-                for t in range(T):
-                    for c in range(C):
+            for c in range(C):
+                stack_path = exp_folder / f"pos{p}_{c}.tif"
+                with tf.TiffWriter(stack_path, bigtiff=True) as tif:
+                    for t in range(T):
                         # Grab an image frame
                         img = image_data.get(t, p, c)
                         # Write each frame as a new page

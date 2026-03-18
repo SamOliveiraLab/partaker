@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QWidget,
     QLabel,
+    QComboBox
 )
 from pubsub import pub
 
@@ -42,9 +43,12 @@ class ExperimentDialog(QDialog):
         self.setMinimumWidth(700)
         self.setMinimumHeight(600)
 
+        # Default import mode
+        self.import_mode = None
         self.file_paths = []
         self.component_intervals = {}
         self.focus_loss_intervals = []
+        self.file_map = {}  # (p,t,c) -> file path
 
         self.create_ui()
 
@@ -117,16 +121,21 @@ class ExperimentDialog(QDialog):
         self.fluorescence_factor_spinbox.valueChanged.connect(self._update_focus_conversion_helper)
         details_layout.addRow("Fluorescence Factor:", self.fluorescence_factor_spinbox)
 
+        self.import_mode_combo = QComboBox()
+        self.import_mode_combo.addItems(["File", "Directory"])
+        self.import_mode_combo.setPlaceholderText("Select import mode...")
+        self.import_mode_combo.setCurrentIndex(-1)
+        details_layout.addRow("Import Mode:", self.import_mode_combo)
+        self.import_mode_combo.currentTextChanged.connect(self.update_import_mode)
+
         details_group.setLayout(details_layout)
         layout.addWidget(details_group)
 
-        # Files group
-        files_group = QGroupBox("Image Files")
-        files_layout = QVBoxLayout()
-
+        # Files group container
+        self.file_group = QGroupBox("Image Files")
+        file_layout = QVBoxLayout()
         self.file_list_widget = QListWidget()
-        files_layout.addWidget(self.file_list_widget)
-
+        file_layout.addWidget(self.file_list_widget)
         file_buttons_layout = QHBoxLayout()
         self.add_file_button = QPushButton("Add File")
         self.add_file_button.clicked.connect(self.add_file)
@@ -134,10 +143,26 @@ class ExperimentDialog(QDialog):
         self.remove_file_button.clicked.connect(self.remove_file)
         file_buttons_layout.addWidget(self.add_file_button)
         file_buttons_layout.addWidget(self.remove_file_button)
-        files_layout.addLayout(file_buttons_layout)
+        file_layout.addLayout(file_buttons_layout)
 
-        files_group.setLayout(files_layout)
-        layout.addWidget(files_group)
+        self.file_group.setLayout(file_layout)
+        layout.addWidget(self.file_group)
+        self.file_group.hide()
+
+        # Directory group container
+        self.directory_group = QGroupBox("Image Directory")
+        dir_layout = QHBoxLayout()
+        self.directory_edit = QLineEdit()
+        self.directory_edit.setPlaceholderText("Select directory...")
+        self.directory_edit.setReadOnly(True)
+        self.directory_button = QPushButton("Browse")
+        self.directory_button.clicked.connect(self.select_directory)
+        dir_layout.addWidget(self.directory_edit)
+        dir_layout.addWidget(self.directory_button)
+
+        self.directory_group.setLayout(dir_layout)
+        layout.addWidget(self.directory_group)
+        self.directory_group.hide()
 
         layout.addStretch()
         tab.setLayout(layout)
@@ -346,13 +371,108 @@ class ExperimentDialog(QDialog):
 
     def add_file(self):
         """Open the file dialog to add ND2 and OME-TIFF files"""
-        file_filter = "ND2 and TIFF Files (*.nd2 *.ome.tif *ome.tiff *ome.tf2 *ome.tf8 *ome.btf)"
+        # ".tif", ".tiff", ".ome.tif", ".ome.tiff", "ome.btf", "ome.tf2", "ome.tf8")
+        file_filter = "ND2 and TIFF Files (*.nd2 *tif *tiff *.ome.tif *ome.tiff *ome.tf2 *ome.tf8 *ome.btf)"
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         dialog.setNameFilter(file_filter)
         dialog.setWindowTitle("Select Image File")
         dialog.finished.connect(self._on_file_dialog_finished)
         dialog.open()
+
+    def select_directory(self):
+        """Open a directory dialog and set the import path."""
+        folder = QFileDialog.getExistingDirectory(self,"Select Image Directory","", QFileDialog.ShowDirsOnly)
+        if not folder:
+            return
+        # Show folder in the line edit
+        self.directory_edit.setText(folder)
+        self.import_from_directory(folder)
+
+
+    def import_from_directory(self, folder: str):
+        """Import TIFF files and classify them using filename regex."""
+        import os
+        import re
+
+        self.file_map = {}  # (p,t,c) -> file path
+
+        batch_pattern = re.compile(r"^pos(?P<p>\d+)_t(?P<t>\d+)_(?P<c>\d+)\.(tif|tiff)$", re.IGNORECASE)
+        stacked_pattern = re.compile(r"^pos(?P<p>\d+)_(?P<c>\d+)\.(tif|tiff)$", re.IGNORECASE)
+
+
+        self.file_list_widget.clear()
+        self.file_paths = []
+        detected_batch = False
+        detected_stacked = False
+
+        for root, dirs, files in os.walk(folder):
+            for filename in files:
+                if not filename.lower().endswith((".tif", ".tiff")):
+                    continue
+
+                full_path = os.path.join(root, filename)
+                batch_match = batch_pattern.match(filename)
+                stacked_match = stacked_pattern.match(filename)
+
+                if batch_match:
+                    detected_batch = True
+                    p = int(batch_match.group("p"))
+                    t = int(batch_match.group("t"))
+                    c = int(batch_match.group("c"))
+                    print(f"Batch TIFF → pos={p}, time={t}, channel={c}")
+
+                    self.file_map[(p, t, c)] = full_path
+                    self.file_paths.append(full_path)
+                    self.file_list_widget.addItem(filename)
+
+
+                elif stacked_match:
+                    detected_stacked = True
+                    p = int(stacked_match.group("p"))
+                    c = int(stacked_match.group("c"))
+                    print(f"Stacked TIFF → pos={p}, channel={c}")
+
+                    self.file_map[(p, None, c)] = full_path
+                    self.file_paths.append(full_path)
+                    self.file_list_widget.addItem(filename)
+
+                else:
+                    print(f"Skipped file: {filename}")
+
+        # Determine mode
+        if detected_batch and detected_stacked:
+            QMessageBox.critical(self,"Import Error","Mixed TIFF formats detected (batch + stacked).")
+            self.import_mode = None
+            return
+
+        elif detected_batch:
+            self.import_mode = "batch_tiff"
+
+        elif detected_stacked:
+            self.import_mode = "stacked_tiff"
+
+        else:
+            QMessageBox.warning(
+                self,
+                "Import Error",
+                "No valid TIFF files found."
+            )
+            self.import_mode = None
+            return
+
+        print(f"Detected import mode: {self.import_mode}")
+
+    def update_import_mode(self, mode):
+        """Updates the status for import mode"""
+        self.import_mode = mode
+        if mode == "File":
+            self.file_group.show()
+            self.directory_group.hide()
+
+        elif mode == "Directory":
+            self.file_group.hide()
+            self.directory_group.show()
 
     def _on_file_dialog_finished(self, result):
         """Handle file dialog completion"""
@@ -589,7 +709,23 @@ class ExperimentDialog(QDialog):
                 rpu_values=rpu_values,
                 component_intervals=self.component_intervals,
                 focus_loss_intervals=self.focus_loss_intervals,
+                file_map=self.file_map,
+                import_mode=self.import_mode
             )
+
+            from nd2_analyzer.data.image_data import ImageData
+            # Checks if the user imported a TIFF directory
+            if self.import_mode in ["Directory", "batch_tiff", "stacked_tiff"]:
+                image_data = ImageData.load_tiff_directory(
+                    self.file_map,
+                    self.import_mode
+                )
+            else:
+                # Standard ND2 / multi‑file import
+                image_data = ImageData.load_nd2(
+                    self.file_paths,
+                    import_mode = self.import_mode
+                )
 
             self.experimentCreated.emit(experiment)
             pub.sendMessage("experiment_loaded", experiment=experiment)
@@ -597,3 +733,6 @@ class ExperimentDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+
+    def get_import_mode(self):
+        return self.import_mode

@@ -136,9 +136,9 @@ class ImageData:
         self.registration_offsets = res.offsets
 
     @classmethod
-    def load_nd2(cls, file_paths: Union[str, Sequence[str]]):
+    def load_nd2(cls, file_paths: Union[str, Sequence[str]], import_mode: str | None = None):
         """
-        Load one or more ND2 files, verify that channel count, image height and width match,
+        Load one or more ND2 or TIFF files, verify that channel count, image height and width match,
         crop the P-dimension (second axis) to the smallest found, concatenate along time axis,
         and print the final shape.
         """
@@ -162,7 +162,6 @@ class ImageData:
 
             # Handle different file formats
             if path.endswith(".nd2"):
-
                 with nd2.ND2File(path) as f:
                     axes = "".join(f.sizes)
                     arr, axes = cls.normalize_axes(arr, axes)
@@ -194,22 +193,84 @@ class ImageData:
             p_dims.append(P)
             arrays.append(arr)
 
-        # Crop all files to the smallest P
-        # TODO: check if this is valid
-        min_p = min(p_dims)
-        cropped = [arr[:, :min_p, :, :, :] for arr in arrays]
-
-        full_data = da.concatenate(cropped, axis=0)
-
-        print(
-            f"Loaded {len(file_paths)} file(s). "
-            f"Cropped P to {min_p}. Final array shape: {full_data.shape}"
-        )
+        if import_mode in ["Directory", "batch_tiff", "stacked_tiff"]:
+            full_data = arrays[0]
+        else:
+            if len(arrays) > 1:
+                min_p = min(p_dims)
+                cropped = [arr[:, :min_p, :, :, :] for arr in arrays]
+                full_data = da.concatenate(cropped, axis=0)
+                print(f"Cropped P to {min_p}. Final array shape: {full_data.shape}")
+            else:
+                full_data = arrays[0]
+        print(f"Loaded {len(file_paths)} file(s). ")
 
         inst = cls.create_instance(data=full_data, path=file_paths, is_image=True)
         inst.channel_n = channels
+
         return inst
 
+    @classmethod
+    def load_tiff_directory(cls, file_map, mode):
+        import tifffile
+        import numpy as np
+        import dask.array as da
+
+        # Ensure a valid path exists for shape detection
+        first_path = None
+        for v in file_map.values():
+            if v is not None:
+                first_path = v
+                break
+        if first_path is None:
+            raise ValueError("No valid TIFF paths found in file_map")
+
+        # Sorted unique axes
+        positions = sorted({k[0] for k in file_map})
+        channels = sorted({k[2] for k in file_map})
+
+        if mode == "batch_tiff":
+            times = sorted({k[1] for k in file_map if k[1] is not None})
+        else:
+            # Get the number of frames from the first file
+            first_path = next(v for v in file_map.values() if v is not None)
+            with tifffile.TiffFile(first_path) as tif:
+                times = list(range(len(tif.pages)))
+
+        T, P, C = len(times), len(positions), len(channels)
+        sample = tifffile.imread(first_path)
+
+        # Ensure single files return (T, Y, X)
+        if sample.ndim == 3:
+            sample = sample[0]
+        Y, X = sample.shape
+        data = np.zeros((T, P, C, Y, X), dtype=sample.dtype)
+
+        # Loop over positions and channels to load data
+        for pi, p in enumerate(positions):
+            for ci, c in enumerate(channels):
+                if mode == "batch_tiff":
+                    for ti, t in enumerate(times):
+                        path = file_map.get((p, t, c))
+                        if path is None:
+                            raise ValueError(f"Missing frame for p={p}, t={t}, c={c}")
+                        data[ti, pi, ci] = tifffile.imread(path)
+
+                else:  # stacked_tiff
+                    path = file_map.get((p, None, c))
+                    if path is None:
+                        raise ValueError(f"Missing stack for p={p}, c={c}")
+                    stack = tifffile.imread(path)
+                    for ti in range(T):
+                        data[ti, pi, ci] = stack
+
+        dask_arr = da.from_array(data, chunks=(1, 1, 1, Y, X))
+        inst = cls.create_instance(data=dask_arr, path=list(file_map.values()), is_image=True)
+        inst.channel_n = C
+
+        return inst
+
+    @staticmethod
     def normalize_axes(arr, axes):
         """Adjusts axes to 5D shape"""
         axes = axes.upper()

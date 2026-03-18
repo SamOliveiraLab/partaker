@@ -38,6 +38,8 @@ class Experiment:
             rpu_values: Optional[Dict[str, float]] = None,
             component_intervals: Optional[Dict[str, List[Tuple[float, float]]]] = None,
             focus_loss_intervals: Optional[List[Tuple[float, float]]] = None,
+            file_map: Optional[Dict] = None,
+            import_mode: Optional[str] = None,
     ):
         """
         Initialize an experiment with analysis configuration.
@@ -55,12 +57,16 @@ class Experiment:
             rpu_values: RPU calibration values
             component_intervals: Component activation time intervals
             focus_loss_intervals: Time intervals where autofocus failed (in hours)
+            file_map: Links TIFF directory structure to Image files for import
+            import_mode: Selection mode for TIFF files in a directory structure
         """
         self.name = name
         self.image_files = []
         self.phc_interval = interval
         self.fluorescence_factor = fluorescence_factor
         self.epsilon = epsilon
+        self.file_map = file_map or {}
+        self.import_mode = import_mode
 
         # Set defaults for optional parameters
         self.selected_positions = selected_positions if selected_positions is not None else [0, 1, 2, 3]
@@ -101,6 +107,10 @@ class Experiment:
             FileNotFoundError: If the file does not exist
             ValueError: If the file cannot be opened as an Image file or if its shape is incompatible
         """
+        if self.import_mode in ["batch_tiff", "stacked_tiff"]:
+            self.image_files.append(file_path)
+            return
+
         if file_path in self.image_files:
             return
 
@@ -119,7 +129,7 @@ class Experiment:
 
                     self.check_base_shape(shape, file_path)
                     self.image_files.append(file_path)
-            elif file_path.endswith((".tif", ".tiff", ".ome.tif", ".ome.tiff", "ome.btf")):
+            elif file_path.endswith((".tif", ".tiff", ".ome.tif", ".ome.tiff", "ome.btf", "ome.tf2", "ome.tf8")):
                 with tifffile.TiffFile(file_path) as tif:
                     # Extract ome-xml string
                     ome_xml = tif.ome_metadata

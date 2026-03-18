@@ -111,24 +111,55 @@ class App(QMainWindow):
             callback(None)
 
     def on_exp_loaded(self, experiment: Experiment):
-        ImageData.load_nd2(experiment.image_files)
+        """Load an experiment into the application.
+        Filters whether an experiment is a TIFF directory or individual Image file"""
+        files = experiment.image_files
+        if isinstance(files, str):
+            files = [files]
+        if all(str(f).lower().endswith((".tif", ".tiff")) for f in files):
+            file_map = self.reconstruct_file_map_from_paths(files)
+            if not file_map:
+                raise RuntimeError("No TIFF files matched expected naming pattern")
+
+            mode = "batch_tiff" if any(k[1] is not None for k in file_map) else "stacked_tiff"
+            ImageData.load_tiff_directory(file_map, mode)
+        else:
+            ImageData.load_nd2(files)
+
+    @staticmethod
+    def reconstruct_file_map_from_paths(paths):
+        """
+        Given a list of TIFF file paths, reconstruct the file_map
+        mapping (position, time, channel) -> full path.
+        """
+        import os
+        import re
+        file_map = {}
+        batch_pattern = re.compile(r"^pos(?P<p>\d+)_t(?P<t>\d+)_(?P<c>\d+)\.(tif|tiff)$", re.IGNORECASE)
+        stacked_pattern = re.compile(r"^pos(?P<p>\d+)_(?P<c>\d+)\.(tif|tiff)$", re.IGNORECASE)
+
+        for full_path in paths:
+            name = os.path.basename(full_path)
+            m = batch_pattern.match(name)
+            if m:
+                p, t, c = map(int, (m["p"], m["t"], m["c"]))
+                file_map[(p, t, c)] = full_path
+                continue
+
+            m2 = stacked_pattern.match(name)
+            if m2:
+                p, c = map(int, (m2["p"], m2["c"]))
+                file_map[(p, None, c)] = full_path
+        return file_map
 
     def on_image_request(self, time, position, channel):
         """Handle requests for raw image data"""
         if not self.application_state.image_data:
             return
 
-        # Retrieve the image data
+        # Retrieve the image data as 5D array
         try:
-            if self.application_state.image_data.is_nd2:
-                if self.has_channels:
-                    image = self.application_state.image_data.data[
-                        time, position, channel
-                    ]
-                else:
-                    image = self.application_state.image_data.data[time, position]
-            else:
-                image = self.application_state.image_data.data[time]
+            image = self.application_state.image_data.data[time, position, channel]
 
             # Convert to NumPy array if needed
             image = np.array(image)
