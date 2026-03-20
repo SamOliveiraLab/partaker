@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 from pubsub import pub
 
-from nd2_analyzer.data.experiment import Experiment
+from nd2_analyzer.data.experiment import Experiment, PositionsMismatchError
 
 
 class ExperimentDialog(QDialog):
@@ -550,24 +550,47 @@ class ExperimentDialog(QDialog):
             channel_colors["yfp"] = self.yfp_color_edit.text().strip()
             channel_colors["2"] = self.yfp_color_edit.text().strip()
 
-        try:
-            experiment = Experiment(
+        def _build_experiment(truncate_positions: bool) -> Experiment:
+            return Experiment(
                 name=name,
                 nd2_files=self.file_paths,
                 interval=self.time_step_spinbox.value(),
                 fluorescence_factor=self.fluorescence_factor_spinbox.value(),
                 epsilon=self.epsilon_spinbox.value(),
                 selected_positions=selected_positions,
-                time_range=(self.time_start_spinbox.value(), self.time_end_spinbox.value()),
+                time_range=(
+                    self.time_start_spinbox.value(),
+                    self.time_end_spinbox.value(),
+                ),
                 channel_colors=channel_colors,
                 rpu_values=rpu_values,
                 component_intervals=self.component_intervals,
                 focus_loss_intervals=self.focus_loss_intervals,
+                truncate_positions=truncate_positions,
             )
 
-            self.experimentCreated.emit(experiment)
-            pub.sendMessage("experiment_loaded", experiment=experiment)
-            self.accept()
+        try:
+            experiment = _build_experiment(truncate_positions=False)
+        except PositionsMismatchError:
+            question = QMessageBox.question(
+                self,
+                "Different positions",
+                "ND2 files have different positions. Truncate to smallest and continue?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
 
+            if question != QMessageBox.Yes:
+                return
+
+            try:
+                experiment = _build_experiment(truncate_positions=True)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+                return
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+            return
+
+        self.experimentCreated.emit(experiment)
+        pub.sendMessage("experiment_loaded", experiment=experiment)
+        self.accept()

@@ -5,6 +5,18 @@ from typing import List, Dict, Tuple, Optional
 from nd2 import ND2File
 
 
+class PositionsMismatchError(ValueError):
+    """Raised when ND2 files differ only in the number of positions (P axis)."""
+
+    def __init__(self, existing_p: int, new_p: int, file_path: str):
+        super().__init__(
+            f"ND2 position mismatch: existing P={existing_p}, new P={new_p} (file: {file_path})"
+        )
+        self.existing_p = existing_p
+        self.new_p = new_p
+        self.file_path = file_path
+
+
 class Experiment:
     """
     Represents a time-lapse microscopy experiment with analysis configuration.
@@ -38,6 +50,7 @@ class Experiment:
             rpu_values: Optional[Dict[str, float]] = None,
             component_intervals: Optional[Dict[str, List[Tuple[float, float]]]] = None,
             focus_loss_intervals: Optional[List[Tuple[float, float]]] = None,
+            truncate_positions: bool = False,
     ):
         """
         Initialize an experiment with analysis configuration.
@@ -85,6 +98,7 @@ class Experiment:
         self.component_intervals = component_intervals or {}
         self.focus_loss_intervals = focus_loss_intervals or []
         self.base_shape = ()
+        self.truncate_positions = truncate_positions
 
         # Add ND2 files
         for _file in nd2_files:
@@ -119,14 +133,27 @@ class Experiment:
                             f"File {file_path} has different dimensions ({len(shape)}) "
                             f"than existing files ({len(self.base_shape)})."
                         )
-                    if shape[1:] != self.base_shape[1:]:
+                    # ND2 shape convention: (T, P, C, Y, X)
+                    # We allow P (positions) to differ when truncate_positions=True,
+                    # but we still require C/Y/X to match.
+                    if shape[2:] != self.base_shape[2:]:
                         raise ValueError(
                             f"File {file_path} shape {shape} is not compatible "
                             f"with existing files shape {self.base_shape}."
                         )
 
+                    existing_p = self.base_shape[1]
+                    new_p = shape[1]
+                    if new_p != existing_p and not self.truncate_positions:
+                        raise PositionsMismatchError(
+                            existing_p=existing_p, new_p=new_p, file_path=file_path
+                        )
+
                 self.nd2_files.append(file_path)
 
+        except PositionsMismatchError:
+            # Let the caller handle the "different positions" UX.
+            raise
         except Exception as e:
             raise ValueError(f"Error opening ND2 file {file_path}: {str(e)}")
 
