@@ -35,6 +35,7 @@ class ImageData:
         )
         self.crop_coordinates = None
         self.channel_n = channel_n
+        self._memmap_file = None
 
         # Initialize segmentation components
         self.segmentation_cache = SegmentationCache(data)
@@ -244,7 +245,16 @@ class ImageData:
         if sample.ndim == 3:
             sample = sample[0]
         Y, X = sample.shape
-        data = np.zeros((T, P, C, Y, X), dtype=sample.dtype)
+
+        # Creates a unique temp file for memory loading
+        import uuid
+        filename = f"temp_{uuid.uuid4().hex}.dat"
+        data = np.memmap(
+            filename,
+            dtype=sample.dtype,
+            mode="w+",
+            shape=(T, P, C, Y, X)
+        )
 
         # Loop over positions and channels to load data
         for pi, p in enumerate(positions):
@@ -260,13 +270,15 @@ class ImageData:
                     path = file_map.get((p, None, c))
                     if path is None:
                         raise ValueError(f"Missing stack for p={p}, c={c}")
-                    stack = tifffile.imread(path)
-                    for ti in range(T):
-                        data[ti, pi, ci] = stack
 
+                    with tifffile.TiffFile(path) as tif:
+                        for ti in range(T):
+                            data[ti, pi, ci] = tif.pages[ti].asarray()
+
+        # Convert to a dask array for lazy loading
         dask_arr = da.from_array(data, chunks=(1, 1, 1, Y, X))
-        inst = cls.create_instance(data=dask_arr, path=list(file_map.values()), is_image=True)
-        inst.channel_n = C
+        inst = cls.create_instance(data=dask_arr, path=list(file_map.values()), is_image=True, channel_n=C)
+        inst._memmap_file = filename
 
         return inst
 

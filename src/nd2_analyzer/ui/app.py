@@ -113,18 +113,44 @@ class App(QMainWindow):
     def on_exp_loaded(self, experiment: Experiment):
         """Load an experiment into the application.
         Filters whether an experiment is a TIFF directory or individual Image file"""
+
+        # Clear the previous temporary file if it exists
+        old = self.appstate.image_data
+        self.appstate.image_data = None
+        import gc
+        gc.collect()
+        if hasattr(old, "_memmap_file"):
+            import os
+            os.remove(old._memmap_file)
+
+        # Catalogs all the file paths in the experiment
         files = experiment.image_files
         if isinstance(files, str):
             files = [files]
-        if all(str(f).lower().endswith((".tif", ".tiff")) for f in files):
+
+        # Checks for OME-TIFF files
+        if all(str(f).lower().endswith((".ome.tif", "ome.tiff", ".ome.tf2", ".ome.tf8", ".ome.btf")) for f in files):
+            ImageData.load_nd2(files)
+        # Checks for TIFF files
+        elif all(str(f).lower().endswith((".tif", ".tiff")) for f in files):
             file_map = self.reconstruct_file_map_from_paths(files)
             if not file_map:
                 raise RuntimeError("No TIFF files matched expected naming pattern")
 
             mode = "batch_tiff" if any(k[1] is not None for k in file_map) else "stacked_tiff"
             ImageData.load_tiff_directory(file_map, mode)
+        # Checks for ND2 files
         else:
             ImageData.load_nd2(files)
+
+        # Clear the current temporary file
+        old = self.appstate.image_data
+        self.appstate.image_data = None
+        import gc
+        gc.collect()
+        if hasattr(old, "_memmap_file"):
+            import os
+            os.remove(old._memmap_file)
 
     @staticmethod
     def reconstruct_file_map_from_paths(paths):
@@ -138,6 +164,7 @@ class App(QMainWindow):
         batch_pattern = re.compile(r"^pos(?P<p>\d+)_t(?P<t>\d+)_(?P<c>\d+)\.(tif|tiff)$", re.IGNORECASE)
         stacked_pattern = re.compile(r"^pos(?P<p>\d+)_(?P<c>\d+)\.(tif|tiff)$", re.IGNORECASE)
 
+        # Check if any of the paths match the batch pattern, reconstructing the file_map
         for full_path in paths:
             name = os.path.basename(full_path)
             m = batch_pattern.match(name)
