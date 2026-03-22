@@ -96,7 +96,7 @@ class ColonySeparationWidget(QWidget):
         layout = QVBoxLayout(tab)
 
         # Header
-        header = QLabel("Automatic Colony Detection (Otsu)")
+        header = QLabel("Automatic Colony Detection")
         header.setStyleSheet("font-weight: bold; font-size: 14px; color: #4CAF50;")
         layout.addWidget(header)
 
@@ -109,98 +109,23 @@ class ColonySeparationWidget(QWidget):
         instructions.setStyleSheet("color: #666; padding: 10px;")
         layout.addWidget(instructions)
 
-        # Morphology controls group
-        morphology_group = QGroupBox("Morphological Parameters")
-        morphology_layout = QVBoxLayout()
-
-        # Closing radius slider
-        closing_layout = QHBoxLayout()
-        closing_layout.addWidget(QLabel("Closing Radius:"))
-
-        self.closing_radius_slider = QSlider(Qt.Horizontal)
-        self.closing_radius_slider.setMinimum(0)
-        self.closing_radius_slider.setMaximum(10)
-        self.closing_radius_slider.setValue(1)
-        self.closing_radius_slider.valueChanged.connect(self.on_closing_radius_changed)
-        closing_layout.addWidget(self.closing_radius_slider)
-
-        self.closing_radius_label = QLabel("1")
-        self.closing_radius_label.setMinimumWidth(30)
-        self.closing_radius_label.setStyleSheet("font-weight: bold;")
-        closing_layout.addWidget(self.closing_radius_label)
-
-        morphology_layout.addLayout(closing_layout)
-
-        # Min object size slider
-        min_obj_layout = QHBoxLayout()
-        min_obj_layout.addWidget(QLabel("Min Object Size:"))
-
-        self.min_object_slider = QSlider(Qt.Horizontal)
-        self.min_object_slider.setMinimum(1)
-        self.min_object_slider.setMaximum(100)
-        self.min_object_slider.setValue(6)
-        self.min_object_slider.valueChanged.connect(self.on_min_object_changed)
-        min_obj_layout.addWidget(self.min_object_slider)
-
-        self.min_object_label = QLabel("6")
-        self.min_object_label.setMinimumWidth(40)
-        self.min_object_label.setStyleSheet("font-weight: bold;")
-        min_obj_layout.addWidget(self.min_object_label)
-
-        morphology_layout.addLayout(min_obj_layout)
-
-        morphology_group.setLayout(morphology_layout)
-        layout.addWidget(morphology_group)
-
-        # Size filtering group
-        size_group = QGroupBox("Size Filtering")
-        size_layout = QVBoxLayout()
-
-        # Min size slider
-        min_size_layout = QHBoxLayout()
-        min_size_layout.addWidget(QLabel("Min Colony Size (px):"))
-
-        self.min_size_slider = QSlider(Qt.Horizontal)
-        self.min_size_slider.setMinimum(100)
-        self.min_size_slider.setMaximum(10000)
-        self.min_size_slider.setValue(1000)
-        self.min_size_slider.valueChanged.connect(self.on_min_size_changed)
-        min_size_layout.addWidget(self.min_size_slider)
-
-        self.min_size_label = QLabel("1000")
-        self.min_size_label.setMinimumWidth(50)
-        self.min_size_label.setStyleSheet("font-weight: bold;")
-        min_size_layout.addWidget(self.min_size_label)
-
-        size_layout.addLayout(min_size_layout)
-
-        # Max size slider
-        max_size_layout = QHBoxLayout()
-        max_size_layout.addWidget(QLabel("Max Colony Size (px):"))
-
-        self.max_size_slider = QSlider(Qt.Horizontal)
-        self.max_size_slider.setMinimum(10000)
-        self.max_size_slider.setMaximum(500000)
-        self.max_size_slider.setValue(100000)
-        self.max_size_slider.valueChanged.connect(self.on_max_size_changed)
-        max_size_layout.addWidget(self.max_size_slider)
-
-        self.max_size_label = QLabel("100000")
-        self.max_size_label.setMinimumWidth(60)
-        self.max_size_label.setStyleSheet("font-weight: bold;")
-        max_size_layout.addWidget(self.max_size_label)
-
-        size_layout.addLayout(max_size_layout)
-        size_group.setLayout(size_layout)
-        layout.addWidget(size_group)
-
-        # Detect button
-        self.detect_btn = QPushButton("Detect Colonies")
-        self.detect_btn.clicked.connect(self.detect_colonies)
-        self.detect_btn.setStyleSheet(
+        # Automatic Detection button
+        self.start_auto_btn = QPushButton("Start Automatic Detection")
+        self.start_auto_btn.clicked.connect(self.open_auto_detect_widget)
+        self.start_auto_btn.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;"
         )
-        layout.addWidget(self.detect_btn)
+        self.start_auto_btn.setEnabled(True)
+        layout.addWidget(self.start_auto_btn)
+
+        # Info label
+        info_label = QLabel(
+            "Click 'Start Automatic Detection' to open auto detection controller.\n"
+            "Move sliders to auto-select colonies you want to track."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("font-style: italic; color: #999; padding: 10px;")
+        layout.addWidget(info_label)
 
         layout.addStretch()
         return tab
@@ -249,53 +174,54 @@ class ColonySeparationWidget(QWidget):
             self.current_raw_image = image
             self.status_label.setText(f"Image loaded: T={time}, P={position}, C={channel}")
 
-    def on_closing_radius_changed(self, value):
-        """Handle closing radius slider change"""
-        self.closing_radius_label.setText(str(value))
-        self.colony_separator.update_parameters(closing_radius=value)
+    #def on_closing_radius_changed(self, value):
+    #    """Handle closing radius slider change"""
+    #    self.closing_radius_label.setText(str(value))
+    #    self.colony_separator.update_parameters(closing_radius=value)
 
-    def on_min_object_changed(self, value):
-        """Handle min object size slider change"""
-        self.min_object_label.setText(str(value))
-        self.colony_separator.update_parameters(min_object_size=value)
+    #def on_min_object_changed(self, value):
+    #    """Handle min object size slider change"""
+    #    self.min_object_label.setText(str(value))
+    #    self.colony_separator.update_parameters(min_object_size=value)
 
-    def on_min_size_changed(self, value):
-        """Handle minimum colony size slider change"""
-        self.min_size_label.setText(str(value))
-        self.colony_separator.update_parameters(min_colony_size=value)
 
-    def on_max_size_changed(self, value):
-        """Handle maximum colony size slider change"""
-        self.max_size_label.setText(str(value))
-        self.colony_separator.update_parameters(max_colony_size=value)
+    def open_auto_detect_widget(self):
+        """Open colony verification dialog"""
 
-    def detect_colonies(self):
-        """Detect colonies automatically using Otsu thresholding"""
-        if self.current_raw_image is None:
-            self.status_label.setText("⚠️ No image loaded. Please view an image first.")
-            return
+        from nd2_analyzer.ui.dialogs.colony_auto_verifier import VerifyColoniesDialog
 
-        print(f"Detecting colonies using Otsu from image shape: {self.current_raw_image.shape}")
+        colonies = self.colony_separator.detected_colonies
 
-        # Detect colonies using Otsu method (from notebook)
-        colonies = self.colony_separator.detect_colonies_otsu(self.current_raw_image)
+        verify_dialog = VerifyColoniesDialog(
+            self.current_raw_image,
+            colonies,
+            parent=self
+        )
 
-        # Update UI
-        self.colony_count_label.setText(f"Colonies: {len(colonies)}")
-        self.show_overlay_btn.setEnabled(len(colonies) > 0)
+        verify_dialog.colonies_verified.connect(self.handle_verified_colonies)
 
-        if len(colonies) > 0:
-            self.status_label.setText(f"✅ Detected {len(colonies)} colonies automatically.")
+        verify_dialog.exec()
 
-            # Automatically show overlay
-            self.colony_overlay_visible = True
-            self.update_colony_overlay()
+    def handle_verified_colonies(self, verified_colonies):
+        """Move verified colonies into manual storage"""
 
-            # Print colony info
-            for colony in colonies:
-                print(f"Colony {colony['colony_id']}: Area={colony['area']:.0f}px²")
-        else:
-            self.status_label.setText("No colonies detected. Try adjusting the threshold.")
+        for colony in verified_colonies:
+            # Preserve contour if it exists
+            if "contour" in colony:
+                self.colony_separator.manual_additions.append(colony)
+            else:
+                # fallback (rare)
+                x1, y1, x2, y2 = colony["bbox"]
+                self.colony_separator.create_bounding_box_colony(
+                    x1, y1, x2, y2,
+                    self.current_raw_image.shape
+                )
+
+        total = len(self.colony_separator.get_all_colonies())
+
+        self.colony_count_label.setText(f"Colonies: {total}")
+        self.colony_overlay_visible = True
+        self.update_colony_overlay()
 
     def start_manual_selection(self):
         """Start manual colony selection"""
@@ -383,6 +309,7 @@ class ColonySeparationWidget(QWidget):
         self.colony_separator.manual_additions = []
         self.colony_count_label.setText("Colonies: 0")
         self.show_overlay_btn.setEnabled(False)
+        self.start_auto_btn.setEnabled(False)
         self.colony_overlay_visible = False
         self.update_colony_overlay()
         self.status_label.setText("All colonies cleared.")

@@ -35,7 +35,6 @@ class ImageData:
         )
         self.crop_coordinates = None
         self.channel_n = channel_n
-        self._memmap_file = None
 
         # Initialize segmentation components
         self.segmentation_cache = SegmentationCache(data)
