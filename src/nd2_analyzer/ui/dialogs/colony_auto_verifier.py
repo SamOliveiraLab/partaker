@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
                                QWidget, QScrollArea, QFrame, QGroupBox, QSlider)
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QPixmap, QImage
 import cv2
 import numpy as np
@@ -87,15 +87,20 @@ class VerifyColoniesDialog(QDialog):
 
         top_layout.addWidget(right_widget, 1)
 
-        # add top section
+        # Set top section of main layout
         main_layout.addLayout(top_layout)
 
-        # ---------------- MIDDLE: SLIDERS ----------------
+        # Add timer functionality for live slider processing
+        self.update_timer = QTimer()
+        self.update_timer.setInterval(150)   # ms
+        self.update_timer.setSingleShot(True)
+        self.update_timer.timeout.connect(self.detect_colonies)
+
+        # Set sliders to the middle of layout
         size_group = QGroupBox("Size Filtering")
         size_layout = QVBoxLayout()
         size_group.setLayout(size_layout)
 
-        # (KEEP YOUR EXISTING SLIDER CODE EXACTLY THE SAME HERE)
         # Min size slider
         min_size_layout = QHBoxLayout()
         min_size_layout.addWidget(QLabel("Min Colony Size (px):"))
@@ -105,7 +110,7 @@ class VerifyColoniesDialog(QDialog):
         self.min_size_slider.setMaximum(100)
         self.min_size_slider.setValue(1)
         self.min_size_slider.valueChanged.connect(self.on_min_size_changed)
-        self.min_size_slider.sliderMoved.connect(self.detect_colonies)
+        self.min_size_slider.sliderMoved.connect(self.trigger_detect)
         min_size_layout.addWidget(self.min_size_slider)
 
         self.min_size_label = QLabel(f"{self.min_size_slider.value()}")
@@ -123,7 +128,7 @@ class VerifyColoniesDialog(QDialog):
         self.threshold_slider.setMaximum(100)
         self.threshold_slider.setValue(60)
         self.threshold_slider.valueChanged.connect(self.on_threshold_changed)
-        self.threshold_slider.sliderMoved.connect(self.detect_colonies)
+        self.threshold_slider.sliderMoved.connect(self.trigger_detect)
         threshold_layout.addWidget(self.threshold_slider)
 
         self.threshold_label = QLabel(f"{self.threshold_slider.value()}")
@@ -141,7 +146,7 @@ class VerifyColoniesDialog(QDialog):
         self.kernel_slider.setMaximum(100)
         self.kernel_slider.setValue(1)
         self.kernel_slider.valueChanged.connect(self.on_kernel_changed)
-        self.kernel_slider.sliderMoved.connect(self.detect_colonies)
+        self.kernel_slider.sliderMoved.connect(self.trigger_detect)
         kernel_layout.addWidget(self.kernel_slider)
 
         self.kernel_label = QLabel(f"{self.kernel_slider.value()}")
@@ -155,12 +160,10 @@ class VerifyColoniesDialog(QDialog):
 
         main_layout.addWidget(size_group)
 
-        # ---------------- BOTTOM: BUTTONS ----------------
+        # Set the button layout to the bottom of the main layout
         button_layout = QHBoxLayout()
-
         self.ok_btn = QPushButton("Accept Colonies")
         self.ok_btn.clicked.connect(self.accept_colonies)
-
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
 
@@ -196,11 +199,13 @@ class VerifyColoniesDialog(QDialog):
         self.kernel_label.setText(f"{value}%")
         if self.image is None:
             return
-        h, w = self.image.shape[:2]
 
-        # Smaller dimensions used for consistency
-        base = min(h, w)
-        kernel_size = int((value / 100.0) * base)
+        # Smaller dimensions used for consistency: maps 0–100 → 1–75 (safe range)
+        kernel_size = int(value / 100.0 * 75)
+        if kernel_size < 1:
+            kernel_size = 1
+        if kernel_size % 2 == 0:
+            kernel_size += 1
 
         # Ensure kernel is odd (OpenCV preference)
         if kernel_size % 2 == 0:
@@ -256,7 +261,9 @@ class VerifyColoniesDialog(QDialog):
         self.image_label.setPixmap(pixmap)
         self.image_label.setScaledContents(True)
 
-
+    def trigger_detect(self):
+        """Trigger detection on the image"""
+        self.update_timer.start()
 
     def detect_colonies(self):
         """Detect colonies automatically using Otsu thresholding"""

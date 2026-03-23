@@ -143,13 +143,18 @@ class ColonySeparator:
         # normalize to uint8 if needed
         img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
+        # Smooths image using Gaussian blur before thresholding
+        img_blur = cv2.GaussianBlur(img, (5, 5), 0)
+
         # threshold
-        _, thresh = cv2.threshold(img, self.intensity_threshold, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(img_blur, self.intensity_threshold, 255, cv2.THRESH_BINARY)
 
         # morphological closing
-        kernel = np.ones((self.kernel_size, self.kernel_size), np.uint8)
-        thresh_grouped = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.kernel_size, self.kernel_size))
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
 
+        thresh_grouped = thresh
         # find contours
         contours, _ = cv2.findContours(
             thresh_grouped,
@@ -165,11 +170,6 @@ class ColonySeparator:
 
         for contour in contours:
             area = cv2.contourArea(contour)
-
-            """if area < self.min_colony_size:
-                continue
-            if area > self.max_colony_size:
-                continue"""
 
             # Bounding box
             x, y, w, h = cv2.boundingRect(contour)
