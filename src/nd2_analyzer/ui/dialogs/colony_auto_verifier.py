@@ -8,15 +8,21 @@ import numpy as np
 from nd2_analyzer.ui.biofilms.colony_separator import ColonySeparator
 
 class VerifyColoniesDialog(QDialog):
-    colonies_verified = Signal(list)
-
-    def __init__(self, image, colonies, parent=None):
+    """Dialog for Automatic Colony Detection and Verification."""
+    colonies_verified = Signal(list, dict)
+    def __init__(self, image, colonies, params=None, parent=None):
         super().__init__(parent)
 
         self.image = image
         self.colonies = colonies.copy()
         self.colony_separator = ColonySeparator()
         self.colony_separator.detected_colonies = self.colonies.copy()
+        # Default slider params
+        self.params = params or {
+            "min_size": 1,
+            "threshold": 60,
+            "kernel": 1
+        }
 
         self.setWindowTitle("Verify Colonies")
         self.setMinimumSize(800, 600)
@@ -29,10 +35,10 @@ class VerifyColoniesDialog(QDialog):
         self.update_colonies_list()
         self.update_display()
         self.setup_image()
+        self.trigger_detect()
 
     def init_ui(self):
-
-        # 🔥 MAIN LAYOUT (VERTICAL)
+        # Setup for Main Layout (Vertical)
         main_layout = QVBoxLayout(self)
 
         # Top of the dialog: Image and Colony List
@@ -108,12 +114,12 @@ class VerifyColoniesDialog(QDialog):
         self.min_size_slider = QSlider(Qt.Horizontal)
         self.min_size_slider.setMinimum(1)
         self.min_size_slider.setMaximum(100)
-        self.min_size_slider.setValue(1)
+        self.min_size_slider.setValue(self.params.get("min_size", 1))
         self.min_size_slider.valueChanged.connect(self.on_min_size_changed)
         self.min_size_slider.sliderMoved.connect(self.trigger_detect)
         min_size_layout.addWidget(self.min_size_slider)
 
-        self.min_size_label = QLabel(f"{self.min_size_slider.value()}")
+        self.min_size_label = QLabel(f"{self.min_size_slider.value()}%")
         self.min_size_label.setMinimumWidth(50)
         self.min_size_label.setStyleSheet("font-weight: bold;")
         min_size_layout.addWidget(self.min_size_label)
@@ -126,12 +132,12 @@ class VerifyColoniesDialog(QDialog):
         self.threshold_slider = QSlider(Qt.Horizontal)
         self.threshold_slider.setMinimum(0)
         self.threshold_slider.setMaximum(100)
-        self.threshold_slider.setValue(60)
+        self.threshold_slider.setValue(self.params.get("threshold", 60))
         self.threshold_slider.valueChanged.connect(self.on_threshold_changed)
         self.threshold_slider.sliderMoved.connect(self.trigger_detect)
         threshold_layout.addWidget(self.threshold_slider)
 
-        self.threshold_label = QLabel(f"{self.threshold_slider.value()}")
+        self.threshold_label = QLabel(f"{self.threshold_slider.value()}%")
         self.threshold_label.setMinimumWidth(60)
         self.threshold_label.setStyleSheet("font-weight: bold;")
         threshold_layout.addWidget(self.threshold_label)
@@ -144,12 +150,12 @@ class VerifyColoniesDialog(QDialog):
         self.kernel_slider = QSlider(Qt.Horizontal)
         self.kernel_slider.setMinimum(0)
         self.kernel_slider.setMaximum(100)
-        self.kernel_slider.setValue(1)
+        self.kernel_slider.setValue(self.params.get("kernel", 1))
         self.kernel_slider.valueChanged.connect(self.on_kernel_changed)
         self.kernel_slider.sliderMoved.connect(self.trigger_detect)
         kernel_layout.addWidget(self.kernel_slider)
 
-        self.kernel_label = QLabel(f"{self.kernel_slider.value()}")
+        self.kernel_label = QLabel(f"{self.kernel_slider.value()}%")
         self.kernel_label.setMinimumWidth(60)
         self.kernel_label.setStyleSheet("font-weight: bold;")
         kernel_layout.addWidget(self.kernel_label)
@@ -227,7 +233,7 @@ class VerifyColoniesDialog(QDialog):
                 display_image = ((display_image - display_image.min()) /
                                  (display_image.max() - display_image.min()) * 255).astype(np.uint8)
         else:
-            display_image = self.image_
+            display_image = self.image
 
         self.original_image = display_image
         self.update_display()
@@ -251,6 +257,43 @@ class VerifyColoniesDialog(QDialog):
             # Blend overlay over the base image
             alpha = 0.6  # transparency factor (0–1)
             display_image = cv2.addWeighted(display_image, 1.0, overlay, alpha, 0)
+            # Draw contours and centroids
+            colors = [
+                (255, 0, 0),  # Blue (OpenCV = BGR)
+                (0, 255, 0),  # Green
+                (0, 0, 255),  # Red
+                (255, 255, 0),  # Cyan
+                (255, 0, 255),  # Magenta
+                (0, 255, 255),  # Yellow
+                (255, 128, 0),
+                (128, 0, 255),
+            ]
+            # Get contour and unique contour color
+            for i, colony in enumerate(self.colonies):
+                cnt = colony.get("contour")
+                if cnt is None:
+                    continue
+                color = colors[i % len(colors)]
+                area = colony.get("area", 0)
+
+                # Draw contour
+                cv2.drawContours(display_image, [cnt], -1, color, 2)
+
+                # Get the center of the contour and display area
+                M = cv2.moments(cnt)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    cv2.putText(
+                        display_image,
+                        f"{int(area)} px",
+                        (cx, cy),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        color,
+                        1,
+                        cv2.LINE_AA
+                    )
 
         # Convert to QPixmap and display
         height, width = display_image.shape[:2]
@@ -273,7 +316,25 @@ class VerifyColoniesDialog(QDialog):
         print(f"Detecting colonies from image shape: {self.image.shape}")
 
         # Detect colonies using Otsu + Triangle method (openCV)
-        colonies = self.colony_separator.detect_colonies_otsu(self.image)
+        raw_colonies = self.colony_separator.detect_colonies_otsu(self.image)
+        colonies = []
+        for i, colony in enumerate(raw_colonies):
+            cnt = colony.get("contour")
+            if cnt is None:
+                continue  # safety
+
+            # Create mask
+            mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+            cv2.drawContours(mask, [cnt], -1, 1, -1)
+            converted = {
+                "colony_id": i + 1,
+                "contour": cnt,
+                "polygon": cnt.reshape(-1, 2).tolist(),
+                "mask": mask,
+                "area": cv2.contourArea(cnt),
+                "source": "auto"
+            }
+            colonies.append(converted)
         if len(colonies) > 0:
             self.status_label.setText(f"✅ Detected {len(colonies)} colonies automatically.")
 
@@ -286,6 +347,7 @@ class VerifyColoniesDialog(QDialog):
             # Print colony info
             for colony in colonies:
                 print(f"Colony {colony['colony_id']}: Area={colony['area']:.0f}px²")
+                print(f"{colony['colony_id']} ({int(colony.get('area', 0))} px)")
         else:
             self.status_label.setText("No colonies detected. Try adjusting the threshold.")
 
@@ -319,7 +381,12 @@ class VerifyColoniesDialog(QDialog):
 
     def accept_colonies(self):
         """Accept the selected colonies and emit signal"""
-        self.colonies_verified.emit(self.colonies)
+        params = {
+            "min_size": self.min_size_slider.value(),
+            "threshold": self.threshold_slider.value(),
+            "kernel": self.kernel_slider.value()
+        }
+        self.colonies_verified.emit(self.colonies, params)
         self.accept()
 
     def delete_colony(self, index):

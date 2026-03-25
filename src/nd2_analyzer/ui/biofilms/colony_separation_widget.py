@@ -23,6 +23,15 @@ class ColonySeparationWidget(QWidget):
         self.colony_separator = ColonySeparator()
         self.current_raw_image = None
         self.colony_overlay_visible = False
+        self.auto_detect_params = {
+            "min_size": 1,
+            "threshold": 60,
+            "kernel": 1
+        }
+
+        # Initialize storage for manual and auto-verified colonies
+        self.manual_additions = []
+        self.detected_colonies = []
 
         # Subscribe to image updates
         pub.subscribe(self.on_image_ready, "image_ready")
@@ -189,39 +198,62 @@ class ColonySeparationWidget(QWidget):
         """Open colony verification dialog"""
 
         from nd2_analyzer.ui.dialogs.colony_auto_verifier import VerifyColoniesDialog
-
         colonies = self.colony_separator.detected_colonies
 
         verify_dialog = VerifyColoniesDialog(
             self.current_raw_image,
             colonies,
+            params=self.auto_detect_params,
             parent=self
         )
-
         verify_dialog.colonies_verified.connect(self.handle_verified_colonies)
+        result = verify_dialog.exec()
+        if result:
+            self.status_label.setText(f"✅ Automatic detection complete: {len(self.get_all_colonies())} colonies.")
+        else:
+            self.status_label.setText("Automatic detection cancelled.")
 
-        verify_dialog.exec()
-
-    def handle_verified_colonies(self, verified_colonies):
-        """Move verified colonies into manual storage"""
-
+    def handle_verified_colonies(self, verified_colonies, params):
+        """Handle colonies verified by autodetection"""
+        # Preserve the last autodetection state and clear existing auto additions
+        self.auto_detect_params = params
+        self.detected_colonies = []
         for colony in verified_colonies:
             # Preserve contour if it exists
             if "contour" in colony:
-                self.colony_separator.manual_additions.append(colony)
+                self.colony_separator.detected_colonies.append(colony)
+                self.detected_colonies.append(colony)
             else:
-                # fallback (rare)
+                # Fallback to bounding box if contour is not available
                 x1, y1, x2, y2 = colony["bbox"]
-                self.colony_separator.create_bounding_box_colony(
+                new_colony = self.colony_separator.create_bounding_box_colony(
                     x1, y1, x2, y2,
-                    self.current_raw_image.shape
+                    self.current_raw_image.shape,
                 )
+                self.detected_colonies.append(new_colony)
 
-        total = len(self.colony_separator.get_all_colonies())
-
-        self.colony_count_label.setText(f"Colonies: {total}")
+        self.colony_count_label.setText(f"Colonies: {len(self.get_all_colonies())}")
         self.colony_overlay_visible = True
         self.update_colony_overlay()
+
+    def handle_selected_colonies(self, colonies_data):
+        """Handle colonies selected from the ROI selector"""
+        self.manual_additions = []
+        # Creates new colonies on overlay from polygon points
+        for colony in colonies_data:
+            polygon = colony['polygon']
+            new_colony = self.colony_separator.add_manual_colony(
+                polygon,
+                self.current_raw_image.shape
+            )
+            self.manual_additions.append(new_colony)
+
+        self.colony_count_label.setText(f"Colonies: {len(self.get_all_colonies())}")
+        self.colony_overlay_visible = True
+        self.update_colony_overlay()
+
+    def get_all_colonies(self):
+        return self.manual_additions + self.detected_colonies
 
     def start_manual_selection(self):
         """Start manual colony selection"""
@@ -260,31 +292,9 @@ class ColonySeparationWidget(QWidget):
         self.start_manual_btn.setEnabled(True)
 
         if result:
-            colonies_count = len(self.colony_separator.get_all_colonies())
-            self.status_label.setText(f"✅ Manual selection complete: {colonies_count} colonies.")
+            self.status_label.setText(f"✅ Manual selection complete: {len(self.get_all_colonies())} colonies.")
         else:
             self.status_label.setText("Manual selection cancelled.")
-
-    def handle_selected_colonies(self, colonies_data):
-        """Handle colonies selected from ROI selector"""
-        print(f"Received {len(colonies_data)} colonies from ROI selector")
-
-        # Clear existing manual additions
-        self.colony_separator.manual_additions = []
-
-        # Add each colony
-        for colony_data in colonies_data:
-            polygon = colony_data['polygon']
-            self.colony_separator.add_manual_colony(polygon, self.current_raw_image.shape)
-
-        # Update display
-        total_colonies = len(self.colony_separator.get_all_colonies())
-        self.colony_count_label.setText(f"Colonies: {total_colonies}")
-        self.show_overlay_btn.setEnabled(total_colonies > 0)
-
-        # Show overlay
-        self.colony_overlay_visible = True
-        self.update_colony_overlay()
 
     def toggle_colony_overlay(self):
         """Toggle colony overlay visibility"""
@@ -305,11 +315,12 @@ class ColonySeparationWidget(QWidget):
 
     def clear_all_colonies(self):
         """Clear all detected colonies"""
-        self.colony_separator.detected_colonies = []
+        self.manual_additions = []
+        self.detected_colonies = []
         self.colony_separator.manual_additions = []
+        self.colony_separator.detected_colonies = []
         self.colony_count_label.setText("Colonies: 0")
         self.show_overlay_btn.setEnabled(False)
-        self.start_auto_btn.setEnabled(False)
         self.colony_overlay_visible = False
         self.update_colony_overlay()
         self.status_label.setText("All colonies cleared.")

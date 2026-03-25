@@ -26,10 +26,18 @@ class ColonyROISelector(QDialog):
             print(f"DEBUG: Converting {len(self.existing_colonies)} existing colonies")
             for i, colony in enumerate(self.existing_colonies):
                 print(f"DEBUG: Converting colony {i + 1}: {colony.keys()}")
+                points = colony['polygon']
+                mask = self.create_mask_from_polygon(points)
+                # Converts polygon to contour (OpenCV format)
+                contour = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
+                area = cv2.contourArea(contour)
                 converted_colony = {
-                    'colony_id': len(self.current_colonies) + 1,
-                    'polygon': colony['polygon'],
-                    'mask': self.create_mask_from_polygon(colony['polygon'])
+                    "colony_id": len(self.current_colonies) + 1,
+                    "polygon": points,
+                    "contour": contour,
+                    "mask": mask,
+                    "area": area,
+                    "source": "manual"
                 }
                 self.current_colonies.append(converted_colony)
                 print(f"DEBUG: Added colony {converted_colony['colony_id']} with {len(colony['polygon'])} points")
@@ -274,10 +282,18 @@ class ColonyROISelector(QDialog):
             return
 
         # Create colony data
+        points = self.current_polygon.copy()
+        mask = self.create_mask_from_polygon(points)
+        contour = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
+        area = cv2.contourArea(contour)
+
         colony_data = {
-            'colony_id': len(self.current_colonies) + 1,
-            'polygon': self.current_polygon.copy(),
-            'mask': self.create_mask_from_polygon(self.current_polygon)
+            "colony_id": len(self.current_colonies) + 1,
+            "polygon": points,
+            "contour": contour,
+            "mask": mask,
+            "area": area,
+            "source": "manual"
         }
 
         self.current_colonies.append(colony_data)
