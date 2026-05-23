@@ -13,6 +13,11 @@ dependencies = [
     "opencv-python (>=4.11.0.86,<5.0.0.0)",
     "keras-applications (==1.0.8)",
     "imageio (>=2.37.0,<3.0.0)",
+    # TIFF / OME-TIFF import support
+    "tifffile (>=2024.1.30)",
+    "zarr (>=2.17.0,<3.0.0)",
+    "ome-types (>=0.5.0)",
+    "lxml (>=5.0)",
     "matplotlib (>=3.10.3,<4.0.0)",
     "pandas (>=2.2.3,<3.0.0)",
     "scikit-image (>=0.25.2,<0.26.0)",

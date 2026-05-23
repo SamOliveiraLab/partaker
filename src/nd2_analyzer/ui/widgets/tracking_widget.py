@@ -157,9 +157,14 @@ class TrackingWidget(QWidget):
         # If we get here, we need to run tracking
         print("Continuing with tracking process...")
 
-        if not self.image_data or not self.image_data.is_nd2:
-            print("Error: Tracking requires an ND2 dataset")
-            QMessageBox.warning(self, "Error", "Tracking requires an ND2 dataset.")
+        # Tracking works on any loaded image data (ND2 or TIFF). `is_image`
+        # is the post-TIFF-port flag name; `is_nd2` is kept as an alias.
+        is_image = getattr(self.image_data, "is_image", None)
+        if is_image is None:
+            is_image = getattr(self.image_data, "is_nd2", False)
+        if not self.image_data or not is_image:
+            print("Error: Tracking requires loaded image data")
+            QMessageBox.warning(self, "Error", "Tracking requires loaded image data.")
             return
 
         # Get current position and channel with proper handling of None values

@@ -560,12 +560,13 @@ class PopulationWidget(QWidget):
                     writer.writerow(
                         ["Experiment Name", getattr(self.experiment, "name", "Unknown")]
                     )
+                    image_files = getattr(self.experiment, "image_files", None)
+                    if image_files is None:
+                        image_files = getattr(self.experiment, "nd2_files", ["Unknown"])
                     writer.writerow(
                         [
-                            "ND2 Files",
-                            ", ".join(
-                                getattr(self.experiment, "nd2_files", ["Unknown"])
-                            ),
+                            "Image Files",
+                            ", ".join(image_files),
                         ]
                     )
 

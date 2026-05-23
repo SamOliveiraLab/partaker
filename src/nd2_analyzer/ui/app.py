@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -28,6 +30,15 @@ from ..data.appstate import ApplicationState
 
 
 class App(QMainWindow):
+
+    # File extensions Partaker will accept via the file dialogs and drag&drop.
+    SUPPORTED_EXTENSIONS = (
+        ".nd2",
+        ".tif", ".tiff",
+        ".ome.tif", ".ome.tiff",
+        ".ome.btf", ".ome.tf2", ".ome.tf8",
+    )
+
     def __init__(self):
         super().__init__()
 
@@ -35,6 +46,7 @@ class App(QMainWindow):
 
         self.setWindowTitle("Partaker 3 - GUI")
         self.setGeometry(100, 100, 1000, 800)
+        self.setAcceptDrops(True)
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -67,6 +79,137 @@ class App(QMainWindow):
 
         pub.subscribe(self.provide_image_data, "get_image_data")
 
+    # ── Drag & Drop ──────────────────────────────────────────────────
+    def dragEnterEvent(self, event):
+        mime = event.mimeData()
+        if mime.hasUrls():
+            for url in mime.urls():
+                path = url.toLocalFile()
+                if os.path.isdir(path) or path.lower().endswith(self.SUPPORTED_EXTENSIONS):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            event.ignore()
+            return
+
+        directories = []
+        files = []
+        for url in mime.urls():
+            path = url.toLocalFile()
+            if os.path.isdir(path):
+                directories.append(path)
+            elif path.lower().endswith(self.SUPPORTED_EXTENSIONS):
+                files.append(path)
+
+        if not directories and not files:
+            event.ignore()
+            return
+
+        event.acceptProposedAction()
+
+        if directories:
+            dialog = ExperimentDialog(parent=self, initial_directory=directories[0])
+        else:
+            dialog = ExperimentDialog(parent=self, initial_files=files)
+        dialog.exec()
+
+    # ── TIFF file-map helpers (used by ExperimentDialog and load) ───
+    @staticmethod
+    def reconstruct_file_map_from_paths(paths):
+        """Reconstruct a (P, T, C) -> path mapping from a list of TIFF paths.
+
+        Returns an empty dict when no filename matches a canonical pattern.
+        """
+        file_map = {}
+        # Accept both "..._c2.tif" and "..._2.tif" channel suffixes.
+        batch_pattern = re.compile(
+            r"^pos(?P<p>\d+)_t(?P<t>\d+)_(?:c)?(?P<c>\d+)\.(tif|tiff)$",
+            re.IGNORECASE,
+        )
+        stacked_pattern = re.compile(
+            r"^pos(?P<p>\d+)_(?:c)?(?P<c>\d+)\.(tif|tiff)$",
+            re.IGNORECASE,
+        )
+
+        for full_path in paths:
+            name = os.path.basename(full_path)
+            m = batch_pattern.match(name)
+            if m:
+                p, t, c = map(int, (m["p"], m["t"], m["c"]))
+                file_map[(p, t, c)] = full_path
+                continue
+
+            m2 = stacked_pattern.match(name)
+            if m2:
+                p, c = map(int, (m2["p"], m2["c"]))
+                file_map[(p, None, c)] = full_path
+        return file_map
+
+    @staticmethod
+    def _reconstruct_tiff_file_map(raw_map):
+        """Convert a serialized tiff_file_map (string keys) back to tuple keys."""
+        file_map = {}
+        for key_str, path in raw_map.items():
+            parts = key_str.split(",")
+            p = int(parts[0])
+            t = int(parts[1]) if parts[1] != "None" else None
+            c = int(parts[2])
+            file_map[(p, t, c)] = path
+        return file_map
+
+    @staticmethod
+    def _remap_tiff_file_map_by_filename(file_map, new_root):
+        """Remap TIFF paths by looking for matching basenames under `new_root`.
+
+        Raises FileNotFoundError if any entry can't be matched (or is ambiguous).
+        """
+        filename_index = {}
+        for root, _, files in os.walk(new_root):
+            for name in files:
+                if not name.lower().endswith((".tif", ".tiff")):
+                    continue
+                key = name.lower()
+                full_path = os.path.join(root, name)
+                filename_index.setdefault(key, []).append(full_path)
+
+        remapped = {}
+        unresolved = []
+        ambiguous = []
+        for key, old_path in file_map.items():
+            matches = filename_index.get(os.path.basename(old_path).lower(), [])
+            if len(matches) == 1:
+                remapped[key] = matches[0]
+            elif len(matches) == 0:
+                unresolved.append(old_path)
+            else:
+                ambiguous.append((old_path, matches))
+
+        if unresolved:
+            preview = ", ".join(os.path.basename(p) for p in unresolved[:5])
+            raise FileNotFoundError(
+                f"Could not find {len(unresolved)} TIFF file(s) in the selected folder "
+                f"(examples: {preview})."
+            )
+
+        if ambiguous:
+            preview = ", ".join(os.path.basename(p[0]) for p in ambiguous[:5])
+            raise FileNotFoundError(
+                f"Found duplicate TIFF filenames for {len(ambiguous)} file(s) "
+                f"(examples: {preview}). Please select a more specific folder."
+            )
+
+        return remapped
+
     def provide_image_data(self, callback):
         """Provide the image_data object through the callback"""
         if hasattr(self, "image_data"):
@@ -77,29 +220,30 @@ class App(QMainWindow):
             callback(None)
 
     def on_exp_loaded(self, experiment: Experiment):
-        ImageData.load_nd2(experiment.nd2_files)
+        """Handle experiment loaded event.
+
+        Image data is loaded by ExperimentDialog.create_experiment(), which
+        sends `image_data_loaded` and updates `appstate.image_data` before
+        `experiment_loaded` fires here. Cleanup of any previous TIFF memmap
+        file is handled inside ImageData.create_instance via _cleanup(), so
+        we have nothing to do at this point.
+        """
+        return
 
     def on_image_request(self, time, position, channel):
-        """Handle requests for raw image data"""
-        if not self.application_state.image_data:
+        """Handle requests for raw image data.
+
+        After normalize_axes the data is always 5D (T, P, C, Y, X), regardless
+        of source format (ND2 or TIFF), so we can index uniformly.
+        """
+        image_data = ApplicationState.get_instance().image_data if ApplicationState.get_instance() else None
+        if not image_data:
             return
 
-        # Retrieve the image data
         try:
-            if self.application_state.image_data.is_nd2:
-                if self.has_channels:
-                    image = self.application_state.image_data.data[
-                        time, position, channel
-                    ]
-                else:
-                    image = self.application_state.image_data.data[time, position]
-            else:
-                image = self.application_state.image_data.data[time]
-
-            # Convert to NumPy array if needed
+            image = image_data.data[time, position, channel]
             image = np.array(image)
 
-            # Publish the image
             pub.sendMessage(
                 "image_ready",
                 image=image,
@@ -359,37 +503,73 @@ class App(QMainWindow):
             )
 
     def load_from_folder(self):
-        """Load a project from a folder"""
+        """Load a project from a folder.
+
+        Supports both ND2-based and TIFF-directory-based projects, with a
+        relink-on-load workflow when the original raw data has been moved.
+        """
         folder_path = QFileDialog.getExistingDirectory(
             self, "Select Project Folder", "", QFileDialog.ShowDirsOnly
         )
+        if not folder_path:
+            return
 
-        if folder_path:
-            print(f"Project loaded from folder: {folder_path}")
+        print(f"Project loaded from folder: {folder_path}")
 
-            try:
-                # Load metrics data
-                metrics_service = MetricsService()
-                metrics_loaded = metrics_service.load_optimized(folder_path)
+        try:
+            metrics_service = MetricsService()
+            metrics_loaded = metrics_service.load_optimized(folder_path)
 
-                self.appstate.experiment = Experiment.load(folder_path)
-                pub.sendMessage(
-                    "image_data_loaded",
-                    image_data=ImageData.load_from_disk(folder_path),
-                )
+            self.appstate.experiment = Experiment.load(folder_path)
 
-                # Show success message
-                message = f"Project loaded from {folder_path}"
-                if metrics_loaded:
-                    message += "\nMetrics data loaded successfully"
+            # Image data loading: handle TIFF directory imports specially so we
+            # can offer the user a relink dialog when files have moved.
+            image_data = None
+            meta_path = os.path.join(folder_path, "image_data.json")
+            if os.path.exists(meta_path):
+                with open(meta_path, "r") as f:
+                    meta_json = json.load(f)
+                tiff_file_map_raw = meta_json.get("tiff_file_map")
+                tiff_mode = meta_json.get("tiff_mode")
 
-                QMessageBox.information(self, "Project Loaded", message)
+                if tiff_file_map_raw and tiff_mode:
+                    file_map = self._reconstruct_tiff_file_map(tiff_file_map_raw)
+                    all_paths_exist = all(
+                        path is not None and os.path.exists(path)
+                        for path in file_map.values()
+                    )
 
-            except Exception as e:
-                import traceback
+                    if not all_paths_exist:
+                        new_root = QFileDialog.getExistingDirectory(
+                            self,
+                            "Select tiff folder",
+                            "",
+                            QFileDialog.ShowDirsOnly,
+                        )
+                        if not new_root:
+                            raise FileNotFoundError(
+                                "TIFF paths in this project are missing and no replacement folder was selected."
+                            )
+                        file_map = self._remap_tiff_file_map_by_filename(file_map, new_root)
 
-                traceback.print_exc()
-                QMessageBox.warning(self, "Error", f"Failed to load project: {str(e)}")
+                    image_data = ImageData.load_tiff_directory(file_map, tiff_mode)
+
+            if image_data is None:
+                image_data = ImageData.load_from_disk(folder_path)
+
+            pub.sendMessage("image_data_loaded", image_data=image_data)
+
+            message = f"Project loaded from {folder_path}"
+            if metrics_loaded:
+                message += "\nMetrics data loaded successfully"
+
+            QMessageBox.information(self, "Project Loaded", message)
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            QMessageBox.warning(self, "Error", f"Failed to load project: {str(e)}")
 
     def highlight_cell(self, cell_id):
         """Highlight a specific cell when clicked on PCA plot"""
