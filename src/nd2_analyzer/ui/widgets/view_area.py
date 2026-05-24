@@ -160,6 +160,19 @@ class ViewAreaWidget(QWidget):
         ):
             return
 
+        # Forward the raw, unmodified mask to the segmentation widget so it
+        # can be exported to TIFF later. Must happen before any colormap /
+        # display conversion below.
+        if mode in ("segmented", "labeled"):
+            pub.sendMessage(
+                "segmentation_result_available",
+                image=image,
+                time=time,
+                position=position,
+                channel=channel,
+                model=self.current_model,
+            )
+
         display_image = (
             image
             if mode == "normal"

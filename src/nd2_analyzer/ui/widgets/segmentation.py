@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QWidget,
@@ -11,6 +13,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QListWidget,
     QAbstractItemView,
+    QFileDialog,
+    QMessageBox,
 )
 from pubsub import pub
 
@@ -35,12 +39,20 @@ class SegmentationWidget(QWidget):
         self.queue = []
         self.processed_frames = set()
 
+        # In-memory store of segmented/labeled frames keyed by (P, T, C),
+        # populated by both batch segmentation and the View Area broadcast.
+        # Used by the "Convert to TIF" button to write masks to disk.
+        self.segmented_storage: dict[tuple[int, int, int], "object"] = {}
+
         # Set up the UI
         self.init_ui()
 
         # Subscribe to relevant topics
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
         pub.subscribe(self.on_image_ready, "image_ready")
+        pub.subscribe(
+            self.receive_external_segmentation, "segmentation_result_available"
+        )
 
         # Timer for handling segmentation requests with a slight delay
         self.request_timer = QTimer(self)
@@ -125,8 +137,11 @@ class SegmentationWidget(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_segmentation)
         self.cancel_button.setEnabled(False)
+        self.convert_tif_button = QPushButton("Convert to TIF")
+        self.convert_tif_button.clicked.connect(self.convert_to_tif)
         controls_layout.addWidget(self.segment_button)
         controls_layout.addWidget(self.cancel_button)
+        controls_layout.addWidget(self.convert_tif_button)
         layout.addLayout(controls_layout)
 
         # Progress display
@@ -294,6 +309,10 @@ class SegmentationWidget(QWidget):
         ):
             return
 
+        # Cache the raw mask so the user can later export it to TIFF.
+        if mode in ("segmented", "labeled"):
+            self.segmented_storage[(position, time, channel)] = image
+
         # Create a unique key for this frame
         frame_key = (time, position, channel)
 
@@ -337,3 +356,48 @@ class SegmentationWidget(QWidget):
             positions=self.positions,
             model=self.current_model,
         )
+
+    def convert_to_tif(self):
+        """Prompt for an output folder and write all cached masks to TIFF."""
+        if not self.segmented_storage:
+            QMessageBox.information(
+                self,
+                "Nothing to Export",
+                "No segmented images are cached yet. Run segmentation or "
+                "view a position in segmented/labeled mode first.",
+            )
+            return
+
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+        if not folder_path:
+            return
+
+        try:
+            count = self.export_segmented(folder_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export: {e}")
+            return
+
+        self.progress_label.setText(f"Exported {count} segmented images")
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            f"Exported {count} segmented images to:\n{folder_path}",
+        )
+
+    def export_segmented(self, output_folder) -> int:
+        """Write every cached (P, T, C) mask to ``output_folder`` as a TIFF.
+
+        Returns the number of frames written.
+        """
+        import tifffile
+
+        out_dir = Path(output_folder)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for (pos, t, c), img in self.segmented_storage.items():
+            tifffile.imwrite(out_dir / f"pos{pos}_t{t}_c{c}.tif", img)
+        return len(self.segmented_storage)
+
+    def receive_external_segmentation(self, image, time, position, channel, model):
+        """Cache a segmented frame broadcast by the View Area."""
+        self.segmented_storage[(position, time, channel)] = image
