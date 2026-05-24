@@ -46,19 +46,13 @@ class MetricsService:
             self._batch_size = 1000
             self._pending_count = 0
 
-            pub.subscribe(self.compute_metrics_at_frame, "image_ready")
+            pub.subscribe(self.compute_metrics_at_frame, "frame_segmented")
             self._initialized = True
 
     @timing_decorator("compute_metrics_at_frame")
     def compute_metrics_at_frame(
-        self, image: np.ndarray, time, position, channel, mode
+        self, labeled_frame: np.ndarray, time, position, channel
     ):
-        if mode != "segmented":
-            return
-
-        # labeled_frame = segmentation_cache[time, position, 0] # TODO: ensure segmentationservice always returns labeled
-        labeled_frame = image
-
         chan_n = ImageData.get_instance().channel_n
         mcherry_frame = yfp_frame = None
         if chan_n == 3:
@@ -112,7 +106,6 @@ class MetricsService:
     """
     Computes the metrics for each labeled cell from the segmentation
         # Uses regionprops to get geometrical features
-    
         # For fluorescence analysis:
         # Takes each segmented cell
         # 1. calculate physical metrics
@@ -120,10 +113,12 @@ class MetricsService:
         # 3. write the actual fluorescence value
     """
 
-    def calculate_cell_metrics(_frame: TLFrame):
+    @classmethod
+    def calculate_cell_metrics(cls, _frame: TLFrame):
         cells = regionprops(_frame.labeled_phc)
         batch_data = []
 
+        print(f"shape phc {_frame.labeled_phc.shape} mcherry {_frame.mcherry.shape}")
         # Check for the fluorescence in any channel, if not, -1 and 0 fluorescence
         # mcherry can be None, same for yfp
         back_fluo_mcherry = (
@@ -141,6 +136,7 @@ class MetricsService:
             fluorescence_level = 0.0
             has_fluorescence = False
 
+        logging.info(f"[calculate_cell_metrics] has {len(cells)} cells")
         for cell in cells:
             cell_id = cell.label
 
@@ -177,15 +173,21 @@ class MetricsService:
             if has_fluorescence:
                 # If only mcherry has fluo
                 if back_fluo_mcherry != -1 and back_fluo_yfp == -1:
-                    mcherry_fluo = round(_frame.mcherry[_frame.labeled_phc == cell_id].mean(), 4)
+                    mcherry_fluo = round(
+                        _frame.mcherry[_frame.labeled_phc == cell_id].mean(), 4
+                    )
                     fluorescence_channel = 1
                     fluorescence_level = mcherry_fluo
 
                 # If both have fluorescence, compare them
                 elif back_fluo_mcherry != -1 and back_fluo_yfp != -1:
                     # Select the region corresponding to the cell in the frames
-                    mcherry_fluo = round(_frame.mcherry[_frame.labeled_phc == cell_id].mean(), 4)
-                    yfp_fluo = round(_frame.yfp[_frame.labeled_phc == cell_id].mean(), 4)
+                    mcherry_fluo = round(
+                        _frame.mcherry[_frame.labeled_phc == cell_id].mean(), 4
+                    )
+                    yfp_fluo = round(
+                        _frame.yfp[_frame.labeled_phc == cell_id].mean(), 4
+                    )
                     if back_fluo_mcherry != -1 and back_fluo_yfp != -1:
                         if (mcherry_fluo / back_fluo_mcherry) > (
                             yfp_fluo / back_fluo_yfp

@@ -277,10 +277,12 @@ class App(QMainWindow):
         pub.sendMessage("roi_reset", p=p)
 
     def nd2_test(self):
-        test_path = os.environ.get('PARTAKER_ND2_TEST')
+        test_path = os.environ.get("PARTAKER_ND2_TEST")
         if not test_path:
             # Error dialog
-            QMessageBox.warning(self, "Error", "No PARTAKER_ND2_TEST environment variable!")
+            QMessageBox.warning(
+                self, "Error", "No PARTAKER_ND2_TEST environment variable!"
+            )
             return
 
         ImageData.load_nd2(test_path)
@@ -371,7 +373,10 @@ class App(QMainWindow):
                 metrics_loaded = metrics_service.load_optimized(folder_path)
 
                 self.appstate.experiment = Experiment.load(folder_path)
-                pub.sendMessage("image_data_loaded", image_data=ImageData.load_from_disk(folder_path))
+                pub.sendMessage(
+                    "image_data_loaded",
+                    image_data=ImageData.load_from_disk(folder_path),
+                )
 
                 # Show success message
                 message = f"Project loaded from {folder_path}"
@@ -450,12 +455,13 @@ class App(QMainWindow):
             traceback.print_exc()
 
 
-
 if __name__ == "__main__":
     import sys
     from PySide6.QtWidgets import QApplication
+
     # Import main window class
     from nd2_analyzer.ui.app import App  # or whatever main window class is
+
     app = QApplication(sys.argv)
     window = App()
     window.show()
