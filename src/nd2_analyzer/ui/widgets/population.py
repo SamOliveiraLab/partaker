@@ -404,6 +404,7 @@ class PopulationWidget(QWidget):
 
         # plt.savefig('1_9_iptg_on_p_all.pdf')
         # plt.show()
+        self.population_canvas.draw_idle()
 
     def calculate_rpu_values(self):
         """
