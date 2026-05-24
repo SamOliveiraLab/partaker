@@ -31,3 +31,7 @@ SR_1_5_2h_Pre-C_3h_IPTG_After10h_05_MC.zip
 notebooks/
 src/cell_metrics.csv
 *.ipynb
+
+# Local Claude / Cursor agent worktrees and scratch files
+.claude/
+src/temp_*.dat
