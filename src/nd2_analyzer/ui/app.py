@@ -257,7 +257,7 @@ class App(QMainWindow):
         test_menu = menu_bar.addMenu("Test")
         test_action = QAction("Test", self)
         test_action.setShortcut("Ctrl+T")
-        test_action.triggered.connect(self.hhln_test)
+        test_action.triggered.connect(self.nd2_test)
         test_menu.addAction(test_action)
 
         if sys.platform == "darwin":
@@ -276,10 +276,15 @@ class App(QMainWindow):
         t, p, c = ApplicationState.get_instance().view_index
         pub.sendMessage("roi_reset", p=p)
 
-    def hhln_test(self):
-        ImageData.load_nd2(
-            "/Users/hiram/Documents/EVERYTHING/20-29 Research/22 OliveiraLab/22.12 ND2 analyzer/nd2-analyzer/final_data/rpu_nd2/3-RPU_mCherry_M9Plain_10h002.nd2"
-        )
+    def nd2_test(self):
+        test_path = os.environ.get('PARTAKER_ND2_TEST')
+        if not test_path:
+            # Error dialog
+            QMessageBox.warning(self, "Error", "No PARTAKER_ND2_TEST environment variable!")
+            return
+
+        ImageData.load_nd2(test_path)
+        # "/Users/hiram/Documents/EVERYTHING/20-29 Research/22 OliveiraLab/22.12 ND2 analyzer/nd2-analyzer/final_data/rpu_nd2/3-RPU_mCherry_M9Plain_10h002.nd2"
 
     def show_experiment_dialog(self):
         experiment = ExperimentDialog()
