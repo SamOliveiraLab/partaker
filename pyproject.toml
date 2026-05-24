@@ -1,9 +1,9 @@
 [project]
-name = "nd2-timelapse-analyzer"
+name = "partaker"
 version = "0.1.0"
 description = ""
 authors = [{ name = "Henrique Hiram" }]
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.11,<3.12"
 readme = "README.md"
 license = { text = "LGPL" }
 dependencies = [
@@ -47,7 +47,7 @@ dependencies = [
 ]
 
 [project.gui-scripts]
-gui = "nd2_analyzer:main"
+partaker_app = "nd2_analyzer:main"
 
 [tool.uv]
 package = true
