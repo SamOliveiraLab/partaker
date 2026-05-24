@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 from itertools import product
+from pubsub import pub
 
 import h5py
 import numpy as np
@@ -49,6 +50,9 @@ class SegmentationCache:
         # {model_name: (array[T, P, H, W], set_of_computed_(t,p)_tuples)}
         self._store: dict[str, tuple[np.ndarray, set[tuple]]] = {}
         self._active_model: str | None = None
+
+        # Handle ROI changes
+        pub.subscribe(self.invalidate_all, "invalidate_segmentation_cache")
 
     # ------------------------------------------------------------------
     # Model selection
@@ -96,6 +100,9 @@ class SegmentationCache:
         _, computed = self._store[model_name]
         t, p = self._parse_tp(key)
         return (t, p) in computed
+
+    def invalidate_all(self):
+        self._store: dict[str, tuple[np.ndarray, set[tuple]]] = {}
 
     # ------------------------------------------------------------------
     # Lazy computation

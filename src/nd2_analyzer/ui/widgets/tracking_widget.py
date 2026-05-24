@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from nd2_analyzer.data.appstate import ApplicationState
 from pubsub import pub
 from skimage.measure import label
 
@@ -243,8 +244,9 @@ class TrackingWidget(QWidget):
                         f"Frame {i}: Segmentation cache not available, falling back to metrics"
                     )
 
+                    model = ApplicationState.get_instance().selected_model
                     metrics_df = self.metrics_service.query(
-                        time=i, position=p, channel=c
+                        time=i, position=p, channel=c, model=model
                     )
 
                     if not metrics_df.is_empty():

@@ -4,6 +4,7 @@ import os
 import pickle
 
 import matplotlib.pyplot as plt
+from nd2_analyzer.data.appstate import ApplicationState
 import polars as pl  # Import Polars
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -19,12 +20,12 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtWidgets import (
-            QMessageBox,
-            QDialog,
-            QVBoxLayout,
-            QLabel,
-            QDialogButtonBox,
-        )
+    QMessageBox,
+    QDialog,
+    QVBoxLayout,
+    QLabel,
+    QDialogButtonBox,
+)
 import seaborn as sns
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -34,7 +35,15 @@ from pubsub import pub
 from nd2_analyzer.analysis.metrics_service import MetricsService
 from nd2_analyzer.data.experiment import Experiment
 
-from nd2_analyzer.analysis.population import FluoAnalysisConfig, filter_data, create_sample_data, calculate_population_statistics, generate_component_step_functions, component_intervals
+from nd2_analyzer.analysis.population import (
+    FluoAnalysisConfig,
+    filter_data,
+    create_sample_data,
+    calculate_population_statistics,
+    generate_component_step_functions,
+    component_intervals,
+)
+
 
 class PopulationWidget(QWidget):
     """
@@ -127,17 +136,22 @@ class PopulationWidget(QWidget):
         Export the DataFrame to a CSV file with a filename based on the experiment name
         and current datetime.
         """
-        df = self.metrics_service.df
+        model = ApplicationState.get_instance().selected_model
+        df = self.metrics_service.tables[model]
         if not df.is_empty():
             experiment_name = (
-                self.experiment.name if self.experiment and self.experiment.name else "unknown_experiment"
+                self.experiment.name
+                if self.experiment and self.experiment.name
+                else "unknown_experiment"
             )
             current_datetime = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{experiment_name}_{current_datetime}_cell_metrics.csv"
-            
+
             # Use QFileDialog to let the user choose the save location
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save DataFrame", filename, "CSV Files (*.csv)")
-            
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Save DataFrame", filename, "CSV Files (*.csv)"
+            )
+
             if file_path:
                 df.write_csv(file_path)
                 print(f"DataFrame exported to {file_path}")
@@ -198,17 +212,19 @@ class PopulationWidget(QWidget):
         df = calculate_population_statistics(df, analysis_cgf)
 
         component_intervals = {
-            'aTc': [(0, 19.25)],
-            'IPTG': [(19.25, 30.42)],
-            'M9': [(30.42, 100)]
+            "aTc": [(0, 19.25)],
+            "IPTG": [(19.25, 30.42)],
+            "M9": [(30.42, 100)],
         }
 
         # Normalize with RPU
         mcherry_channel = int(self.mcherry_channel_combo.currentText())
         yfp_channel = int(self.yfp_channel_combo.currentText())
 
-        mcherry_subdf = df.filter(pl.col('fluorescence_channel') == mcherry_channel).to_pandas()
-        yfp_subdf = df.filter(pl.col('fluorescence_channel') == yfp_channel).to_pandas()
+        mcherry_subdf = df.filter(
+            pl.col("fluorescence_channel") == mcherry_channel
+        ).to_pandas()
+        yfp_subdf = df.filter(pl.col("fluorescence_channel") == yfp_channel).to_pandas()
 
         # mcherry_subdf['mean_intensity'] = mcherry_subdf['mean_intensity'] / mcherry_rpu
         # mcherry_subdf['std_intensity'] = mcherry_subdf['std_intensity'] / mcherry_rpu
@@ -217,46 +233,68 @@ class PopulationWidget(QWidget):
 
         # Plot graph
         fig = self.population_figure
-        axs = fig.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]})
+        axs = fig.subplots(5, 1, gridspec_kw={"height_ratios": [3.5, 3.5, 1, 1, 1]})
 
         # For channel 0 (mCherry)
         ch0 = mcherry_subdf
-        sns.lineplot(data=ch0, x='time_hours', y='mean_intensity', ax=axs[0], color='red', label='mCherry')
-        axs[0].fill_between(ch0['time_hours'],
-                            ch0['mean_intensity'] - ch0['std_intensity'],
-                            ch0['mean_intensity'] + ch0['std_intensity'],
-                            color='red', alpha=0.3)
-        axs[0].set_ylabel('mCherry')
-        axs[0].set_xlabel('')
-        axs[0].set_xticks(range(0, int(max(ch0['time_hours'])) + 1, 10))
+        sns.lineplot(
+            data=ch0,
+            x="time_hours",
+            y="mean_intensity",
+            ax=axs[0],
+            color="red",
+            label="mCherry",
+        )
+        axs[0].fill_between(
+            ch0["time_hours"],
+            ch0["mean_intensity"] - ch0["std_intensity"],
+            ch0["mean_intensity"] + ch0["std_intensity"],
+            color="red",
+            alpha=0.3,
+        )
+        axs[0].set_ylabel("mCherry")
+        axs[0].set_xlabel("")
+        axs[0].set_xticks(range(0, int(max(ch0["time_hours"])) + 1, 10))
         axs[0].legend().set_visible(False)  # Hide legend
 
         # For channel 1 (YFP)
         ch1 = yfp_subdf
-        sns.lineplot(data=ch1, x='time_hours', y='mean_intensity', ax=axs[1], color='goldenrod', label='YFP')
-        axs[1].fill_between(ch1['time_hours'],
-                            ch1['mean_intensity'] - ch1['std_intensity'],
-                            ch1['mean_intensity'] + ch1['std_intensity'],
-                            color='goldenrod', alpha=0.3)
-        axs[1].set_ylabel('YFP')
-        axs[1].set_xlabel('')
-        axs[1].set_xticks(range(0, int(max(ch1['time_hours'])) + 1, 10))
+        sns.lineplot(
+            data=ch1,
+            x="time_hours",
+            y="mean_intensity",
+            ax=axs[1],
+            color="goldenrod",
+            label="YFP",
+        )
+        axs[1].fill_between(
+            ch1["time_hours"],
+            ch1["mean_intensity"] - ch1["std_intensity"],
+            ch1["mean_intensity"] + ch1["std_intensity"],
+            color="goldenrod",
+            alpha=0.3,
+        )
+        axs[1].set_ylabel("YFP")
+        axs[1].set_xlabel("")
+        axs[1].set_xticks(range(0, int(max(ch1["time_hours"])) + 1, 10))
         axs[1].legend().set_visible(False)  # Hide legend
 
         plt.tight_layout()
 
         # Medium change steps
-        t = df['time_hours']
+        t = df["time_hours"]
         comp_steps = generate_component_step_functions(component_intervals, t)
 
         start_index = 2
         for idx, (comp, step) in enumerate(comp_steps.items()):
-            axs[start_index + idx].step(t, step, label=f'{comp}', where='post', color='black')
+            axs[start_index + idx].step(
+                t, step, label=f"{comp}", where="post", color="black"
+            )
             axs[start_index + idx].set_ylabel(comp)
             axs[start_index + idx].set_xticks(range(0, int(max(t)) + 1, 10))
             axs[start_index + idx].legend().set_visible(False)  # Hide legend
 
-        axs[-1].set_xlabel('Time (h)')
+        axs[-1].set_xlabel("Time (h)")
 
         # plt.savefig('1_9_iptg_on_p_all.pdf')
         # plt.show()
@@ -270,24 +308,27 @@ class PopulationWidget(QWidget):
         analysis_cgf.time_range = self.get_selected_time()
 
         # Current dataframe
-        df = self.metrics_service.df
+        model = ApplicationState.get_instance().selected_model
+        df = self.metrics_service.tables[model]
 
         # Perform data processing
         df = filter_data(df, analysis_cgf)
         df = calculate_population_statistics(df, analysis_cgf)
 
         component_intervals = {
-            'aTc': [(0, 19.25)],
-            'IPTG': [(19.25, 30.42)],
-            'M9': [(30.42, 100)]
+            "aTc": [(0, 19.25)],
+            "IPTG": [(19.25, 30.42)],
+            "M9": [(30.42, 100)],
         }
 
         # Normalize with RPU
         mcherry_channel = int(self.mcherry_channel_combo.currentText())
         yfp_channel = int(self.yfp_channel_combo.currentText())
 
-        mcherry_subdf = df.filter(pl.col('fluorescence_channel') == mcherry_channel).to_pandas()
-        yfp_subdf = df.filter(pl.col('fluorescence_channel') == yfp_channel).to_pandas()
+        mcherry_subdf = df.filter(
+            pl.col("fluorescence_channel") == mcherry_channel
+        ).to_pandas()
+        yfp_subdf = df.filter(pl.col("fluorescence_channel") == yfp_channel).to_pandas()
 
         # mcherry_subdf['mean_intensity'] = mcherry_subdf['mean_intensity'] / mcherry_rpu
         # mcherry_subdf['std_intensity'] = mcherry_subdf['std_intensity'] / mcherry_rpu
@@ -296,48 +337,70 @@ class PopulationWidget(QWidget):
 
         # Plot graph
         fig = self.population_figure
-        axs = fig.subplots(5, 1, gridspec_kw={'height_ratios': [3.5, 3.5, 1, 1, 1]})
+        axs = fig.subplots(5, 1, gridspec_kw={"height_ratios": [3.5, 3.5, 1, 1, 1]})
 
         # For channel 0 (mCherry)
         ch0 = mcherry_subdf
-        sns.lineplot(data=ch0, x='time_hours', y='mean_intensity', ax=axs[0], color='red', label='mCherry')
-        axs[0].fill_between(ch0['time_hours'],
-                            ch0['mean_intensity'] - ch0['std_intensity'],
-                            ch0['mean_intensity'] + ch0['std_intensity'],
-                            color='red', alpha=0.3)
-        axs[0].set_ylabel('mCherry')
-        axs[0].set_xlabel('')
+        sns.lineplot(
+            data=ch0,
+            x="time_hours",
+            y="mean_intensity",
+            ax=axs[0],
+            color="red",
+            label="mCherry",
+        )
+        axs[0].fill_between(
+            ch0["time_hours"],
+            ch0["mean_intensity"] - ch0["std_intensity"],
+            ch0["mean_intensity"] + ch0["std_intensity"],
+            color="red",
+            alpha=0.3,
+        )
+        axs[0].set_ylabel("mCherry")
+        axs[0].set_xlabel("")
         axs[0].set_ylim(bottom=0)
-        axs[0].set_xticks(range(0, int(max(ch0['time_hours'])) + 1, 10))
+        axs[0].set_xticks(range(0, int(max(ch0["time_hours"])) + 1, 10))
         axs[0].legend().set_visible(False)  # Hide legend
 
         # For channel 1 (YFP)
         ch1 = yfp_subdf
-        sns.lineplot(data=ch1, x='time_hours', y='mean_intensity', ax=axs[1], color='goldenrod', label='YFP')
-        axs[1].fill_between(ch1['time_hours'],
-                            ch1['mean_intensity'] - ch1['std_intensity'],
-                            ch1['mean_intensity'] + ch1['std_intensity'],
-                            color='goldenrod', alpha=0.3)
-        axs[1].set_ylabel('YFP')
-        axs[1].set_xlabel('')
+        sns.lineplot(
+            data=ch1,
+            x="time_hours",
+            y="mean_intensity",
+            ax=axs[1],
+            color="goldenrod",
+            label="YFP",
+        )
+        axs[1].fill_between(
+            ch1["time_hours"],
+            ch1["mean_intensity"] - ch1["std_intensity"],
+            ch1["mean_intensity"] + ch1["std_intensity"],
+            color="goldenrod",
+            alpha=0.3,
+        )
+        axs[1].set_ylabel("YFP")
+        axs[1].set_xlabel("")
         axs[1].set_ylim(bottom=0)
-        axs[1].set_xticks(range(0, int(max(ch1['time_hours'])) + 1, 10))
+        axs[1].set_xticks(range(0, int(max(ch1["time_hours"])) + 1, 10))
         axs[1].legend().set_visible(False)  # Hide legend
 
         plt.tight_layout()
 
         # Medium change steps
-        t = df['time_hours']
+        t = df["time_hours"]
         comp_steps = generate_component_step_functions(component_intervals, t)
 
         start_index = 2
         for idx, (comp, step) in enumerate(comp_steps.items()):
-            axs[start_index + idx].step(t, step, label=f'{comp}', where='post', color='black')
+            axs[start_index + idx].step(
+                t, step, label=f"{comp}", where="post", color="black"
+            )
             axs[start_index + idx].set_ylabel(comp)
             axs[start_index + idx].set_xticks(range(0, int(max(t)) + 1, 10))
             axs[start_index + idx].legend().set_visible(False)  # Hide legend
 
-        axs[-1].set_xlabel('Time (h)')
+        axs[-1].set_xlabel("Time (h)")
 
         # plt.savefig('1_9_iptg_on_p_all.pdf')
         # plt.show()
@@ -349,7 +412,8 @@ class PopulationWidget(QWidget):
         """
 
         # Get the metrics DataFrame from the singleton
-        df = self.metrics_service.df
+        model = ApplicationState.get_instance().selected_model
+        df = self.metrics_service.tables[model]
 
         if df.is_empty():
             QMessageBox.warning(
@@ -368,8 +432,8 @@ class PopulationWidget(QWidget):
         for channel_num in unique_channels:
             # Filter data for this channel and filter out low values
             channel_data = df.filter(
-                (pl.col("fluorescence_channel") == channel_num) &
-                (pl.col("fluo_level") > 0.1)
+                (pl.col("fluorescence_channel") == channel_num)
+                & (pl.col("fluo_level") > 0.1)
             )
 
             if channel_data.height > 0:

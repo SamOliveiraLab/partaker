@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QCheckBox,
 )
+from nd2_analyzer.data.appstate import ApplicationState
 from pubsub import pub
 
 from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
@@ -86,7 +87,11 @@ class ViewAreaWidget(QWidget):
         # Handle color images
         else:
             if img.dtype != np.uint8:
-                img = normalize_image(img) if normalize else np.clip(img, 0, 255).astype(np.uint8)
+                img = (
+                    normalize_image(img)
+                    if normalize
+                    else np.clip(img, 0, 255).astype(np.uint8)
+                )
 
             if len(img.shape) == 2:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
@@ -105,7 +110,11 @@ class ViewAreaWidget(QWidget):
 
         if mode == "segmented":
             if len(img.shape) > 2:
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) if img.shape[2] == 3 else img[:, :, 0]
+                img = (
+                    cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    if img.shape[2] == 3
+                    else img[:, :, 0]
+                )
 
             if img.dtype != np.uint8:
                 img = normalize_image(img)
@@ -143,17 +152,31 @@ class ViewAreaWidget(QWidget):
 
     def on_image_ready(self, image, time, position, channel, mode):
         """Handle both raw and segmented image responses"""
-        if (time != self.current_t or position != self.current_p or
-                channel != self.current_c or mode != self.current_mode):
+        if (
+            time != self.current_t
+            or position != self.current_p
+            or channel != self.current_c
+            or mode != self.current_mode
+        ):
             return
 
-        display_image = image if mode == "normal" else self._convert_segmentation_to_display(image, mode)
+        display_image = (
+            image
+            if mode == "normal"
+            else self._convert_segmentation_to_display(image, mode)
+        )
         self._create_qimage_and_display(display_image)
 
     def on_segmentation_cache_miss(self, time, position, channel, model):
         """Handle when cached segmentation is not available"""
-        if (time == self.current_t and position == self.current_p and channel == self.current_c):
-            print(f"No cached segmentation found for T={time}, P={position}, C={channel}")
+        if (
+            time == self.current_t
+            and position == self.current_p
+            and channel == self.current_c
+        ):
+            print(
+                f"No cached segmentation found for T={time}, P={position}, C={channel}"
+            )
             pub.sendMessage(
                 "segmented_image_request",
                 time=time,
@@ -161,7 +184,9 @@ class ViewAreaWidget(QWidget):
                 channel=channel,
                 mode=self.current_mode,
                 model=self.current_model,
-                overlay_channel=self.current_overlay_channel if self.current_mode == "overlay" else None,
+                overlay_channel=self.current_overlay_channel
+                if self.current_mode == "overlay"
+                else None,
                 use_cached=False,
             )
 
@@ -212,18 +237,24 @@ class ViewAreaWidget(QWidget):
         t_layout.addWidget(self.t_label)
 
         self.t_left_button = QPushButton("<")
-        self.t_left_button.clicked.connect(lambda: self.slider_t.setValue(self.slider_t.value() - 1))
+        self.t_left_button.clicked.connect(
+            lambda: self.slider_t.setValue(self.slider_t.value() - 1)
+        )
         t_layout.addWidget(self.t_left_button)
 
         self.slider_t = QSlider(Qt.Horizontal)
         self.slider_t.setMinimum(0)
         self.slider_t.setMaximum(0)
         self.slider_t.valueChanged.connect(self.on_slider_changed)
-        self.slider_t.valueChanged.connect(lambda value: self.t_label.setText(f"T: {value}"))
+        self.slider_t.valueChanged.connect(
+            lambda value: self.t_label.setText(f"T: {value}")
+        )
         t_layout.addWidget(self.slider_t)
 
         self.t_right_button = QPushButton(">")
-        self.t_right_button.clicked.connect(lambda: self.slider_t.setValue(self.slider_t.value() + 1))
+        self.t_right_button.clicked.connect(
+            lambda: self.slider_t.setValue(self.slider_t.value() + 1)
+        )
         t_layout.addWidget(self.t_right_button)
 
         layout.addLayout(t_layout)
@@ -234,18 +265,24 @@ class ViewAreaWidget(QWidget):
         p_layout.addWidget(self.p_label)
 
         self.p_left_button = QPushButton("<")
-        self.p_left_button.clicked.connect(lambda: self.slider_p.setValue(self.slider_p.value() - 1))
+        self.p_left_button.clicked.connect(
+            lambda: self.slider_p.setValue(self.slider_p.value() - 1)
+        )
         p_layout.addWidget(self.p_left_button)
 
         self.slider_p = QSlider(Qt.Horizontal)
         self.slider_p.setMinimum(0)
         self.slider_p.setMaximum(0)
         self.slider_p.valueChanged.connect(self.on_slider_changed)
-        self.slider_p.valueChanged.connect(lambda value: self.p_label.setText(f"P: {value}"))
+        self.slider_p.valueChanged.connect(
+            lambda value: self.p_label.setText(f"P: {value}")
+        )
         p_layout.addWidget(self.slider_p)
 
         self.p_right_button = QPushButton(">")
-        self.p_right_button.clicked.connect(lambda: self.slider_p.setValue(self.slider_p.value() + 1))
+        self.p_right_button.clicked.connect(
+            lambda: self.slider_p.setValue(self.slider_p.value() + 1)
+        )
         p_layout.addWidget(self.p_right_button)
 
         layout.addLayout(p_layout)
@@ -256,18 +293,24 @@ class ViewAreaWidget(QWidget):
         c_layout.addWidget(self.c_label)
 
         self.c_left_button = QPushButton("<")
-        self.c_left_button.clicked.connect(lambda: self.slider_c.setValue(self.slider_c.value() - 1))
+        self.c_left_button.clicked.connect(
+            lambda: self.slider_c.setValue(self.slider_c.value() - 1)
+        )
         c_layout.addWidget(self.c_left_button)
 
         self.slider_c = QSlider(Qt.Horizontal)
         self.slider_c.setMinimum(0)
         self.slider_c.setMaximum(0)
         self.slider_c.valueChanged.connect(self.on_slider_changed)
-        self.slider_c.valueChanged.connect(lambda value: self.c_label.setText(f"C: {value}"))
+        self.slider_c.valueChanged.connect(
+            lambda value: self.c_label.setText(f"C: {value}")
+        )
         c_layout.addWidget(self.slider_c)
 
         self.c_right_button = QPushButton(">")
-        self.c_right_button.clicked.connect(lambda: self.slider_c.setValue(self.slider_c.value() + 1))
+        self.c_right_button.clicked.connect(
+            lambda: self.slider_c.setValue(self.slider_c.value() + 1)
+        )
         c_layout.addWidget(self.c_right_button)
 
         layout.addLayout(c_layout)
@@ -308,7 +351,9 @@ class ViewAreaWidget(QWidget):
         overlay_channel_layout = QHBoxLayout()
         overlay_channel_label = QLabel("Overlay Channel:")
         self.overlay_channel_dropdown = QComboBox()
-        self.overlay_channel_dropdown.currentIndexChanged.connect(self.on_overlay_channel_changed)
+        self.overlay_channel_dropdown.currentIndexChanged.connect(
+            self.on_overlay_channel_changed
+        )
         overlay_channel_layout.addWidget(overlay_channel_label)
         overlay_channel_layout.addWidget(self.overlay_channel_dropdown)
 
@@ -331,6 +376,9 @@ class ViewAreaWidget(QWidget):
         self.model_dropdown.addItems(SegmentationModels.available_models)
         self.model_dropdown.currentTextChanged.connect(self.on_model_changed)
         self.current_model = self.model_dropdown.currentText()
+
+        # Inform applicationState
+        pub.sendMessage("selected_model_changed", model=self.current_model)
 
         layout.addWidget(self.model_dropdown)
         group.setLayout(layout)
@@ -423,13 +471,16 @@ class ViewAreaWidget(QWidget):
                 channel=c,
                 mode=self.current_mode,
                 model=self.current_model,
-                overlay_channel=self.current_overlay_channel if self.current_mode == "overlay" else None,
+                overlay_channel=self.current_overlay_channel
+                if self.current_mode == "overlay"
+                else None,
             )
 
     @Slot(str)
     def on_model_changed(self, model_name):
         """Handle segmentation model changes"""
         self.current_model = model_name
+        pub.sendMessage("selected_model_changed", model=model_name)
 
         if self.current_mode in ["segmented", "overlay", "labeled"]:
             self.on_slider_changed()
@@ -457,7 +508,9 @@ class ViewAreaWidget(QWidget):
 
         # Populate overlay channel dropdown
         self.overlay_channel_dropdown.clear()
-        self.overlay_channel_dropdown.addItems([f"Channel {i}" for i in range(self.num_channels)])
+        self.overlay_channel_dropdown.addItems(
+            [f"Channel {i}" for i in range(self.num_channels)]
+        )
         self.current_overlay_channel = 0
 
         self.slider_t.setValue(0)

@@ -133,15 +133,26 @@ class SegmentationService:
             raw = self.cache.with_model(model)[key]  # triggers _compute_and_store
             labeled = self.remove_artifacts(raw)
             self.cache.with_model(model)[key] = labeled  # overwrite with clean version
-            pub.sendMessage(
-                "frame_segmented",
-                labeled_frame=labeled,
-                time=time,
-                position=position,
-                channel=channel,
-            )
+        else:
+            labeled = self.cache.with_model(model)[key]
 
-        return self.cache.with_model(model)[key]  # always (H, W) uint16
+        _frame = labeled
+        # Check if ROI exists, if yes compile it for metrics
+        if position in self.roi_masks:
+            roi_mask = self.roi_masks[position]
+            if roi_mask is not None:
+                _frame = self._apply_roi_mask(labeled, roi_mask)
+
+        pub.sendMessage(
+            "frame_segmented",
+            labeled_frame=_frame,
+            time=time,
+            position=position,
+            channel=channel,
+            model=model,
+        )
+
+        return labeled
 
     # ------------------------------------------------------------------
     # Artifact removal

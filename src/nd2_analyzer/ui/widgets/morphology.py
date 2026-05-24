@@ -18,6 +18,8 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 from nd2_analyzer.analysis.metrics_service import MetricsService
+from nd2_analyzer.data.appstate import ApplicationState
+
 
 class MorphologyWidget(QWidget):
     def __init__(self, parent=None):
@@ -215,10 +217,15 @@ class MorphologyWidget(QWidget):
             p = p if p is not None else 0
             c = c if c is not None else 0
 
+            t, p, c = ApplicationState.get_instance().view_index
+            model = ApplicationState.get_instance().selected_model
+
             print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
 
             # Request cell metrics from the service for current frame
-            polars_df = self.metrics_service.query_optimized(time=t, position=p)
+            polars_df = self.metrics_service.query_optimized(
+                time=t, position=p, model=model
+            )
 
             if polars_df.is_empty():
                 print("No metrics found in polars dataframe")
@@ -717,12 +724,13 @@ class MorphologyWidget(QWidget):
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
 
-        # Get current position and channel
-        p = pub.sendMessage("get_current_p", default=0)
-        c = pub.sendMessage("get_current_c", default=0)
+        t, p, c = ApplicationState.get_instance().view_index
+        model = ApplicationState.get_instance().selected_model
+
+        print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
 
         # Query metrics for all timepoints for this position and channel
-        df = self.metrics_service.query_optimized(position=p)
+        df = self.metrics_service.query_optimized(position=p, model=model)
 
         if df.is_empty():
             QMessageBox.warning(self, "No Data", "No metrics available.")
