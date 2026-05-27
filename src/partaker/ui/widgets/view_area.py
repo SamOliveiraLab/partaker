@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QComboBox,
     QCheckBox,
 )
-from nd2_analyzer.data.appstate import ApplicationState
+from partaker.data.appstate import ApplicationState
 from pubsub import pub
 
-from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
-from nd2_analyzer.data.image_data import ImageData
-from nd2_analyzer.utils.image_functions import normalize_image
+from partaker.analysis.segmentation.segmentation_models import SegmentationModels
+from partaker.data.image_data import ImageData
+from partaker.utils.image_functions import normalize_image
 
 
 class ViewAreaWidget(QWidget):

@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QLabel,
 )
 
-from nd2_analyzer.data.appstate import ApplicationState
-from nd2_analyzer.data.image_data import ImageData
+from partaker.data.appstate import ApplicationState
+from partaker.data.image_data import ImageData
 
 from pubsub import pub
 

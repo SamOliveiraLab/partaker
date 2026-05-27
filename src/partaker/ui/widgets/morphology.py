@@ -17,8 +17,8 @@ from pubsub import pub
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from nd2_analyzer.analysis.metrics_service import MetricsService
-from nd2_analyzer.data.appstate import ApplicationState
+from partaker.analysis.metrics_service import MetricsService
+from partaker.data.appstate import ApplicationState
 
 
 class MorphologyWidget(QWidget):

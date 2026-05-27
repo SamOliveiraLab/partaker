@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 from pubsub import pub
 
-from nd2_analyzer.analysis.segmentation import segmentation_models
+from partaker.analysis.segmentation import segmentation_models
 
 
 class SegmentationWidget(QWidget):
@@ -191,7 +191,7 @@ class SegmentationWidget(QWidget):
 
         # Populate model combo
         self.model_combo.clear()
-        from nd2_analyzer.analysis.segmentation.segmentation_models import (
+        from partaker.analysis.segmentation.segmentation_models import (
             SegmentationModels,
         )
 

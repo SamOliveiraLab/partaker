@@ -8,10 +8,10 @@ import polars as pl
 from pubsub import pub
 from skimage.measure import regionprops
 
-from nd2_analyzer.analysis.morphology.morphology import classify_morphology
-from nd2_analyzer.data.frame import TLFrame
-from nd2_analyzer.data.image_data import ImageData
-from nd2_analyzer.utils import timing_decorator
+from partaker.analysis.morphology.morphology import classify_morphology
+from partaker.data.frame import TLFrame
+from partaker.data.image_data import ImageData
+from partaker.utils import timing_decorator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MetricsService")

@@ -21,7 +21,7 @@ from pubsub import pub
 from scipy.ndimage import binary_dilation
 from skimage.measure import label, regionprops
 
-from nd2_analyzer.utils.image_functions import normalize_image, convert_image
+from partaker.utils.image_functions import normalize_image, convert_image
 
 logger = logging.getLogger(__name__)
 

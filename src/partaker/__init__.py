@@ -3,7 +3,7 @@ import sys
 from PySide6.QtWidgets import QApplication, QSplashScreen
 from PySide6.QtGui import QPixmap
 
-from nd2_analyzer.ui import App
+from partaker.ui import App
 
 # base_path = getattr(
 #     sys, '_MEIPASS', os.path.dirname(
@@ -25,7 +25,8 @@ from nd2_analyzer.ui import App
 # splash.finish(window)
 # sys.exit(app.exec())
 
-if __name__ == "__main__":
+def main():
+    
     app = QApplication(sys.argv)
     app.setApplicationName("Partaker")
 
@@ -38,4 +39,8 @@ if __name__ == "__main__":
     mainWin = App()
     mainWin.show()
     # splash.finish(mainWin)
-    sys.exit(app.exec())
+
+    return app.exec()
+
+if __name__ == "__main__":
+        sys.exit(main())

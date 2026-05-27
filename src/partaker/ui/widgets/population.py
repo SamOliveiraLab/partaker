@@ -4,7 +4,7 @@ import os
 import pickle
 
 import matplotlib.pyplot as plt
-from nd2_analyzer.data.appstate import ApplicationState
+from partaker.data.appstate import ApplicationState
 import polars as pl  # Import Polars
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -32,10 +32,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from pubsub import pub
 
 # Assume MetricsService is a singleton with a .df attribute (Polars DataFrame)
-from nd2_analyzer.analysis.metrics_service import MetricsService
-from nd2_analyzer.data.experiment import Experiment
+from partaker.analysis.metrics_service import MetricsService
+from partaker.data.experiment import Experiment
 
-from nd2_analyzer.analysis.population import (
+from partaker.analysis.population import (
     FluoAnalysisConfig,
     filter_data,
     create_sample_data,

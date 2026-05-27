@@ -127,7 +127,7 @@ class SegmentationCache:
 
     def _read_phc_frame(self, t: int, p: int) -> np.ndarray:
         """Read the phase-contrast frame at (t, p) from nd2_data."""
-        from nd2_analyzer.data.image_data import ImageData
+        from partaker.data.image_data import ImageData
 
         frame = ImageData.get_instance().get(t, p, self.phc_channel)
         # frame = self.nd2_data[t, p, self.phc_channel]

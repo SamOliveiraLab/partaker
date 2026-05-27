@@ -30,7 +30,7 @@ from matplotlib.colors import to_hex
 from pubsub import pub
 from skimage.measure import label, regionprops
 
-from nd2_analyzer.analysis.tracking.tracking import (
+from partaker.analysis.tracking.tracking import (
     create_density_based_regions_from_forecast_data,
     enhanced_motility_index,
     visualize_motility_with_chamber_regions,
@@ -55,7 +55,7 @@ class MotilityDialog(QDialog):
         self.motility_metrics = None
 
         # ADD THIS LINE - Import and initialize MetricsService
-        from nd2_analyzer.analysis.metrics_service import MetricsService
+        from partaker.analysis.metrics_service import MetricsService
 
         self.metrics_service = MetricsService()
 

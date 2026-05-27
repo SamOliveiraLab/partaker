@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 
-from nd2_analyzer.data.image_data import ImageData
-from nd2_analyzer.data.appstate import ApplicationState
+from partaker.data.image_data import ImageData
+from partaker.data.appstate import ApplicationState
 
 
 class ExportDialog(QDialog):

@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 from pubsub import pub
 
-from nd2_analyzer.data.experiment import Experiment, PositionsMismatchError
+from partaker.data.experiment import Experiment, PositionsMismatchError
 
 
 # File extension constants (kept in sync with data/experiment.py).
@@ -548,7 +548,7 @@ class ExperimentDialog(QDialog):
 
     def _detect_tiff_layout_from_paths(self, paths):
         """Attempt to reconstruct a (p, t, c) -> path file_map from filenames."""
-        from nd2_analyzer.ui.app import App
+        from partaker.ui.app import App
 
         file_map = App.reconstruct_file_map_from_paths(paths)
         all_matched = file_map and len(file_map) == len(paths)
@@ -811,8 +811,8 @@ class ExperimentDialog(QDialog):
 
         # Then, load the actual image data.
         try:
-            from nd2_analyzer.data.image_data import ImageData
-            from nd2_analyzer.ui.app import App
+            from partaker.data.image_data import ImageData
+            from partaker.ui.app import App
 
             # For plain TIFFs without a file_map yet, try to detect or
             # ask the user via TpcAssignmentDialog.

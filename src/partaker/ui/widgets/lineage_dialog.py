@@ -145,7 +145,7 @@ class LineageDialog(QDialog):
         # Create visualization
         if self.viz_type.currentText() == "Standard Lineage Tree":
             # Call the standard visualization function
-            from nd2_analyzer.analysis.lineage_visualization import LineageVisualization
+            from partaker.analysis.lineage_visualization import LineageVisualization
 
             visualizer = LineageVisualization()
             visualizer.create_lineage_tree(
@@ -153,7 +153,7 @@ class LineageDialog(QDialog):
             )
         else:
             # Call the morphology-enhanced visualization function
-            from nd2_analyzer.analysis.lineage_visualization import LineageVisualization
+            from partaker.analysis.lineage_visualization import LineageVisualization
 
             visualizer = LineageVisualization()
             visualizer.visualize_morphology_lineage_tree(

@@ -15,11 +15,11 @@ from PySide6.QtWidgets import (
     QProgressBar,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from nd2_analyzer.data.appstate import ApplicationState
+from partaker.data.appstate import ApplicationState
 from pubsub import pub
 from skimage.measure import label
 
-from nd2_analyzer.analysis.metrics_service import MetricsService
+from partaker.analysis.metrics_service import MetricsService
 
 
 class TrackingWidget(QWidget):
@@ -305,7 +305,7 @@ class TrackingWidget(QWidget):
             progress.setValue(0)
             progress.setMaximum(100)
 
-            from nd2_analyzer.analysis.tracking import track_cells
+            from partaker.analysis.tracking import track_cells
 
             all_tracks, _ = track_cells(labeled_frames)
             self.lineage_tracks = all_tracks

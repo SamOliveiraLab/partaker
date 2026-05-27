@@ -16,8 +16,8 @@ from typing import Optional
 import numpy as np
 from pubsub import pub
 
-from nd2_analyzer.data.experiment import Experiment
-from nd2_analyzer.data.image_data import ImageData
+from partaker.data.experiment import Experiment
+from partaker.data.image_data import ImageData
 
 
 class ApplicationState:

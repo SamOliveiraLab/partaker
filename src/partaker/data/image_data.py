@@ -11,10 +11,10 @@ import nd2
 import numpy as np
 from pubsub import pub
 
-from nd2_analyzer.analysis.segmentation.segmentation_cache import SegmentationCache
-from nd2_analyzer.analysis.segmentation.segmentation_models import SegmentationModels
-from nd2_analyzer.analysis.segmentation.segmentation_service import SegmentationService
-from nd2_analyzer.utils.registration import register_images, ShiftedImage_2D_numba
+from partaker.analysis.segmentation.segmentation_cache import SegmentationCache
+from partaker.analysis.segmentation.segmentation_models import SegmentationModels
+from partaker.analysis.segmentation.segmentation_service import SegmentationService
+from partaker.utils.registration import register_images, ShiftedImage_2D_numba
 
 
 """

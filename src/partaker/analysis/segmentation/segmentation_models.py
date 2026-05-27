@@ -28,7 +28,7 @@ try:
 except ImportError:
     _CELLPOSE_AVAILABLE = False
 
-from nd2_analyzer.utils.sliding_prediction import sliding_window_predict
+from partaker.utils.sliding_prediction import sliding_window_predict
 from .unet_torch import unet_segmentation
 
 

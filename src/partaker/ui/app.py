@@ -10,16 +10,16 @@ from PySide6.QtWidgets import *
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from pubsub import pub
 
-from nd2_analyzer.analysis.metrics_service import MetricsService
-from nd2_analyzer.analysis.morphology.morphology import (
+from partaker.analysis.metrics_service import MetricsService
+from partaker.analysis.morphology.morphology import (
     annotate_binary_mask,
 )
-from nd2_analyzer.data.experiment import Experiment
-from nd2_analyzer.data.image_data import ImageData
+from partaker.data.experiment import Experiment
+from partaker.data.image_data import ImageData
 from .dialogs import AboutDialog, ExperimentDialog
-from nd2_analyzer.ui.dialogs.export_raw import ExportDialog
-from nd2_analyzer.ui.dialogs.roisel import PolygonROISelector
-from nd2_analyzer.ui.dialogs.crop_selection import CropSelector
+from partaker.ui.dialogs.export_raw import ExportDialog
+from partaker.ui.dialogs.roisel import PolygonROISelector
+from partaker.ui.dialogs.crop_selection import CropSelector
 from .widgets import (
     ViewAreaWidget,
     PopulationWidget,
@@ -622,7 +622,7 @@ class App(QMainWindow):
             single_cell_mapping = {cell_id: self.current_cell_mapping[cell_id]}
 
             # Import the morphology function
-            from nd2_analyzer.analysis.morphology.morphology import annotate_binary_mask
+            from partaker.analysis.morphology.morphology import annotate_binary_mask
 
             # Create highlighted image with just the one cell
             highlighted_image = annotate_binary_mask(
@@ -658,7 +658,7 @@ if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
     # Import main window class
-    from nd2_analyzer.ui.app import App  # or whatever main window class is
+    from partaker.ui.app import App  # or whatever main window class is
 
     app = QApplication(sys.argv)
     window = App()

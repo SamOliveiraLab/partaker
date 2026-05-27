@@ -1158,7 +1158,7 @@ def visualize_motility_with_chamber_regions(
 
     # Calculate motility metrics if not provided
     if motility_metrics is None:
-        from nd2_analyzer.analysis.tracking import enhanced_motility_index
+        from partaker.analysis.tracking import enhanced_motility_index
 
         motility_metrics = enhanced_motility_index(tracks, chamber_dimensions)
 
