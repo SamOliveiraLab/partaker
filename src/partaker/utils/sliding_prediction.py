@@ -55,8 +55,7 @@ def _compute_tiles(
 def _build_weight_map(tile_h: int, tile_w: int, overlap: int) -> np.ndarray:
     """
     Build a 2-D float32 weight map for one tile using a linear ramp in the
-    overlap region and 1.0 in the centre.  When tiles are blended with their
-    weight maps the seams cancel out naturally.
+    overlap region and 1.0 in the centre.
 
     Parameters
     ----------
@@ -142,6 +141,16 @@ def sliding_window_predict(
         axis=0,
     )[..., np.newaxis]  # (N_tiles, tile_size, tile_size, 1)
 
+    """
+    # TODO: use gpu
+    if os.environ("PARTAKER_GPU") == 1:
+        # TODO: device provider
+        tile_imgs = torch.to(device)
+        predictions = model.predict(tile_imgs)  # (N_tiles, tile_size, tile_size, 1)
+        pass
+    else:
+        pass
+        """
     predictions = model.predict(tile_imgs)  # (N_tiles, tile_size, tile_size, 1)
 
     for (y0, x0, y1, x1), pred_tile in zip(tiles, predictions):

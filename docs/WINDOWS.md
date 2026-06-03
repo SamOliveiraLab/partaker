@@ -79,7 +79,8 @@ Make sure the bottom of your `partaker\src\nd2_analyzer\ui\app.py` includes:
 if __name__ == "__main__":
     import sys
     from PySide6.QtWidgets import QApplication
-    from nd2_analyzer.ui.app import App  # or MainWindow, depending on your code
+    from partaker.ui.app import App  # or MainWindow, depending on your code
+
     app = QApplication(sys.argv)
     window = App()
     window.show()

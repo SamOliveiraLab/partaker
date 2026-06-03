@@ -13,13 +13,19 @@ responsibility of SegmentationService — this module never touches it.
 
 from __future__ import annotations
 
-import os
-from typing import Callable, Optional
-
+from collections.abc import Callable
 import cv2
+
+import os
+
 import numpy as np
+
+from partaker.utils.sliding_prediction import sliding_window_predict
+from .unet_torch import unet_segmentation
 from scipy.ndimage import gaussian_filter
 from skimage.measure import label, regionprops
+
+import torch
 
 try:
     from cellpose_omni import models as cellpose_models
@@ -28,18 +34,26 @@ try:
 except ImportError:
     _CELLPOSE_AVAILABLE = False
 
-from partaker.utils.sliding_prediction import sliding_window_predict
-from .unet_torch import unet_segmentation
 
+def _get_device() -> torch.device:
+    """Detect CUDA, MPS, or fall back to CPU."""
 
-# ---------------------------------------------------------------------------
-# Image pre-processing
-# ---------------------------------------------------------------------------
+    if not os.environ.get("PARTAKER_GPU") == "1":
+        return torch.device("cpu")
+
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def preprocess_image(image: np.ndarray) -> np.ndarray:
     """
     Normalise to [0, 1] then apply a light Gaussian denoise.
+
+    NOTE: The image preprocessing does not improve the segmentation quality
+    with the current segmentation models, so its use has been put on standby.
 
     Parameters
     ----------
@@ -110,7 +124,7 @@ class SegmentationModels:
         images: list[np.ndarray],
         mode: str,
         progress: Optional[Callable] = None,
-        preprocess: bool = True,
+        preprocess: bool = False,
     ) -> list[np.ndarray]:
         """
         Segment a list of images with the requested model.
@@ -200,14 +214,21 @@ class SegmentationModels:
         if self.UNET not in self._models:
             weights_path = os.environ.get("PARTAKER_UNET_WEIGHTS")
             if not weights_path:
-                raise EnvironmentError(
+                raise OSError(
                     "Environment variable 'PARTAKER_UNET_WEIGHTS' is not set. "
                     "Point it to a .pt state-dict produced by convert.py."
                 )
-            self._models[self.UNET] = unet_segmentation(
+            device = _get_device()
+            print(f"[UNet] Using device: {device}")
+
+            model = unet_segmentation(
                 input_size=(self.UNET_TILE_SIZE, self.UNET_TILE_SIZE, 1),
                 pretrained_weights=weights_path,
+                device=str(device),
             )
+
+            self._models[self.UNET] = model
+            self._unet_device = model.device
         return self._models[self.UNET]
 
     # ------------------------------------------------------------------
@@ -227,7 +248,7 @@ class SegmentationModels:
     def _segment_cellpose(
         self,
         images: list[np.ndarray],
-        progress: Optional[Callable],
+        progress: Callable | None,
         cellpose_inst,
     ) -> list[np.ndarray]:
         images = [img.squeeze() if img.ndim > 2 else img for img in images]
