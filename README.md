@@ -91,7 +91,22 @@ The weights file should be a PyTorch state-dict (`.pt`). A conversion script (`c
 
 ## Example Dataset
 
-The validation dataset used in the manuscript (two-strain E. coli co-culture in monolayer microfluidic chambers) is available on the BioImage Archive.
+The validation dataset used in the manuscript (two-strain E. coli co-culture in monolayer microfluidic chambers) is available on the BioImage Archive under accession S-BIAD3015.
+
+## Dataset
+
+The segmentation benchmark dataset (45 annotated phase-contrast frames with ground-truth instance masks across four chamber positions) and the custom U-Net training dataset (80 frames with binary and instance masks, boundary weight maps, and trained model weights) are archived on Zenodo, together with the benchmarking notebook used to compute the reported metrics:
+
+https://doi.org/10.5281/zenodo.20577330
+
+### Expected Outputs
+
+Running the segmentation and analysis workflow on the example data produces:
+
+- **Segmentation masks**: instance-labeled masks for each frame, viewable as "Labeled Segmentation" or "Overlay with Outlines"
+- **Cell metrics CSV**: a per-cell, per-frame table containing morphological descriptors (area, perimeter, aspect ratio, solidity, and others) and per-channel fluorescence values
+- **Fluorescence time series**: aggregated single-cell and population-level RPU traces synchronized with medium perturbations
+- **Benchmark metrics CSV**: per-frame instance-level Jaccard Index, Dice coefficient, and mean IoU for each segmentation model (see the benchmarking notebook in the Zenodo deposit)
 
 ## Demo
 
