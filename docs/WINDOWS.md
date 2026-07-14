@@ -58,7 +58,7 @@ python -u -m nd2_analyzer.ui.app
 - The `-u` flag makes sure all terminal output (info, warnings, errors) is visible in real time.
 - This is different from Mac/Linux, where you can simply run:
     ```sh
-    uv run gui
+    uv run partaker_app
     ```
 
 ---
@@ -67,7 +67,7 @@ python -u -m nd2_analyzer.ui.app
 
 - Windows needs `"tensorflow-intel"` for CPU-only TensorFlow support.
 - The modular launch style (`python -u -m ...`) is required for Python to find and import the `nd2_analyzer` package correctly on Windows.
-- Mac users can still run via `uv run gui`, and all platform-specific requirements are handled in the `pyproject.toml`—so these instructions do **not** break Mac/Linux compatibility.
+- Mac users can still run via `uv run partaker_app`, and all platform-specific requirements are handled in the `pyproject.toml`—so these instructions do **not** break Mac/Linux compatibility.
 
 ---
 
@@ -134,7 +134,7 @@ Notes:
 - The above steps are **not** required for Mac/Linux.
 - On Mac/Linux, simply run:
     ```sh
-    uv run gui
+    uv run partaker_app
     ```
 - All dependencies and entrypoints are automatically handled.
 

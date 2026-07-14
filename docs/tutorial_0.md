@@ -1,6 +1,6 @@
 ## Tutorial 0: Creating an experiment, previewing images, segmenting, saving and loading
 
-Welcome to Partaker! If the installation process was successful, after starting the program with `uv run gui`,
+Welcome to Partaker! If the installation process was successful, after starting the program with `uv run partaker_app`,
 you should see the following screen:
 
 ![Main window](img/tut_0_main_view.png)

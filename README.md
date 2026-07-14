@@ -58,7 +58,7 @@ cd partaker
 3. Launch Partaker:
 
 ```bash
-uv run gui
+uv run partaker_app
 ```
 
 This will automatically download and install all dependencies and open the main GUI window.
@@ -84,7 +84,7 @@ To use a custom-trained U-Net model, set the environment variable before launchi
 
 ```bash
 export PARTAKER_UNET_WEIGHTS="/path/to/your/unet_weights.pt"
-uv run gui
+uv run partaker_app
 ```
 
 The weights file should be a PyTorch state-dict (`.pt`). A conversion script (`convert.py`) is provided for converting Keras `.h5` weights to PyTorch format.
