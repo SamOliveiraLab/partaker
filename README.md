@@ -36,9 +36,18 @@ Users can compare model outputs on their data and select the best-performing mod
 
 ## Requirements
 
-- Python >= 3.10, < 3.12
-- macOS (Apple Silicon or Intel), Windows, or Linux
+- Python >= 3.11, < 3.12
+- One of the following supported platforms:
+  - macOS on Apple Silicon (arm64)
+  - Windows (x86_64)
+  - Linux (x86_64 or aarch64) with glibc >= 2.28 (e.g. Ubuntu 20.04+, Debian 10+, RHEL/CentOS 8+)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) package manager (recommended)
+
+> **Unsupported configurations.** The following will not install and are not supported:
+> - **Intel (x86_64) macOS**, because `torch` (>= 2.7) no longer ships macOS x86_64 wheels.
+> - **Linux with glibc < 2.28** (e.g. RHEL/CentOS 7), because `pyside6` requires `manylinux_2_28`.
+>
+> Users on these systems should run Partaker on a supported platform (a recent Apple Silicon Mac, Windows, or a modern Linux distribution with glibc >= 2.28), or inside a container built on a supported base image.
 
 ## Installation
 
