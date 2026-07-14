@@ -57,7 +57,7 @@ def classify_morphology(metrics, parameters=None):
     - parameters: dict, optional threshold parameters to use (for optimization)
 
     Returns:
-    - str, the morphology class (Artifact, Divided, Healthy, Elongated, Deformed)
+    - str, the morphology class (Artifact, Coccoid, Rod, Elongated, Deformed)
     """
     # Extract metrics
     area = metrics.get("area", 0)
@@ -71,14 +71,14 @@ def classify_morphology(metrics, parameters=None):
     default_params = {
         "artifact_max_area": 245.510,
         "artifact_max_perimeter": 65.901,
-        "divided_max_area": 685.844,
-        "divided_max_perimeter": 269.150,
-        "divided_max_aspect_ratio": 3.531,
-        "healthy_min_circularity": 0.516,
-        "healthy_max_circularity": 0.727,
-        "healthy_min_aspect_ratio": 1.463,
-        "healthy_max_aspect_ratio": 3.292,
-        "healthy_min_solidity": 0.880,
+        "coccoid_max_area": 685.844,
+        "coccoid_max_perimeter": 269.150,
+        "coccoid_max_aspect_ratio": 3.531,
+        "rod_min_circularity": 0.516,
+        "rod_max_circularity": 0.727,
+        "rod_min_aspect_ratio": 1.463,
+        "rod_max_aspect_ratio": 3.292,
+        "rod_min_solidity": 0.880,
         "elongated_min_area": 2398.996,
         "elongated_min_aspect_ratio": 5.278,
         "elongated_max_circularity": 0.245,
@@ -98,25 +98,25 @@ def classify_morphology(metrics, parameters=None):
     ):
         return "Artifact"
 
-    # Divided Cells (formerly Small) - recently divided cells
+    # Coccoid cells - small, round or recently divided cells
     if (
-        area < params["divided_max_area"]
-        and perimeter < params["divided_max_perimeter"]
-        and aspect_ratio < params["divided_max_aspect_ratio"]
+        area < params["coccoid_max_area"]
+        and perimeter < params["coccoid_max_perimeter"]
+        and aspect_ratio < params["coccoid_max_aspect_ratio"]
     ):
-        return "Divided"
+        return "Coccoid"
 
-    # Healthy Cells (formerly Normal) - balanced morphology
+    # Rod cells - normal balanced rod-shaped morphology
     elif (
-        params["healthy_min_circularity"]
+        params["rod_min_circularity"]
         <= circularity
-        <= params["healthy_max_circularity"]
-        and params["healthy_min_aspect_ratio"]
+        <= params["rod_max_circularity"]
+        and params["rod_min_aspect_ratio"]
         <= aspect_ratio
-        <= params["healthy_max_aspect_ratio"]
-        and solidity >= params["healthy_min_solidity"]
+        <= params["rod_max_aspect_ratio"]
+        and solidity >= params["rod_min_solidity"]
     ):
-        return "Healthy"
+        return "Rod"
 
     # Elongated Cells - large area, high aspect ratio
     elif (
@@ -135,7 +135,7 @@ def classify_morphology(metrics, parameters=None):
 
     # Default case
     else:
-        return "Healthy"  # Default to healthy if no other criteria match
+        return "Rod"  # Default to Rod if no other criteria match
 
 
 def extract_cells_and_metrics(image, segmented_image):
@@ -262,8 +262,8 @@ def annotate_binary_mask(segmented_image, cell_mapping):
     # Define color mapping for morphology classes
     morphology_colors = {
         "Artifact": (128, 128, 128),  # Gray
-        "Divided": (255, 0, 0),  # Blue
-        "Healthy": (0, 255, 0),  # Green
+        "Coccoid": (255, 0, 0),  # Blue
+        "Rod": (0, 255, 0),  # Green
         "Elongated": (0, 255, 255),  # Yellow
         "Deformed": (255, 0, 255),  # Magenta
     }
@@ -272,7 +272,7 @@ def annotate_binary_mask(segmented_image, cell_mapping):
         y1, x1, y2, x2 = data["bbox"]
 
         # Get the morphology class and corresponding color
-        morphology_class = data["metrics"].get("morphology_class", "Healthy")
+        morphology_class = data["metrics"].get("morphology_class", "Rod")
         color = morphology_colors.get(
             morphology_class, (255, 255, 255)
         )  # Default to white
