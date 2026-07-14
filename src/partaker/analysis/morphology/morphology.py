@@ -260,12 +260,13 @@ def annotate_binary_mask(segmented_image, cell_mapping):
     annotated = cv2.cvtColor(segmented_image, cv2.COLOR_GRAY2RGB)
 
     # Define color mapping for morphology classes
+    # BGR colors matching Figure S6 (Coccoid=cyan, Rod=green, Elongated=brown, Deformed=purple)
     morphology_colors = {
         "Artifact": (128, 128, 128),  # Gray
-        "Coccoid": (255, 0, 0),  # Blue
+        "Coccoid": (255, 255, 0),  # Cyan
         "Rod": (0, 255, 0),  # Green
-        "Elongated": (0, 255, 255),  # Yellow
-        "Deformed": (255, 0, 255),  # Magenta
+        "Elongated": (42, 42, 165),  # Brown
+        "Deformed": (128, 0, 128),  # Purple
     }
 
     for cell_id, data in cell_mapping.items():

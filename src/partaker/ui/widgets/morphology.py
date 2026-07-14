@@ -32,12 +32,13 @@ class MorphologyWidget(QWidget):
         self.metrics_service = MetricsService()
 
         # Set up morphology colors (same as original)
+        # BGR colors matching Figure S6 (Coccoid=cyan, Rod=green, Elongated=brown, Deformed=purple)
         self.morphology_colors = {
             "Artifact": (128, 128, 128),  # Gray
-            "Coccoid": (255, 0, 0),  # Blue
+            "Coccoid": (255, 255, 0),  # Cyan
             "Rod": (0, 255, 0),  # Green
-            "Elongated": (0, 255, 255),  # Yellow
-            "Deformed": (255, 0, 255),  # Magenta
+            "Elongated": (42, 42, 165),  # Brown
+            "Deformed": (128, 0, 128),  # Purple
         }
 
         self.morphology_colors_rgb = {
