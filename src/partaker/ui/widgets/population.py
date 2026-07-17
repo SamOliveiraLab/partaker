@@ -197,7 +197,34 @@ class PopulationWidget(QWidget):
     def on_experiment_loaded(self, experiment):
         self.experiment = experiment
 
+    def _show_no_fluorescence_message(self):
+        """Explain why there is nothing to plot, instead of raising."""
+        self.population_figure.clear()
+        ax = self.population_figure.add_subplot(111)
+        ax.text(
+            0.5,
+            0.5,
+            "No fluorescence channels in this dataset.\n\n"
+            "Population analysis needs at least one fluorescence channel\n"
+            "in addition to the phase-contrast channel.",
+            ha="center",
+            va="center",
+            fontsize=11,
+        )
+        ax.axis("off")
+        self.population_canvas.draw()
+
     def create_dummy_plot(self):
+        # Channel 0 is phase contrast, so a single-channel dataset has no
+        # fluorescence channels and both combos are empty. Bail out with an
+        # explanation rather than letting int("") raise.
+        if not (
+            self.mcherry_channel_combo.currentText()
+            and self.yfp_channel_combo.currentText()
+        ):
+            self._show_no_fluorescence_message()
+            return
+
         self.population_figure.clear()
 
         # Configure based on selected values
@@ -300,6 +327,15 @@ class PopulationWidget(QWidget):
         # plt.show()
 
     def on_plot_population_signal(self):
+        # Same guard as create_dummy_plot: a phase-contrast-only dataset has no
+        # fluorescence channel to plot.
+        if not (
+            self.mcherry_channel_combo.currentText()
+            and self.yfp_channel_combo.currentText()
+        ):
+            self._show_no_fluorescence_message()
+            return
+
         self.population_figure.clear()
 
         # Configure based on selected values
