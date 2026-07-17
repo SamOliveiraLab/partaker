@@ -34,6 +34,17 @@ try:
 except ImportError:
     _CELLPOSE_AVAILABLE = False
 
+# The Cellpose-3 checkpoints (bact_phase_cp3, bact_fluor_cp3, deepbacs_cp3) must be
+# loaded through the real ``cellpose`` package. cellpose_omni's CPnet is a different
+# architecture (2- vs 1-channel state_dict) and silently falls back to the generic
+# ``cyto`` model, which would return empty/incorrect masks.
+try:
+    from cellpose import models as cellpose3_models
+
+    _CELLPOSE3_AVAILABLE = True
+except ImportError:
+    _CELLPOSE3_AVAILABLE = False
+
 
 def _get_device() -> torch.device:
     """Detect CUDA, MPS, or fall back to CPU."""
@@ -237,12 +248,27 @@ class SegmentationModels:
 
     def _get_cellpose_model(self, key: str, model_type: str):
         if key not in self._models:
-            if not _CELLPOSE_AVAILABLE:
-                raise ImportError("cellpose_omni is not installed.")
+            if not _CELLPOSE3_AVAILABLE:
+                raise ImportError(
+                    "The 'cellpose' package is required for the Cellpose-3 models "
+                    "(bact_phase_cp3, bact_fluor_cp3, deepbacs_cp3). Install "
+                    "cellpose>=3.0,<4."
+                )
             use_gpu = os.environ.get("PARTAKER_GPU") == "1"
-            self._models[key] = cellpose_models.CellposeModel(
-                gpu=use_gpu, model_type=model_type
-            )
+            model = cellpose3_models.CellposeModel(gpu=use_gpu, model_type=model_type)
+
+            # Fail loudly if the requested checkpoint was not the one actually loaded.
+            # cellpose silently substitutes a default model for unknown names, which
+            # would otherwise produce plausible but wrong segmentations.
+            resolved = getattr(model, "pretrained_model", None)
+            resolved_str = str(resolved[0] if isinstance(resolved, list) else resolved)
+            if model_type not in os.path.basename(resolved_str):
+                raise RuntimeError(
+                    f"Cellpose loaded '{resolved_str}' instead of the requested "
+                    f"'{model_type}' checkpoint. Refusing to segment with the wrong "
+                    f"model. Check the installed cellpose version (requires >=3.0,<4)."
+                )
+            self._models[key] = model
         return self._models[key]
 
     def _segment_cellpose(

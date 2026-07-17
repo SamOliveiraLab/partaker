@@ -23,12 +23,25 @@ dependencies = [
     "scikit-learn (>=1.6.1,<2.0.0)",
     "pypubsub (>=4.0.3,<5.0.0)",
     "cachier (>=3.1.2,<4.0.0)",
-    "omnipose (>=1.0.6,<2.0.0)",
+    # Pinned to the 1.0.x series: the reported benchmark and the deposited ground-truth
+    # masks were produced with omnipose 1.0.6. Omnipose 1.1.x yields slightly different
+    # masks, so a 1.1.x install does not reproduce the published Table S1 values.
+    "omnipose (>=1.0.6,<1.1)",
+    # omnipose only requires ncolor>=1.2.1 (no upper bound), but omnipose 1.0.6 does not
+    # work with ncolor >= 1.5 (import fails) and cellpose_omni's imports break entirely on
+    # ncolor 2.x. Without this pin a fresh resolve (e.g. `uv pip install -e .`, which
+    # ignores uv.lock) installs a newer ncolor and the Omnipose models fail to load.
+    "ncolor (>=1.4.5,<1.5)",
+    # omnipose 1.0.6 imports `pkg_resources` at module load. setuptools 81 removed
+    # pkg_resources, so on a fresh environment (which resolves the newest setuptools)
+    # `import omnipose` fails with ModuleNotFoundError and the Omnipose models become
+    # unavailable. Existing developer environments only work because they predate 81.
+    "setuptools (<81)",
     "scipy (==1.11.4)",
     "torch>=2.7.0,<3.0.0",
     "natsort (>=8.4.0,<9.0.0)",
     "vulture (>=2.14,<3.0)",
-    "cellpose (>=4.0.6,<5.0.0)",
+    "cellpose (>=3.0,<4)",
     "av (>=15.0.0,<16.0.0)",
     "imageio-ffmpeg (>=0.6.0,<0.7.0)",
     "numba (>=0.61.2,<0.62.0)",
