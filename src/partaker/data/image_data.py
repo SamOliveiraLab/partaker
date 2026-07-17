@@ -202,18 +202,65 @@ class ImageData:
     # ── Loaders ──────────────────────────────────────────────────────
     @staticmethod
     def normalize_axes(arr, axes: str):
-        """Adjust array/axes string to canonical 5D shape (T, P, C, Y, X)."""
+        """Adjust array/axes string to canonical 5D shape (T, P, C, Y, X).
+
+        Plain multi-page TIFFs carry no axis metadata, and tifffile labels such a
+        page sequence generically ('Q', or 'I' for an image sequence). For a
+        time-lapse tool the only sensible reading of an unlabelled page sequence
+        is time, so these are mapped to T. 'S' (samples, e.g. RGB) is mapped to C.
+
+        Any axis that still cannot be interpreted raises a descriptive error
+        rather than falling through to an opaque shape mismatch. In particular Z
+        is rejected: silently treating z-slices as timepoints would misrepresent
+        the data in every downstream time-resolved measurement.
+        """
         axes = axes.upper()
-        if "T" not in axes:
-            arr = np.expand_dims(arr, axis=0)
-            axes = "T" + axes
-        if "P" not in axes:
-            arr = np.expand_dims(arr, axis=1)
-            axes = axes.replace("T", "TP")
-        if "C" not in axes:
-            arr = np.expand_dims(arr, axis=2)
-            axes = axes.replace("TP", "TPC")
-        return arr, axes
+
+        # A generic page sequence is time; samples are channels.
+        for generic in ("Q", "I"):
+            if generic in axes:
+                if "T" in axes:
+                    raise ValueError(
+                        f"Ambiguous TIFF axes {axes!r}: found both an explicit time "
+                        f"axis and an unlabelled sequence axis {generic!r}. Re-save "
+                        f"the file with explicit axes metadata (for example "
+                        f"imagej=True, metadata={{'axes': 'TCYX'}})."
+                    )
+                axes = axes.replace(generic, "T")
+        axes = axes.replace("S", "C")
+
+        unknown = sorted(set(axes) - set("TPCYX"))
+        if unknown:
+            hint = ""
+            if "Z" in unknown:
+                hint = (
+                    " Z-stacks are not supported; project or select a single Z "
+                    "plane before loading."
+                )
+            raise ValueError(
+                f"Unsupported TIFF axes {axes!r} (unrecognized: {''.join(unknown)}). "
+                f"Partaker expects axes drawn from T (time), P (position), "
+                f"C (channel), Y and X.{hint}"
+            )
+
+        for required in ("Y", "X"):
+            if required not in axes:
+                raise ValueError(
+                    f"TIFF axes {axes!r} lack a {required} axis; a 2D image plane "
+                    f"is required."
+                )
+
+        # Insert any missing leading axes, then transpose into canonical order.
+        # Reordering explicitly (rather than assuming the source already lists
+        # axes as T, P, C, Y, X) keeps a file whose axes are stored in another
+        # order from being silently misread.
+        for ax in ("T", "P", "C"):
+            if ax not in axes:
+                arr = np.expand_dims(arr, axis=0)
+                axes = ax + axes
+
+        arr = arr.transpose([axes.index(ax) for ax in "TPCYX"])
+        return arr, "TPCYX"
 
     @classmethod
     def load_nd2(cls, file_paths: Union[str, Sequence[str]], import_mode: Optional[str] = None):
