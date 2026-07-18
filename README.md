@@ -119,7 +119,7 @@ Running the segmentation and analysis workflow on the example data produces:
 
 ## Demo
 
-A video walkthrough of Partaker is available on YouTube: [Partaker Demo](https://youtu.be/-knzEqL7HfI)
+A video walkthrough of Partaker is available on YouTube: [Partaker Demo](https://www.youtube.com/watch?v=7EISOG6SB8s)
 
 ## Documentation
 
