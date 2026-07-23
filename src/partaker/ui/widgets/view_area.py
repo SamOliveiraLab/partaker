@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 from partaker.data.appstate import ApplicationState
 from pubsub import pub
+from skimage import exposure
 
 from partaker.analysis.segmentation.segmentation_models import SegmentationModels
 from partaker.data.image_data import ImageData
@@ -57,6 +58,28 @@ class ViewAreaWidget(QWidget):
 
     # CENTRALIZED IMAGE PROCESSING FUNCTIONS
 
+    def _normalize_image(self, image):
+        """
+        Normalize image to appropriate display range based on dtype.
+
+        Args:
+            image: Input image array
+
+        Returns:
+            Normalized image with appropriate dtype
+        """
+        if image.dtype == np.uint16:
+            # Normalize 16-bit to full range
+            return exposure.rescale_intensity(image, out_range=(0, 65535)).astype(
+                np.uint16
+            )
+        elif image.dtype == np.uint8:
+            # Already in proper range for 8-bit
+            return image
+        else:
+            # Float or other types - normalize to 8-bit range
+            return exposure.rescale_intensity(image, out_range="uint8").astype(np.uint8)
+
     def _prepare_image_for_display(self, image, normalize=True):
         """
         Standardize image format for Qt display.
@@ -67,13 +90,13 @@ class ViewAreaWidget(QWidget):
         img = image.copy()
 
         if normalize:
-            img = normalize_image(img)
+            img = self._normalize_image(img)
 
         # Handle grayscale images
         if len(img.shape) == 2:
             if img.dtype != np.uint16:
                 if normalize:
-                    img = normalize_image(img).astype(np.uint16)
+                    img = self._normalize_image(img).astype(np.uint16)
                 else:
                     if img.max() <= 255:
                         img = (img.astype(np.float32) * 257).astype(np.uint16)
@@ -88,7 +111,7 @@ class ViewAreaWidget(QWidget):
         else:
             if img.dtype != np.uint8:
                 img = (
-                    normalize_image(img)
+                    self._normalize_image(img)
                     if normalize
                     else np.clip(img, 0, 255).astype(np.uint8)
                 )
@@ -117,7 +140,7 @@ class ViewAreaWidget(QWidget):
                 )
 
             if img.dtype != np.uint8:
-                img = normalize_image(img)
+                img = self._normalize_image(img)
 
             return img
 
@@ -128,7 +151,7 @@ class ViewAreaWidget(QWidget):
                 img = img[:, :, :3]
 
             if img.dtype != np.uint8:
-                img = normalize_image(img)
+                img = self._normalize_image(img)
 
             return img
 
@@ -536,6 +559,11 @@ class ViewAreaWidget(QWidget):
         """Highlight a specific cell in the current image view"""
         print(f"ViewAreaWidget: Highlighting cell {cell_id}")
 
+        # Automatically switch to labeled segmentation mode for highlighting
+        if not self.radio_labeled_segmentation.isChecked():
+            self.radio_labeled_segmentation.setChecked(True)
+            self.on_display_mode_changed(self.radio_labeled_segmentation)
+
         t, p, c = self.current_t, self.current_p, self.current_c
         cell_mapping = None
 
@@ -556,39 +584,87 @@ class ViewAreaWidget(QWidget):
             print(f"Cell {cell_id} mapping not available")
             return
 
-        if not hasattr(self, "current_image_data") or self.current_image_data is None:
-            print("No current image available to highlight cell")
+        # Request fresh labeled segmentation image to avoid stacking highlights
+        fresh_image = None
+
+        def receive_fresh_image(image, time, position, channel, mode):
+            nonlocal fresh_image
+            if time == t and position == p and channel == c and mode == "labeled":
+                fresh_image = image
+
+        # Temporarily subscribe to get the fresh image
+        pub.subscribe(receive_fresh_image, "image_ready")
+
+        # Request the fresh labeled segmentation
+        pub.sendMessage(
+            "segmented_image_request",
+            time=t,
+            position=p,
+            channel=c,
+            mode="labeled",
+            model=self.current_model,
+        )
+
+        # Unsubscribe after getting the image
+        pub.unsubscribe(receive_fresh_image, "image_ready")
+
+        if fresh_image is None:
+            print("Could not get fresh labeled segmentation image")
             return
 
+        # Convert to display format and use as base for highlighting
+        fresh_image = self._convert_segmentation_to_display(
+            fresh_image,
+            "labeled",
+        )
+
         cell_info = cell_mapping[cell_id]
-        highlighted_image = self.current_image_data.copy()
+        highlighted_image = fresh_image.copy()
 
         if len(highlighted_image.shape) == 2:
-            highlighted_image = cv2.cvtColor(highlighted_image, cv2.COLOR_GRAY2BGR)
+            highlighted_image = cv2.cvtColor(
+                highlighted_image,
+                cv2.COLOR_GRAY2BGR,
+            )
 
         y1, x1, y2, x2 = cell_info["bbox"]
 
-        cv2.rectangle(highlighted_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        # Draw WHITE thick bounding box to highlight the selected cell
+        cv2.rectangle(
+            highlighted_image,
+            (x1, y1),
+            (x2, y2),
+            (255, 255, 255),
+            3,
+        )
+
+        # Add white text label with cell ID
         cv2.putText(
             highlighted_image,
             f"Cell {cell_id}",
-            (x1, y1 - 5),
+            (x1, y1 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            1,
+            0.6,
+            (255, 255, 255),
+            2,
         )
 
-        if "metrics" in cell_info and "morphology_class" in cell_info["metrics"]:
+        if (
+                "metrics" in cell_info
+                and "morphology_class" in cell_info["metrics"]
+        ):
             morph_class = cell_info["metrics"]["morphology_class"]
+
+            # Add white text for morphology class
             cv2.putText(
                 highlighted_image,
                 f"Class: {morph_class}",
-                (x1, y2 + 15),
+                (x1, y2 + 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 0),
-                1,
+                0.6,
+                (255, 255, 255),
+                2,
             )
 
         self._create_qimage_and_display(highlighted_image)
+        self.highlighted_image = highlighted_image

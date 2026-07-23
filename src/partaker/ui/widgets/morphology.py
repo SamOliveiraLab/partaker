@@ -1,5 +1,8 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+from PIL import Image
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget,
@@ -53,7 +56,7 @@ class MorphologyWidget(QWidget):
         pub.subscribe(self.on_cell_mapping_updated, "cell_mapping_updated")
         pub.subscribe(self.on_segmentation_ready, "segmentation_ready")
         pub.subscribe(self.on_image_data_loaded, "image_data_loaded")
-        pub.subscribe(self.on_current_view_changed, "current_view_changed")
+        pub.subscribe(self.on_view_index_changed, "view_index_changed")
         pub.subscribe(self.set_tracking_data, "tracking_data_available")
         pub.subscribe(
             self.process_morphology_time_series,
@@ -73,25 +76,68 @@ class MorphologyWidget(QWidget):
             callback: Function to receive the mapping data
         """
         print(
-            f"MorphologyWidget: provide_cell_mapping called, have {len(self.cell_mapping)} cells"
+            f"MorphologyWidget: provide_cell_mapping called for T={time}, P={position}, C={channel}, cell_id={cell_id}"
         )
 
-        if not self.cell_mapping:
-            print("No cell mapping data available")
-            callback(None)
-            return
+        # Query metrics service for the requested frame on-demand
+        try:
+            polars_df = self.metrics_service.query_optimized(
+                time=time,
+                position=position,
+                model=ApplicationState.get_instance().selected_model,
+            )
 
-        # If cell_id is specified, check if it exists
-        if cell_id is not None and cell_id not in self.cell_mapping:
-            print(f"Cell ID {cell_id} not found in cell mapping")
-            callback(None)
-            return
+            if polars_df.is_empty():
+                print(f"   No metrics found for T={time}, P={position}")
+                callback(None)
+                return
 
-        # Return the mapping (full or filtered by cell_id)
-        if cell_id is not None:
-            callback({cell_id: self.cell_mapping[cell_id]})
-        else:
-            callback(self.cell_mapping)
+            # Convert to pandas and build cell_mapping for this frame
+            metrics_df = polars_df.to_pandas()
+            frame_cell_mapping = {}
+
+            for idx, row in metrics_df.iterrows():
+                if "cell_id" not in row:
+                    continue
+
+                row_cell_id = int(row["cell_id"])
+
+                # If specific cell requested, only process that one
+                if cell_id is not None and row_cell_id != cell_id:
+                    continue
+
+                # Extract bounding box
+                if all(col in row for col in ["y1", "x1", "y2", "x2"]):
+                    bbox = (int(row["y1"]), int(row["x1"]), int(row["y2"]), int(row["x2"]))
+                else:
+                    if "centroid_y" in row and "centroid_x" in row:
+                        cy, cx = row["centroid_y"], row["centroid_x"]
+                        bbox = (int(cy - 5), int(cx - 5), int(cy + 5), int(cx + 5))
+                    else:
+                        bbox = (0, 0, 10, 10)
+
+                # Extract metrics
+                exclude_cols = ["cell_id", "y1", "x1", "y2", "x2"]
+                metrics = {col: row[col] for col in row.index if col not in exclude_cols}
+
+                frame_cell_mapping[row_cell_id] = {"bbox": bbox, "metrics": metrics}
+
+            if cell_id is not None:
+                if cell_id in frame_cell_mapping:
+                    print(f"   ✅ Found cell {cell_id} in frame {time}")
+                    callback({cell_id: frame_cell_mapping[cell_id]})
+                else:
+                    print(f"   ❌ Cell {cell_id} not found in frame {time}")
+                    callback(None)
+            else:
+                print(f"   Returning {len(frame_cell_mapping)} cells for frame {time}")
+                callback(frame_cell_mapping)
+
+        except Exception as e:
+            print(f"   Error fetching cell mapping: {e}")
+            import traceback
+            traceback.print_exc()
+            callback(None)
 
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -166,6 +212,14 @@ class MorphologyWidget(QWidget):
         self.export_button.clicked.connect(self.export_metrics_to_csv)
         self.button_layout.addWidget(self.export_button)
 
+        # Export to GIF button
+        self.export_gif_button = QPushButton("Export to GIF")
+        self.export_gif_button.setStyleSheet(
+            "background-color: white; color: black; font-size: 14px;"
+        )
+        self.export_gif_button.clicked.connect(self.create_gif_animations)
+        self.button_layout.addWidget(self.export_gif_button)
+
         # Save GIF button (initially hidden, will appear after cell selection)
         self.save_gif_button = None
 
@@ -204,39 +258,40 @@ class MorphologyWidget(QWidget):
 
     def fetch_metrics_from_service(self):
         """Fetch cell metrics and classification from the metrics service dataframe and annotate image"""
+        print("🔵 fetch_metrics_from_service CALLED")
+
         if not self.metrics_service:
+            print("❌ Metrics service not available")
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
 
         try:
-            # Get current frame information
-            t = pub.sendMessage("get_current_t", default=0)
-            p = pub.sendMessage("get_current_p", default=0)
-            c = pub.sendMessage("get_current_c", default=0)
-            # Ensure values are not None
-            t = t if t is not None else 0
-            p = p if p is not None else 0
-            c = c if c is not None else 0
+            # Get current frame information from stored view index
+            t = getattr(self, "_current_t", 0)
+            p = getattr(self, "_current_p", 0)
+            c = getattr(self, "_current_c", 0)
 
-            t, p, c = ApplicationState.get_instance().view_index
-            model = ApplicationState.get_instance().selected_model
+            print(f"   Current view: t={t}, p={p}, c={c}")
 
-            print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
+            print(f"🔵 Fetching metrics for T:{t}, P:{p}, C:{c}")
 
             # Request cell metrics from the service for current frame
+            print(f"   Querying metrics_service.query_optimized(time={t}, position={p})")
             polars_df = self.metrics_service.query_optimized(
-                time=t, position=p, model=model
+                time=t,
+                position=p,
+                model=ApplicationState.get_instance().selected_model,
             )
 
             if polars_df.is_empty():
-                print("No metrics found in polars dataframe")
+                print("❌ No metrics found in polars dataframe - EMPTY RESULT")
                 QMessageBox.warning(
                     self, "No Data", "No metrics available for the current frame."
                 )
                 return
 
-            print(f"Retrieved polars dataframe with shape: {polars_df.shape}")
-            print(f"Columns: {polars_df.columns}")
+            print(f"✅ Retrieved polars dataframe with shape: {polars_df.shape}")
+            print(f"   Columns: {polars_df.columns}")
 
             # Convert polars to pandas
             metrics_df = polars_df.to_pandas()
@@ -287,14 +342,6 @@ class MorphologyWidget(QWidget):
             self.populate_metrics_table()
             self.update_annotation_scatter()
 
-            # NEW: Send message to ViewAreaWidget to draw bounding boxes
-            pub.sendMessage(
-                "draw_cell_bounding_boxes",
-                time=t,
-                position=p,
-                channel=c,
-                cell_mapping=self.cell_mapping,
-            )
 
         except Exception as e:
             import traceback
@@ -372,36 +419,113 @@ class MorphologyWidget(QWidget):
             self.find_cell_in_tracking_data(self.selected_cell_id)
 
     def find_cell_in_tracking_data(self, cell_id):
-        """Find a cell in the tracking data and prepare tracking information"""
+        """Find a cell in the tracking data using spatial seg-label lookup."""
         print(f"Finding cell {cell_id} in tracking data...")
 
-        # Clear previous tracking
         self.tracked_cell_lineage = {}
 
-        # Find the track for this cell
-        selected_track = None
-        for track in self.lineage_tracks:
-            if track["ID"] == cell_id:
-                selected_track = track
-                break
+        from partaker.data.appstate import ApplicationState
+        from partaker.data.image_data import ImageData
+        from skimage.measure import label as sk_label
 
-        if not selected_track:
-            print(f"Cell {cell_id} not found in tracking data")
+        appstate = ApplicationState.get_instance()
+        if appstate and appstate.view_index:
+            t, p, c = appstate.view_index
+        else:
+            t, p, c = 0, 0, 0
+
+        print(f"Current frame: T={t}, P={p}")
+
+        # Get the labeled segmentation mask for this frame
+        image_data = ImageData.get_instance()
+        labeled_mask = None
+        if image_data and hasattr(image_data, "segmentation_cache"):
+            try:
+                model = image_data.segmentation_service.models.available_models[0]
+                seg = image_data.segmentation_cache.with_model(model)[t, p, c]
+                if seg is not None:
+                    seg = np.asarray(seg)
+                    if seg.max() <= 255 and len(np.unique(seg)) <= 100:
+                        labeled_mask = sk_label(seg > 0)
+                    else:
+                        labeled_mask = seg
+            except Exception as e:
+                print(f"Could not get segmentation mask: {e}")
+
+        if labeled_mask is None:
             QMessageBox.warning(
-                self, "Cell Not Found", f"Cell {cell_id} not found in tracking data."
+                self, "Error",
+                "Could not get segmentation mask for this frame."
             )
             return
 
-        # Get all frames where this cell appears
+        # Spatial lookup: find which track's (x,y) sits on seg label == cell_id
+        selected_track = None
+        for track in self.lineage_tracks:
+            if "t" not in track or "x" not in track or "y" not in track:
+                continue
+            for i, track_t in enumerate(track["t"]):
+                if track_t == t:
+                    tx = int(round(track["x"][i]))
+                    ty = int(round(track["y"][i]))
+                    if 0 <= ty < labeled_mask.shape[0] and 0 <= tx < labeled_mask.shape[1]:
+                        if int(labeled_mask[ty, tx]) == cell_id:
+                            selected_track = track
+                            print(f"Track {track['ID']} at ({tx},{ty}) lands on seg label {cell_id}")
+                    break
+            if selected_track:
+                break
+
+        if not selected_track:
+            print(f"No track found on seg label {cell_id}, falling back to nearest distance")
+            # Fallback: use centroid from metrics if available
+            cell_cx, cell_cy = None, None
+            if cell_id in self.cell_mapping:
+                info = self.cell_mapping[cell_id]
+                if "metrics" in info:
+                    m = info["metrics"]
+                    if "centroid_x" in m and "centroid_y" in m:
+                        cell_cx = float(m["centroid_x"])
+                        cell_cy = float(m["centroid_y"])
+                if cell_cx is None:
+                    y1, x1, y2, x2 = info["bbox"]
+                    cell_cx, cell_cy = (x1 + x2) / 2, (y1 + y2) / 2
+
+            if cell_cx is not None:
+                min_dist = float("inf")
+                for track in self.lineage_tracks:
+                    if "t" not in track or "x" not in track or "y" not in track:
+                        continue
+                    for i, track_t in enumerate(track["t"]):
+                        if track_t == t:
+                            d = np.sqrt((track["x"][i] - cell_cx)**2 + (track["y"][i] - cell_cy)**2)
+                            if d < min_dist:
+                                min_dist = d
+                                selected_track = track
+                            break
+
+            if not selected_track or min_dist > 30:
+                QMessageBox.warning(
+                    self, "Cell Not Tracked",
+                    f"Cell {cell_id} could not be matched to any track."
+                )
+                return
+            print(f"Fallback matched cell {cell_id} to Track {selected_track['ID']} (dist={min_dist:.1f}px)")
+
+        print(f"Matched seg cell {cell_id} -> Track ID {selected_track['ID']}")
+
+        # Get all frames where this track appears
         if "t" in selected_track:
             t_values = selected_track["t"]
-            print(f"Cell {cell_id} appears in frames: {t_values}")
+            print(f"Track {selected_track['ID']} appears in frames: {t_values}")
 
-            # Map each frame to this cell ID
+            # Map each frame to this TRACK ID (not the original cell_id)
+            # The track ID is what we need for highlighting across frames
+            track_id = selected_track['ID']
             for t in t_values:
                 if t not in self.tracked_cell_lineage:
                     self.tracked_cell_lineage[t] = []
-                self.tracked_cell_lineage[t].append(cell_id)
+                self.tracked_cell_lineage[t].append(track_id)
 
             # Get children cells if any
             if "children" in selected_track and selected_track["children"]:
@@ -411,14 +535,15 @@ class MorphologyWidget(QWidget):
         QMessageBox.information(
             self,
             "Cell Tracking Prepared",
-            f"Cell {cell_id} will be tracked across {len(self.tracked_cell_lineage)} frames.\n"
-            f"Use the time slider to navigate frames.",
+            f"Cell {cell_id} (Track ID {selected_track['ID']}) will be tracked across {len(self.tracked_cell_lineage)} frames.\n"
+            f"Use the time slider to navigate frames and see the cell highlighted.",
         )
 
         # Notify that tracking data is ready
+        # Note: We're now passing track_id, not the original segmentation cell_id
         pub.sendMessage(
             "cell_tracking_ready",
-            cell_id=cell_id,
+            cell_id=selected_track['ID'],
             lineage_data=self.tracked_cell_lineage,
         )
 
@@ -694,6 +819,163 @@ class MorphologyWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
+    def create_gif_animations(self):
+        """Create GIF animations for original and segmented images across all time points."""
+        try:
+            from partaker.data.appstate import ApplicationState
+
+            # Get application state
+            appstate = ApplicationState.get_instance()
+            if not appstate or not appstate.image_data:
+                QMessageBox.warning(self, "Error", "No image data available.")
+                return
+
+            # Get current position and channel
+            p, c = 0, 0
+            if appstate.view_index:
+                _, p, c = appstate.view_index
+
+            image_data = appstate.image_data
+
+            # Get total number of time points
+            total_time_points = image_data.data.shape[0]
+
+            # Check which frames have been segmented
+            segmented_frames_set = set()
+            if hasattr(image_data.segmentation_cache, 'mmap_arrays_idx') and image_data.segmentation_cache.mmap_arrays_idx:
+                model_name = list(image_data.segmentation_cache.mmap_arrays_idx.keys())[0]
+                _, segmented_indices = image_data.segmentation_cache.mmap_arrays_idx[model_name]
+                # Filter for current position and channel
+                segmented_frames_set = {idx[0] for idx in segmented_indices if len(idx) >= 3 and idx[1] == p and idx[2] == c}
+
+            if not segmented_frames_set:
+                reply = QMessageBox.question(
+                    self,
+                    "No Segmentation Found",
+                    "No segmented frames found for this position/channel.\n\n"
+                    "Do you want to export only the original images?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    return
+
+            # Ask user where to save the GIFs
+            save_dir = QFileDialog.getExistingDirectory(
+                self, "Select Directory to Save GIFs"
+            )
+            if not save_dir:
+                QMessageBox.warning(self, "Cancelled", "Export cancelled.")
+                return
+
+            # Create lists to store frames
+            original_frames = []
+            segmented_frames = []
+
+            # Show progress
+            from PySide6.QtWidgets import QProgressDialog
+            progress = QProgressDialog(
+                "Creating GIF animations...", "Cancel", 0, total_time_points, self
+            )
+            progress.setWindowTitle("Exporting GIFs")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.show()
+
+            # Loop through all time points
+            for t in range(total_time_points):
+                if progress.wasCanceled():
+                    QMessageBox.information(self, "Cancelled", "GIF export cancelled.")
+                    return
+
+                progress.setValue(t)
+                progress.setLabelText(f"Processing frame {t + 1}/{total_time_points}...")
+
+                # Get original image
+                original_img = image_data.get(t, p, c)
+
+                # Normalize to 8-bit for GIF
+                original_img_normalized = ((original_img - original_img.min()) /
+                                          (original_img.max() - original_img.min()) * 255).astype(np.uint8)
+                original_frames.append(Image.fromarray(original_img_normalized))
+
+                # Get segmented image (labeled) - only if already segmented
+                if t in segmented_frames_set:
+                    try:
+                        # Get the segmentation model name - use the first available model
+                        if hasattr(image_data.segmentation_cache, 'mmap_arrays_idx') and image_data.segmentation_cache.mmap_arrays_idx:
+                            model_name = list(image_data.segmentation_cache.mmap_arrays_idx.keys())[0]
+                            # Directly access the cached array without triggering processing
+                            mmap_array, _ = image_data.segmentation_cache.mmap_arrays_idx[model_name]
+                            segmented_img = mmap_array[t, p, c]
+
+                            # Create a colored version of the labeled image
+                            # Each label gets a unique color
+                            from skimage import color
+                            from skimage.measure import label
+
+                            # If it's binary, convert to labels
+                            if segmented_img.max() <= 1:
+                                segmented_img = label(segmented_img)
+
+                            # Create colored label image
+                            colored_labels = color.label2rgb(segmented_img, bg_label=0)
+                            colored_labels_uint8 = (colored_labels * 255).astype(np.uint8)
+                            segmented_frames.append(Image.fromarray(colored_labels_uint8))
+                        else:
+                            # No segmentation available, create blank image
+                            blank = np.zeros_like(original_img_normalized)
+                            segmented_frames.append(Image.fromarray(blank))
+                    except Exception as e:
+                        print(f"Error getting segmentation for frame {t}: {e}")
+                        # Create blank image if segmentation fails
+                        blank = np.zeros_like(original_img_normalized)
+                        segmented_frames.append(Image.fromarray(blank))
+                else:
+                    # Frame not segmented, create blank image
+                    blank = np.zeros_like(original_img_normalized)
+                    segmented_frames.append(Image.fromarray(blank))
+
+            progress.setValue(total_time_points)
+
+            # Save GIFs
+            original_gif_path = f"{save_dir}/original_p{p}_c{c}.gif"
+            segmented_gif_path = f"{save_dir}/segmented_p{p}_c{c}.gif"
+
+            # Save original GIF
+            original_frames[0].save(
+                original_gif_path,
+                save_all=True,
+                append_images=original_frames[1:],
+                duration=200,  # 200ms per frame
+                loop=0
+            )
+
+            # Save segmented GIF
+            segmented_frames[0].save(
+                segmented_gif_path,
+                save_all=True,
+                append_images=segmented_frames[1:],
+                duration=200,  # 200ms per frame
+                loop=0
+            )
+
+            progress.close()
+
+            segmented_count = len(segmented_frames_set)
+            QMessageBox.information(
+                self,
+                "Success",
+                f"GIFs created successfully!\n\n"
+                f"Original: {original_gif_path}\n"
+                f"Segmented: {segmented_gif_path}\n\n"
+                f"Total frames: {total_time_points}\n"
+                f"Segmented frames: {segmented_count}/{total_time_points}"
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to create GIFs: {str(e)}")
+
     # Handlers for pub/sub messages
     def on_cell_mapping_updated(self, cell_mapping):
         """Handler for updated cell mapping data"""
@@ -714,89 +996,140 @@ class MorphologyWidget(QWidget):
         if self.save_gif_button:
             self.save_gif_button.setVisible(False)
 
-    def on_current_view_changed(self, t, p, c):
+    def on_view_index_changed(self, index):
         """Handler for when the current view changes (time/position/channel)"""
-        # Update display if needed for new t/p/c values
-        pass
+        self._current_t, self._current_p, self._current_c = index
 
     def process_morphology_time_series(self):
-        """Process morphology across time points using metrics service"""
+        """Process morphology across time points using metrics service."""
         if not self.metrics_service:
             QMessageBox.warning(self, "Error", "Metrics service not available.")
             return
 
-        t, p, c = ApplicationState.get_instance().view_index
-        model = ApplicationState.get_instance().selected_model
+        from partaker.data.appstate import ApplicationState
+        appstate = ApplicationState.get_instance()
 
-        print(f"Fetching metrics for T:{t}, P:{p}, C:{c}")
+        # Determine the current position (p)
+        p = None
+        if appstate and appstate.view_index:
+            _, p, _ = appstate.view_index
 
-        # Query metrics for all timepoints for this position and channel
-        df = self.metrics_service.query_optimized(position=p, model=model)
-
+        # Fetch all time‑points for the current position
+        df = self.metrics_service.query_optimized(
+            position=p,
+            model=appstate.selected_model,
+        )
         if df.is_empty():
             QMessageBox.warning(self, "No Data", "No metrics available.")
             return
 
-        # Convert to pandas
         metrics_df = df.to_pandas()
-
-        # Get all unique morphology classes
         all_morphologies = metrics_df["morphology_class"].unique()
-
-        # Group by time
-        # Create data structures for plotting
         times = sorted(metrics_df["time"].unique())
-        morphology_counts = {morphology: [] for morphology in all_morphologies}
-        morphology_fractions = {morphology: [] for morphology in all_morphologies}
+        morphology_counts = {m: [] for m in all_morphologies}
+        morphology_fractions = {m: [] for m in all_morphologies}
         total_cells = []
 
-        # Calculate counts and fractions for each timepoint
         for t in times:
             t_data = metrics_df[metrics_df["time"] == t]
             t_counts = t_data["morphology_class"].value_counts()
             t_total = len(t_data)
             total_cells.append(t_total)
+            for m in all_morphologies:
+                count = t_counts.get(m, 0)
+                morphology_counts[m].append(count)
+                morphology_fractions[m].append(count / t_total if t_total > 0 else 0)
 
-            for morph in all_morphologies:
-                count = t_counts.get(morph, 0)
-                morphology_counts[morph].append(count)
-                morphology_fractions[morph].append(
-                    count / t_total if t_total > 0 else 0
-                )
+        # Convert frame numbers to hours if phc_interval is available and valid
+        import matplotlib
+        matplotlib.rcParams['font.family'] = 'Arial'
+        interval_hours = None
+        if appstate and appstate.experiment and hasattr(appstate.experiment, 'phc_interval'):
+            try:
+                val = appstate.experiment.phc_interval / 3600.0
+                if val > 0:
+                    interval_hours = val
+            except Exception:
+                interval_hours = None
+        times_plot = [t * interval_hours for t in times] if interval_hours else times
 
-        # Clear the figure and create two subplots
-        self.figure_annot_scatter.clear()
+        # Clear and set up the large figure (16×10 inches) with two subplots
+        self.figure_annot_scatter.clf()
+        self.figure_annot_scatter.set_size_inches(16, 10)
         ax1 = self.figure_annot_scatter.add_subplot(2, 1, 1)
-        ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2)
+        ax2 = self.figure_annot_scatter.add_subplot(2, 1, 2, sharex=ax1)
+        ax1.set_facecolor('white')
+        ax2.set_facecolor('white')
 
         # Plot fractions
-        for morph, fractions in morphology_fractions.items():
+        line_handles, line_labels = [], []
+        for morph, fractions_list in morphology_fractions.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax1.plot(times, fractions, "o-", label=morph, color=color)
+            line, = ax1.plot(times_plot, fractions_list, '-', color=color, linewidth=1.5)
+            ax1.scatter(times_plot, fractions_list, color=color, s=25,
+                        edgecolor='black', linewidth=0.3)
+            line_handles.append(line)
+            line_labels.append(morph)
 
-        ax1.set_title("Morphology Fractions Over Time")
-        ax1.set_ylabel("Fraction (%)")
-        ax1.legend()
+        ax1.set_ylabel("Fraction", fontsize=20, labelpad=5)
+        ax1.grid(False)
+        ax1.tick_params(labelsize=16)
+        ax1.spines['top'].set_visible(False)
+        ax1.spines['right'].set_visible(False)
+        ax1.spines['left'].set_color('gray')
+        ax1.spines['bottom'].set_color('gray')
 
         # Plot counts
-        for morph, counts in morphology_counts.items():
+        for morph, counts_list in morphology_counts.items():
             color = self.morphology_colors_rgb.get(morph, (0.5, 0.5, 0.5))
-            ax2.plot(times, counts, "o-", label=morph, color=color)
+            ax2.plot(times_plot, counts_list, '-', color=color, linewidth=1.5)
+            ax2.scatter(times_plot, counts_list, color=color, s=25,
+                        edgecolor='black', linewidth=0.3)
 
-        # Add total cells line on secondary y-axis
+        # Secondary axis for total cell count
         ax3 = ax2.twinx()
-        ax3.plot(times, total_cells, "k--", label="Total Cells")
+        total_line, = ax3.plot(times_plot, total_cells, '--',
+                            color='black', linewidth=1.5)
+        ax3.set_ylabel("Total Cell Count", fontsize=20, labelpad=5)
 
-        ax2.set_title("Cell Counts By Morphology Over Time")
-        ax2.set_xlabel("Time (mins)")
-        ax2.set_ylabel("Count by Class")
-        ax3.set_ylabel("Total Cell Count")
+        # Axis labels for counts plot
+        ax2.set_ylabel("Count", fontsize=20, labelpad=5)
+        x_label = "Time (h)" if interval_hours else "Time (frame)"
+        ax2.set_xlabel(x_label, fontsize=20, labelpad=5)
+        ax2.grid(False)
+        ax2.tick_params(labelsize=16)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+        ax2.spines['left'].set_color('gray')
+        ax2.spines['bottom'].set_color('gray')
+        ax3.tick_params(labelsize=16)
+        ax3.spines['top'].set_visible(False)
+        ax3.spines['left'].set_visible(False)
+        ax3.spines['right'].set_color('gray')
+        ax3.spines['bottom'].set_visible(False)
 
-        # Legend for second plot
-        lines1, labels1 = ax2.get_legend_handles_labels()
-        lines2, labels2 = ax3.get_legend_handles_labels()
-        ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
+        # Compose and place the legend at the very top
+        legend_handles = line_handles + [total_line]
+        legend_labels = line_labels + ["Total Cells"]
+        legend = self.figure_annot_scatter.legend(
+            legend_handles,
+            legend_labels,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1.02),
+            ncol=len(legend_labels),
+            frameon=False,
+            fontsize=18,
+            handlelength=2.0,
+            handletextpad=0.5,
+            columnspacing=1.0
+        )
 
-        # Adjust layout and draw
-        self.figure_annot_scatter.tight_layout()
+        # Make legend lines thicker
+        for line in legend.get_lines():
+            line.set_linewidth(4.0)
+
+        # Provide extra breathing room around panels
+        self.figure_annot_scatter.subplots_adjust(hspace=0.5, top=0.86, bottom=0.1)
+
+        # Draw the figure on the canvas
         self.canvas_annot_scatter.draw()

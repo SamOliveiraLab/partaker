@@ -20,6 +20,7 @@ import numpy as np
 from pubsub import pub
 from scipy.ndimage import binary_dilation
 from skimage.measure import label, regionprops
+from skimage.segmentation import find_boundaries
 
 from partaker.utils.image_functions import normalize_image, convert_image
 
@@ -41,6 +42,10 @@ class SegmentationService:
         self.get_raw_image = data_getter
         self.roi_masks: dict = {}
         self.crop_coordinates: list | None = None
+
+        # Initialize default parameters
+        self.overlay_color = (0, 255, 0)  # Green for outlines
+        self.label_colormap = "viridis"
 
         pub.subscribe(self.handle_image_request, "segmented_image_request")
         pub.subscribe(self.on_roi_selected, "roi_selected")
@@ -86,6 +91,8 @@ class SegmentationService:
                 "A segmentation model must be specified for non-normal modes."
             )
 
+        key = (time, position)
+        frame_was_computed = self.cache.is_computed(model, key)
         labeled = self._get_labeled_frame(time, position, channel, model)
 
         # Spatial cropping — applied once here so all downstream arrays match.
@@ -118,41 +125,25 @@ class SegmentationService:
             mode=mode,
         )
 
+        if mode == "segmented" and not frame_was_computed:
+            pub.sendMessage(
+                "frame_segmented",
+                labeled_frame=labeled,
+                time=time,
+                position=position,
+                channel=channel,
+                model=model,
+            )
+
     def _get_labeled_frame(self, time, position, channel, model: str) -> np.ndarray:
-        """
-        Return the uint16 labeled frame for (time, position).
+        """Return the uint16 labeled frame for (time, position)."""
+        model_cache = self.cache.with_model(model)
+        cache_key = (time, position)
 
-        Artifact removal is applied once on first access and written back so
-        subsequent reads return the cleaned result immediately.
-        ``frame_segmented`` is published exactly once per (time, position, model).
-        """
-        key = (time, position)
+        # This retrieves an existing segmentation or generates and caches a new one.
+        segmented = np.asarray(model_cache[cache_key])
 
-        if not self.cache.is_computed(model, key):
-            # First access: cache runs segmentation internally on __getitem__.
-            raw = self.cache.with_model(model)[key]  # triggers _compute_and_store
-            labeled = self.remove_artifacts(raw)
-            self.cache.with_model(model)[key] = labeled  # overwrite with clean version
-        else:
-            labeled = self.cache.with_model(model)[key]
-
-        _frame = labeled
-        # Check if ROI exists, if yes compile it for metrics
-        if position in self.roi_masks:
-            roi_mask = self.roi_masks[position]
-            if roi_mask is not None:
-                _frame = self._apply_roi_mask(labeled, roi_mask)
-
-        pub.sendMessage(
-            "frame_segmented",
-            labeled_frame=_frame,
-            time=time,
-            position=position,
-            channel=channel,
-            model=model,
-        )
-
-        return labeled
+        return segmented
 
     # ------------------------------------------------------------------
     # Artifact removal
@@ -259,14 +250,92 @@ class SegmentationService:
         }
 
     def _apply_colormap(self, labeled: np.ndarray) -> np.ndarray:
-        """Return a uint8 RGB image where every pixel is coloured by its cell ID."""
-        if len(np.unique(labeled)) <= 2:
-            labeled = label(labeled > 0).astype(np.uint16)
+        """Apply distinct colors using HSV"""
+        # Check if segmentation is already labeled (OmniPose/Cellpose)
+        # or binary (UNET)
+        max_value = labeled.max()
+        unique_values = len(np.unique(labeled))
 
-        color_map = self._build_label_color_map(labeled)
-        colored = np.zeros((*labeled.shape, 3), dtype=np.uint8)
-        for lid, rgb in color_map.items():
-            colored[labeled == lid] = rgb
+        # If max value > 255 or many unique values, it's already labeled
+        # Binary masks typically have only 0 and 255 (or 0 and 1)
+        if max_value > 255 or unique_values > 100:
+            labels = labeled
+            n_labels = labels.max()
+        else:
+            labels = label(labeled)
+            n_labels = labels.max()
+
+        if n_labels == 0:
+            return np.zeros((*labels.shape, 3), dtype=np.uint8)
+
+        # Generate random hues with fixed high saturation and value for vivid colors
+        np.random.seed(42)  # Optional: for reproducibility
+        hues = np.random.permutation(n_labels) / n_labels  # Evenly distributed hues
+
+        # Create color lookup table
+        lut = np.zeros((n_labels + 1, 3))
+        lut[0] = [0, 0, 0]  # Background is black
+
+        for i in range(1, n_labels + 1):
+            # HSV: random hue, high saturation (0.8-1.0), high value (0.8-1.0)
+            h = hues[i - 1]
+            s = 0.8 + 0.2 * np.random.rand()  # Saturation 80-100%
+            v = 0.8 + 0.2 * np.random.rand()  # Brightness 80-100%
+            lut[i] = mcolors.hsv_to_rgb([h, s, v])
+
+        # Map labels to colors
+        colored = lut[labels]
+        colored = (colored * 255).astype(np.uint8)
+
+        # Add cell ID text labels on each cell
+        regions = regionprops(labels)
+
+        for region in regions:
+            cell_id = region.label
+            centroid_y, centroid_x = region.centroid
+
+            # Convert to integer coordinates
+            x, y = int(centroid_x), int(centroid_y)
+
+            # Add white text with black outline for visibility
+            text = str(cell_id)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.4
+            thickness = 1
+
+            # Get text size to center it better
+            (text_width, text_height), baseline = cv2.getTextSize(
+                text, font, font_scale, thickness
+            )
+
+            # Adjust position to center text
+            text_x = x - text_width // 2
+            text_y = y + text_height // 2
+
+            # Draw black outline (thicker)
+            cv2.putText(
+                colored,
+                text,
+                (text_x, text_y),
+                font,
+                font_scale,
+                (0, 0, 0),
+                thickness + 1,
+                cv2.LINE_AA,
+            )
+            # Draw white text on top
+            cv2.putText(
+                colored,
+                text,
+                (text_x, text_y),
+                font,
+                font_scale,
+                (255, 255, 255),
+                thickness,
+                cv2.LINE_AA,
+            )
+
+        print(f"  ✅ Added {len(regions)} cell ID labels")
 
         return colored
 
@@ -281,47 +350,17 @@ class SegmentationService:
         channel: int,
         contour_thickness: int = 2,
     ) -> np.ndarray:
-        """
-        Tint *raw_image* by channel colour and draw per-cell contours on top.
+        """Create overlay of segmentation outlines on raw image"""
+        # Convert raw image to RGB if needed
+        if len(raw_image.shape) == 2:
+            raw_image = cv2.cvtColor(raw_image, cv2.COLOR_GRAY2RGB)
 
-        Args:
-            raw_image:         Single-channel 2-D image (any numeric dtype).
-            labeled:           uint16 label image (0 = background).
-            channel:           Channel index for tinting (0 = grey, 1 = red/mCherry, 2 = yellow/YFP).
-            contour_thickness: Contour line width in pixels.
+        # Find segmentation boundaries
+        boundaries = find_boundaries(labeled, mode="inner")
 
-        Returns:
-            uint8 RGB image.
-        """
-        if raw_image.ndim != 2:
-            raise ValueError("Overlay requires a single-channel (2-D) raw image.")
-
-        raw_8bit = convert_image(normalize_image(raw_image), np.uint8)
-
-        rgb_tinted = np.zeros((*raw_8bit.shape, 3), dtype=np.uint8)
-        if channel == 0:
-            rgb_tinted[:, :] = raw_8bit[:, :, np.newaxis]
-        elif channel == 1:  # mCherry — red
-            rgb_tinted[:, :, 0] = raw_8bit
-            rgb_tinted[:, :, 1] = (raw_8bit * 0.1).astype(np.uint8)
-            rgb_tinted[:, :, 2] = (raw_8bit * 0.1).astype(np.uint8)
-        elif channel == 2:  # YFP — yellow
-            rgb_tinted[:, :, 0] = (raw_8bit * 0.8).astype(np.uint8)
-            rgb_tinted[:, :, 1] = (raw_8bit * 0.7).astype(np.uint8)
-            rgb_tinted[:, :, 2] = (raw_8bit * 0.1).astype(np.uint8)
-
-        if len(np.unique(labeled)) <= 2:
-            labeled = label(labeled > 0).astype(np.uint16)
-
-        color_map = self._build_label_color_map(labeled)
-        overlay = rgb_tinted.copy()
-        for lid, rgb in color_map.items():
-            mask = (labeled == lid).astype(np.uint8)
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            cv2.drawContours(overlay, contours, -1, rgb, thickness=contour_thickness)
-
+        # Apply overlay
+        overlay = raw_image.copy()
+        overlay[boundaries] = self.overlay_color
         return overlay
 
     # ------------------------------------------------------------------
@@ -354,5 +393,8 @@ class SegmentationService:
     # ------------------------------------------------------------------
 
     def update_parameters(self, overlay_color=None, colormap=None) -> None:
-        """Kept for API compatibility."""
-        pass
+        """Update visualization parameters"""
+        if overlay_color:
+            self.overlay_color = overlay_color
+        if colormap:
+            self.label_colormap = colormap

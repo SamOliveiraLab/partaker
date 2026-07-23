@@ -76,7 +76,8 @@ class App(QMainWindow):
         pub.subscribe(self.on_image_request, "image_request")
         pub.subscribe(self.on_segmentation_request, "segmentation_request")
         pub.subscribe(self.on_draw_cell_bounding_boxes, "draw_cell_bounding_boxes")
-        pub.subscribe(self.highlight_cell, "highlight_cell_requested")
+        # Note: highlight_cell is handled by ViewAreaWidget, not here
+        # pub.subscribe(self.highlight_cell, "highlight_cell_requested")
 
         pub.subscribe(self.provide_image_data, "get_image_data")
 
@@ -213,9 +214,10 @@ class App(QMainWindow):
 
     def provide_image_data(self, callback):
         """Provide the image_data object through the callback"""
-        if hasattr(self, "image_data"):
+        image_data = ImageData.get_instance()
+        if image_data is not None:
             print("Providing image_data to callback")
-            callback(self.application_state.image_data)
+            callback(image_data)
         else:
             print("No image_data available")
             callback(None)
@@ -298,21 +300,24 @@ class App(QMainWindow):
     def on_draw_cell_bounding_boxes(self, time, position, channel, cell_mapping):
         """Handle request to draw cell bounding boxes"""
         # Get the segmentation using the same model as the segmentation cache
-        if not hasattr(self, "image_data") or not self.application_state.image_data:
+        image_data = ImageData.get_instance()
+        if image_data is None:
             print("No image data available")
             return
 
         # Get the current model from the cache
-        current_model = self.application_state.image_data.segmentation_cache.model_name
+        current_model = image_data.segmentation_cache.model_name
+        if not current_model:
+            current_model = getattr(self.appstate, "selected_model", None)
+
         if not current_model:
             # Default to a standard model if none set
             current_model = "bact_phase_cp3"  # This is CELLPOSE_BACT_PHASE
-            self.application_state.image_data.segmentation_cache.with_model(
-                current_model
-            )
+
+        image_data.segmentation_cache.with_model(current_model)
 
         # Get the segmentation data
-        segmented_image = self.application_state.image_data.segmentation_cache[
+        segmented_image = image_data.segmentation_cache[
             time, position, channel
         ]
 
@@ -340,9 +345,7 @@ class App(QMainWindow):
         self.viewArea.image_label.setPixmap(pixmap)
 
         # Store the annotated image
-        if hasattr(self, "annotated_image"):
-            self.annotated_image = annotated_image
-
+        self.annotated_image = annotated_image
         self.current_cell_mapping = cell_mapping
 
     def initMenuBar(self):
